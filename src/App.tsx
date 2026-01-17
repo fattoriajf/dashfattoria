@@ -1103,7 +1103,7 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
     });
   };
 
-  // Enviar escala por e-mail (para cada colaborador + resumo geral para isagvm@gmail.com)
+  // Enviar escala por e-mail (para cada colaborador + resumo geral para fattoriajf@gmail.com)
   const handleSendEmails = async () => {
     if (!SYNC_ENDPOINT) {
       alert("Nenhum endpoint de sincronização configurado.");
@@ -1271,7 +1271,7 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
         <div className="text-xs text-gray-500">
           Os e-mails serão enviados para os endereços cadastrados na planilha{" "}
           <span className="font-semibold">"Cadastro_colaboradores"</span>, e o resumo
-          completo da semana será enviado para <b>isagvm@gmail.com</b>.
+          completo da semana será enviado para <b>fattoriajf@gmail.com</b>.
         </div>
       </div>
     </div>
