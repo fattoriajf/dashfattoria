@@ -1264,7 +1264,7 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
       <div className="space-y-2">
         <button
         onClick={handleSendEmails}
-        disabled={saving || !selectedStaffId}
+        disabled={saving}
         className="btn btn-primary text-sm"
       >
         {saving ? "Processando..." : "Salvar minhas escolhas"}
