@@ -1109,23 +1109,21 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
       alert("Nenhum endpoint de sincronização configurado.");
       return;
     }
-    if (sendingEmails) return;
 
-    setSendingEmails(true);
+    // monta objeto { [dayCode]: [nomesÚnicos] }
+    const schedule: Record<string, string[]> = {};
+    for (const day of state.days) {
+      const arr = selects[day.id] || {};
+      const values = Array.isArray(arr) ? arr : [];
+      const names = values
+        .filter(Boolean)
+        .map((sid: string) => labelOf(sid))
+        .filter(Boolean);
+      const uniqueNames = Array.from(new Set(names));
+      schedule[day.code] = uniqueNames;
+    }
+
     try {
-      // monta objeto { [dayCode]: [nomesÚnicos] }
-      const schedule: Record<string, string[]> = {};
-      for (const day of state.days) {
-        const arr = selects[day.id] || {};
-        const values = Array.isArray(arr) ? arr : [];
-        const names = values
-          .filter(Boolean)
-          .map((sid: string) => labelOf(sid))
-          .filter(Boolean);
-        const uniqueNames = Array.from(new Set(names));
-        schedule[day.code] = uniqueNames;
-      }
-
       const payload = {
         action: "send_schedule",
         weekId,
@@ -1151,8 +1149,6 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
       alert("Escalas enviadas por e-mail.");
     } catch (err: any) {
       alert(`Não foi possível enviar as escalas por e-mail. Erro: ${String(err)}`);
-    } finally {
-      setSendingEmails(false);
     }
   };
 
@@ -1268,10 +1264,9 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
       <div className="space-y-2">
         <button
           onClick={handleSendEmails}
-          disabled={sendingEmails}
-          className={`btn btn-primary text-sm ${sendingEmails ? "opacity-70 cursor-not-allowed" : ""}`}
+          className="btn btn-primary text-sm"
         >
-          {sendingEmails ? "Processando..." : "Enviar escala por e-mail"}
+          Enviar escala por e-mail
         </button>
         <div className="text-xs text-gray-500">
           Os e-mails serão enviados para os endereços cadastrados na planilha{" "}
@@ -1366,7 +1361,7 @@ function GraphsTab() {
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-base">Gráfico 1 — Faturamento mensal (últimos 12 meses)</h3>
           <button className="btn btn-ghost text-sm" onClick={load} disabled={loading}>
-            {loading ? "Processando..." : "Recarregar"}
+            {loading ? "Carregando..." : "Recarregar"}
           </button>
         </div>
         <div style={{ width: "100%", height: 280 }}>
@@ -1547,7 +1542,7 @@ function DashboardTab() {
             disabled={loading || !start || !end}
             className={`btn btn-ghost text-sm ${loading ? "opacity-70 cursor-not-allowed" : ""}`}
           >
-            {loading ? "Processando..." : "Atualizar"}
+            {loading ? "Atualizando..." : "Atualizar"}
           </button>
         </div>
 
@@ -1696,8 +1691,6 @@ function CommissionTab() {
   };
 
   const handleSaveCommission = async () => {
-    if (savingCommission) return;
-
     if (!dateRaw) {
       alert("Selecione a data.");
       return;
@@ -1730,7 +1723,6 @@ function CommissionTab() {
       faturamento,
     };
 
-    setSavingCommission(true);
     try {
       const resp = await fetch(SYNC_ENDPOINT, {
         method: "POST",
@@ -1751,15 +1743,10 @@ function CommissionTab() {
       alert("Comissão registrado.");
     } catch (err: any) {
       alert(`Não foi possível registrar a comissão. Erro: ${String(err)}`);
-    } finally {
-      setSavingCommission(false);
     }
-  };
   };
 
   const handlePaymentsReport = async () => {
-    if (generatingReports) return;
-
     if (!startRaw || !endRaw) {
       alert("Selecione data inicial e final.");
       return;
@@ -1782,7 +1769,6 @@ function CommissionTab() {
       endDate: endStr,
     };
 
-    setGeneratingReports(true);
     try {
       const resp = await fetch(SYNC_ENDPOINT, {
         method: "POST",
@@ -1792,13 +1778,13 @@ function CommissionTab() {
       });
       // @ts-ignore
       if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
-        alert("Relatórios de pagamentos gerados (solicitação enviada ao servidor).");
+        alert("Relatórios de pagamentos gerados.");
         return;
       }
       if (!resp.ok) {
         const txt = await resp.text().catch(() => "");
         alert(
-          `Falha ao gerar relatórios (HTTP ${resp.status}). ${txt.slice(
+          `Falha ao gerar relatórios de pagamentos (HTTP ${resp.status}). ${txt.slice(
             0,
             180
           )}`
@@ -1808,8 +1794,6 @@ function CommissionTab() {
       alert("Relatórios de pagamentos gerados.");
     } catch (err: any) {
       alert(`Não foi possível gerar os relatórios. Erro: ${String(err)}`);
-    } finally {
-      setGeneratingReports(false);
     }
   };
 
@@ -1861,12 +1845,8 @@ function CommissionTab() {
           </div>
         </div>
 
-        <button
-          onClick={handleSaveCommission}
-          disabled={savingCommission}
-          className={`btn btn-primary ${savingCommission ? "opacity-70 cursor-not-allowed" : ""}`}
-        >
-          {savingCommission ? "Processando..." : "Registrar comissão do dia"}
+        <button onClick={handleSaveCommission} className="btn btn-primary">
+          Registrar comissão do dia
         </button>
       </div>
 
@@ -1894,12 +1874,8 @@ function CommissionTab() {
           </div>
         </div>
 
-        <button
-          onClick={handlePaymentsReport}
-          disabled={generatingReports}
-          className={`btn btn-primary ${generatingReports ? "opacity-70 cursor-not-allowed" : ""}`}
-        >
-          {generatingReports ? "Processando..." : "Gerar relatórios de Pagamentos"}
+        <button onClick={handlePaymentsReport} className="btn btn-primary">
+          Gerar relatórios de Pagamentos
         </button>
       </div>
     </div>
@@ -1913,7 +1889,6 @@ function StockTab() {
   const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [dateRaw, setDateRaw] = useState<string>("");
   const [selectedSector, setSelectedSector] = useState<string>("");
-  const [creatingList, setCreatingList] = useState(false);
 
   useEffect(() => {
     const todayIso = new Date().toISOString().slice(0, 10);
@@ -1979,8 +1954,6 @@ function StockTab() {
   };
 
   const handleCreateList = async () => {
-    if (creatingList) return;
-
     if (!SYNC_ENDPOINT) {
       alert("Nenhum endpoint de sincronização configurado.");
       return;
@@ -2011,7 +1984,6 @@ function StockTab() {
       entries,
     };
 
-    setCreatingList(true);
     try {
       const resp = await fetch(SYNC_ENDPOINT, {
         method: "POST",
@@ -2037,8 +2009,6 @@ function StockTab() {
       alert("Lista de compras gerada e enviada por e-mail.");
     } catch (err: any) {
       alert(`Não foi possível gerar a lista de compras. Erro: ${String(err)}`);
-    } finally {
-      setCreatingList(false);
     }
   };
 
@@ -2096,11 +2066,10 @@ function StockTab() {
           <h3 className="font-semibold text-sm">Itens de estoque</h3>
           <button
             type="button"
+            className="btn btn-ghost text-xs"
             onClick={loadStock}
-            disabled={loading}
-            className={`btn btn-ghost text-xs ${loading ? "opacity-70 cursor-not-allowed" : ""}`}
           >
-            {loading ? "Processando..." : "Recarregar itens"}
+            Recarregar itens
           </button>
         </div>
         {loading && (
@@ -2171,12 +2140,8 @@ function StockTab() {
 
       {/* Botão principal */}
       <div className="pt-2">
-        <button
-          onClick={handleCreateList}
-          disabled={creatingList}
-          className={`btn btn-primary ${creatingList ? "opacity-70 cursor-not-allowed" : ""}`}
-        >
-          {creatingList ? "Processando..." : "Criar lista de compras"}
+        <button onClick={handleCreateList} className="btn btn-primary">
+          Criar lista de compras
         </button>
       </div>
     </div>
