@@ -1270,7 +1270,7 @@ const handleSendEmails = async () => {
           onClick={handleSendEmailsClick}
           className="btn btn-primary text-sm"
         >
-          {isSendingEmails ? 'Processando...' : 'Enviar escala por e-mail'}
+          {isSendingEmails ? 'Processando...' : 'Teste'}
         </button>
 
       </div>
