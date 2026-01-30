@@ -1266,7 +1266,7 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
           onClick={handleSendEmails}
           className="btn btn-primary text-sm"
         >
-          Teste3
+          Enviar escala por e-mail
         </button>
         <div className="text-xs text-gray-500">
           Os e-mails serão enviados para os endereços cadastrados na planilha{" "}
