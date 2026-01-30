@@ -1105,69 +1105,56 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
 
   // Enviar escala por e-mail (para cada colaborador + resumo geral para fattoriajf@gmail.com)
 
-  const [isSendingEmails, setIsSendingEmails] = useState(false);
+const [isSendingEmails, setIsSendingEmails] = useState(false);
  
 
-  const handleSendEmails = async () => {
-  if (isSendingEmails) return;
-
-  if (!SYNC_ENDPOINT) {
-    alert("Nenhum endpoint de sincronização configurado.");
-    return;
-  }
-
-  // monta objeto { [dayCode]: [nomesÚnicos] }
-  const schedule: Record<string, string[]> = {};
-  for (const day of state.days) {
-    const arr = selects[day.id] || {};
-    const values = Array.isArray(arr) ? arr : [];
-    const names = values
-      .filter(Boolean)
-      .map((sid: string) => labelOf(sid))
-      .filter(Boolean);
-    const uniqueNames = Array.from(new Set(names));
-    schedule[day.code] = uniqueNames;
-  }
-
-  try {
-    setIsSendingEmails(true);
-
-    const payload = {
-      action: "send_schedule",
-      weekId,
-      schedule,
-    };
-
-    const resp = await fetch(SYNC_ENDPOINT, {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload),
-    });
-
-    // Em no-cors a resposta é 'opaque'; tratamos como sucesso
-    // @ts-ignore
-    if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
-      alert("Escalas enviadas por e-mail (solicitação enviada ao servidor).");
+const handleSendEmails = async () => {
+    if (!SYNC_ENDPOINT) {
+      alert("Nenhum endpoint de sincronização configurado.");
       return;
     }
 
-    if (!resp.ok) {
-      const txt = await resp.text().catch(() => "");
-      alert(
-        `Falha ao enviar escalas por e-mail (HTTP ${resp.status}). ${txt.slice(0, 180)}`
-      );
-      return;
+    // monta objeto { [dayCode]: [nomesÚnicos] }
+    const schedule: Record<string, string[]> = {};
+    for (const day of state.days) {
+      const arr = selects[day.id] || {};
+      const values = Array.isArray(arr) ? arr : [];
+      const names = values
+        .filter(Boolean)
+        .map((sid: string) => labelOf(sid))
+        .filter(Boolean);
+      const uniqueNames = Array.from(new Set(names));
+      schedule[day.code] = uniqueNames;
     }
 
-    alert("Escalas enviadas por e-mail.");
-  } catch (err: any) {
-    alert(`Não foi possível enviar as escalas por e-mail. Erro: ${String(err)}`);
-  } finally {
-    setIsSendingEmails(false);
-  }
-};
-
+    try {
+      const payload = {
+        action: "send_schedule",
+        weekId,
+        schedule,
+      };
+      const resp = await fetch(SYNC_ENDPOINT, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+      });
+      // Em no-cors a resposta é 'opaque'; tratamos como sucesso
+      // @ts-ignore
+      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
+        alert("Escalas enviadas por e-mail (solicitação enviada ao servidor).");
+        return;
+      }
+      if (!resp.ok) {
+        const txt = await resp.text().catch(() => "");
+        alert(`Falha ao enviar escalas por e-mail (HTTP ${resp.status}). ${txt.slice(0, 180)}`);
+        return;
+      }
+      alert("Escalas enviadas por e-mail.");
+    } catch (err: any) {
+      alert(`Não foi possível enviar as escalas por e-mail. Erro: ${String(err)}`);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -1280,17 +1267,25 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
       {/* BOTÃO ENVIAR ESCALA POR E-MAIL */}
       <div className="space-y-2">
         <button
-          onClick={handleSendEmails}
+          onClick={handleSendEmailsClick}
           className="btn btn-primary text-sm"
-          disabled={isSendingEmails}
         >
-          {isSendingEmails ? "Processando..." : "Enviar escala por e-mail"}
+          {isSendingEmails ? 'Processando...' : 'Enviar escala por e-mail'}
         </button>
 
       </div>
     </div>
   );
 }
+
+const handleSendEmailsClick = async () => {
+  setIsSendingEmails(true);
+  try {
+    await handleSendEmails(); // chama EXATAMENTE o que você já tinha
+  } finally {
+    setIsSendingEmails(false);
+  }
+};
 
 
 // ======== DASHBOARD ===========
