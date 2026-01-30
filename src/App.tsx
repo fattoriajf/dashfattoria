@@ -1262,12 +1262,15 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
 
       {/* BOTÃO ENVIAR ESCALA POR E-MAIL */}
       <div className="space-y-2">
-        <button
-          onClick={handleSendEmails}
-          className="btn btn-primary text-sm"
-        >
-          Enviar escala por e-mail
-        </button>
+              <button
+        onClick={save}
+        disabled={saving || !selectedStaffId}
+        className={`btn ${syncEnabled ? "btn-primary" : "btn-ghost"} ${
+          saving || !selectedStaffId ? "opacity-70 cursor-not-allowed" : ""
+        }`}
+      >
+        {saving ? "Processando..." : "Enviar escala"}
+      </button>
         <div className="text-xs text-gray-500">
           Os e-mails serão enviados para os endereços cadastrados na planilha{" "}
           <span className="font-semibold">"Cadastro_colaboradores"</span>, e o resumo
