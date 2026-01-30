@@ -1262,14 +1262,14 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
 
       {/* BOTÃO ENVIAR ESCALA POR E-MAIL */}
       <div className="space-y-2">
-        <button onClick={handleSendEmails} disabled={refreshing} className={`btn btn-ghost text-sm ${refreshing ? "opacity-70 cursor-not-allowed" : ""}`} >
-                {refreshing ? "Processando..." : "Atualizar respostas"}
-        </button>
-        <div className="text-xs text-gray-500">
-          Os e-mails serão enviados para os endereços cadastrados na planilha{" "}
-          <span className="font-semibold">"Cadastro_colaboradores"</span>, e o resumo
-          completo da semana será enviado para <b>fattoriajf@gmail.com</b>.
-        </div>
+        <button
+        onClick={handleSendEmails}
+        disabled={saving || !selectedStaffId}
+        className={`btn ${syncEnabled ? "btn-primary" : "btn-ghost"} ${
+          saving || !selectedStaffId ? "opacity-70 cursor-not-allowed" : ""
+        }`}
+      >
+        {saving ? "Processando..." : "Salvar minhas escolhas"}
       </div>
     </div>
   );
