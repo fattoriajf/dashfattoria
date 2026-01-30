@@ -1113,6 +1113,7 @@ const handleSendEmails = async () => {
       alert("Nenhum endpoint de sincronização configurado.");
       return;
     }
+  
 
     // monta objeto { [dayCode]: [nomesÚnicos] }
     const schedule: Record<string, string[]> = {};
@@ -1155,6 +1156,15 @@ const handleSendEmails = async () => {
       alert(`Não foi possível enviar as escalas por e-mail. Erro: ${String(err)}`);
     }
   };
+  
+const handleSendEmailsClick = async () => {
+  setIsSendingEmails(true);
+  try {
+    await handleSendEmails(); // chama EXATAMENTE o que você já tinha
+  } finally {
+    setIsSendingEmails(false);
+  }
+};
 
   return (
     <div className="space-y-6">
@@ -1278,14 +1288,6 @@ const handleSendEmails = async () => {
   );
 }
 
-const handleSendEmailsClick = async () => {
-  setIsSendingEmails(true);
-  try {
-    await handleSendEmails(); // chama EXATAMENTE o que você já tinha
-  } finally {
-    setIsSendingEmails(false);
-  }
-};
 
 
 // ======== DASHBOARD ===========
