@@ -1262,11 +1262,8 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
 
       {/* BOTÃO ENVIAR ESCALA POR E-MAIL */}
       <div className="space-y-2">
-        <button
-          onClick={handleSendEmails}
-          className="btn btn-primary text-sm"
-        >
-          {refreshing ? "Processando..." : "Disparar email"}
+        <button onClick={handleSendEmails} disabled={refreshing} className={`btn btn-ghost text-sm ${refreshing ? "opacity-70 cursor-not-allowed" : ""}`} >
+                {refreshing ? "Processando..." : "Atualizar respostas"}
         </button>
         <div className="text-xs text-gray-500">
           Os e-mails serão enviados para os endereços cadastrados na planilha{" "}
