@@ -1113,7 +1113,6 @@ const handleSendEmails = async () => {
       alert("Nenhum endpoint de sincronização configurado.");
       return;
     }
-  
 
     // monta objeto { [dayCode]: [nomesÚnicos] }
     const schedule: Record<string, string[]> = {};
