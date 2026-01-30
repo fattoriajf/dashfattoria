@@ -1104,11 +1104,7 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
   };
 
   // Enviar escala por e-mail (para cada colaborador + resumo geral para fattoriajf@gmail.com)
-
-const [isSendingEmails, setIsSendingEmails] = useState(false);
- 
-
-const handleSendEmails = async () => {
+  const handleSendEmails = async () => {
     if (!SYNC_ENDPOINT) {
       alert("Nenhum endpoint de sincronização configurado.");
       return;
@@ -1155,15 +1151,6 @@ const handleSendEmails = async () => {
       alert(`Não foi possível enviar as escalas por e-mail. Erro: ${String(err)}`);
     }
   };
-  
-const handleSendEmailsClick = async () => {
-  setIsSendingEmails(true);
-  try {
-    await handleSendEmails(); // chama EXATAMENTE o que você já tinha
-  } finally {
-    setIsSendingEmails(false);
-  }
-};
 
   return (
     <div className="space-y-6">
@@ -1276,17 +1263,20 @@ const handleSendEmailsClick = async () => {
       {/* BOTÃO ENVIAR ESCALA POR E-MAIL */}
       <div className="space-y-2">
         <button
-          onClick={handleSendEmailsClick}
+          onClick={handleSendEmails}
           className="btn btn-primary text-sm"
         >
-          {isSendingEmails ? 'Processando...' : 'Teste2'}
+          Teste3
         </button>
-
+        <div className="text-xs text-gray-500">
+          Os e-mails serão enviados para os endereços cadastrados na planilha{" "}
+          <span className="font-semibold">"Cadastro_colaboradores"</span>, e o resumo
+          completo da semana será enviado para <b>fattoriajf@gmail.com</b>.
+        </div>
       </div>
     </div>
   );
 }
-
 
 
 // ======== DASHBOARD ===========
