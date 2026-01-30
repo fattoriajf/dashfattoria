@@ -1104,53 +1104,20 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
   };
 
   // Enviar escala por e-mail (para cada colaborador + resumo geral para fattoriajf@gmail.com)
+
+  const [isSendingEmails, setIsSendingEmails] = useState(false);
   const handleSendEmails = async () => {
-    if (!SYNC_ENDPOINT) {
-      alert("Nenhum endpoint de sincronização configurado.");
-      return;
-    }
-
-    // monta objeto { [dayCode]: [nomesÚnicos] }
-    const schedule: Record<string, string[]> = {};
-    for (const day of state.days) {
-      const arr = selects[day.id] || {};
-      const values = Array.isArray(arr) ? arr : [];
-      const names = values
-        .filter(Boolean)
-        .map((sid: string) => labelOf(sid))
-        .filter(Boolean);
-      const uniqueNames = Array.from(new Set(names));
-      schedule[day.code] = uniqueNames;
-    }
-
-    try {
-      const payload = {
-        action: "send_schedule",
-        weekId,
-        schedule,
-      };
-      const resp = await fetch(SYNC_ENDPOINT, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(payload),
-      });
-      // Em no-cors a resposta é 'opaque'; tratamos como sucesso
-      // @ts-ignore
-      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
-        alert("Escalas enviadas por e-mail (solicitação enviada ao servidor).");
-        return;
-      }
-      if (!resp.ok) {
-        const txt = await resp.text().catch(() => "");
-        alert(`Falha ao enviar escalas por e-mail (HTTP ${resp.status}). ${txt.slice(0, 180)}`);
-        return;
-      }
-      alert("Escalas enviadas por e-mail.");
-    } catch (err: any) {
-      alert(`Não foi possível enviar as escalas por e-mail. Erro: ${String(err)}`);
-    }
-  };
+  if (isSendingEmails) return; // evita duplo clique
+  try {
+    setIsSendingEmails(true);
+    await doSendEmails(); // <-- coloque aqui o que você já fazia (sua chamada atual)
+  } catch (err) {
+    console.error(err);
+    // opcional: mostrar toast/alert
+  } finally {
+    setIsSendingEmails(false);
+  }
+};
 
   return (
     <div className="space-y-6">
@@ -1263,18 +1230,12 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
       {/* BOTÃO ENVIAR ESCALA POR E-MAIL */}
       <div className="space-y-2">
         <button
-        onClick={handleSendEmails}
-        disabled={saving}
-        className="btn btn-primary text-sm"
-      >
-        {saving ? "Processando..." : "Salvar minhas escolhas"}
-      </button>
-      {!syncEnabled && (
-        <div className="text-xs text-amber-700">Sem endpoint configurado (modo offline).</div>
-      )}
-        <div className="text-xs text-gray-500">
-          Os e-mails serão enviados para os endereços cadastrados na planilha.
-        </div>
+          onClick={handleSendEmails}
+          className="btn btn-primary text-sm"
+          disabled={isSendingEmails}
+        >
+          {isSendingEmails ? "Processando..." : "Enviar escala por e-mail"}
+        </button>
       </div>
     </div>
   );
