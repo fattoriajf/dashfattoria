@@ -1159,7 +1159,7 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
   } finally {
     setIsSendingEmails(false);
   }
-};
+  };
 
 
   return (
