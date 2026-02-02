@@ -1762,6 +1762,7 @@ function CommissionTab() {
     }
   };
 
+  const [isGeneratingPaymentsReport, setIsGeneratingPaymentsReport] = useState(false);
 
   const handlePaymentsReport = async () => {
     if (!startRaw || !endRaw) {
@@ -1813,6 +1814,16 @@ function CommissionTab() {
       alert(`Não foi possível gerar os relatórios. Erro: ${String(err)}`);
     }
   };
+
+  const handlePaymentsReportClick = async () => {
+    setIsGeneratingPaymentsReport(true);
+    try {
+      await Promise.resolve(handlePaymentsReport());
+    } finally {
+      setIsGeneratingPaymentsReport(false);
+    }
+  };
+
 
   return (
     <div className="space-y-6">
@@ -1896,9 +1907,14 @@ function CommissionTab() {
           </div>
         </div>
 
-        <button onClick={handlePaymentsReport} className="btn btn-primary">
-          Gerar relatórios de Pagamentos
+        <button
+          onClick={handlePaymentsReportClick}
+          className="btn btn-primary"
+          disabled={isGeneratingPaymentsReport}
+        >
+          {isGeneratingPaymentsReport ? "Processando..." : "Gerar relatórios de Pagamentos"}
         </button>
+
       </div>
     </div>
   );
