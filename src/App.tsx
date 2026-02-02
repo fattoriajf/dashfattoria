@@ -1958,7 +1958,8 @@ function StockTab() {
     if (!y || !m || !d) return "";
     return `${d}/${m}/${y}`;
   };
-
+  
+  const [isCreatingList, setIsCreatingList] = useState(false);
   const handleCreateList = async () => {
     if (!SYNC_ENDPOINT) {
       alert("Nenhum endpoint de sincronização configurado.");
@@ -2017,6 +2018,17 @@ function StockTab() {
       alert(`Não foi possível gerar a lista de compras. Erro: ${String(err)}`);
     }
   };
+
+  const handleCreateListClick = async () => {
+    setIsCreatingList(true);
+    try {
+      // chama a função original, sem modificar o que ela faz
+      await Promise.resolve(handleCreateList());
+    } finally {
+      setIsCreatingList(false);
+    }
+  };
+
 
   return (
     <div className="space-y-4">
@@ -2146,8 +2158,8 @@ function StockTab() {
 
       {/* Botão principal */}
       <div className="pt-2">
-        <button onClick={handleCreateList} className="btn btn-primary">
-          Criar lista de compras
+        <button onClick={handleCreateListClick} className="btn btn-primary" disabled={isCreatingList}>
+          {isCreatingList ? "Processando..." : "Criar lista de compras"}
         </button>
       </div>
     </div>
