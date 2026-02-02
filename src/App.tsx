@@ -670,6 +670,18 @@ function PunchTab({ staff }: PunchTabProps) {
   const [turno, setTurno] = useState<string>("Noite");
   const [setor, setSetor] = useState<string>("Salão/Bar");
 
+  const isSunday = useMemo(() => {
+    if (!dateRaw) return false;
+    const parts = dateRaw.split("-");
+    if (parts.length !== 3) return false;
+    const yy = Number(parts[0]);
+    const mm = Number(parts[1]);
+    const dd = Number(parts[2]);
+    if (!yy || !mm || !dd) return false;
+    const dt = new Date(yy, mm - 1, dd);
+    return dt.getDay() === 0;
+  }, [dateRaw]);
+
   // Transporte ida
   const [idaModo, setIdaModo] = useState<string>("");
   const [idaCarona, setIdaCarona] = useState<string>("");
@@ -681,6 +693,19 @@ function PunchTab({ staff }: PunchTabProps) {
   const [voltaCarona, setVoltaCarona] = useState<string>("");
   const [voltaOnibusQtd, setVoltaOnibusQtd] = useState<string>("1");
   const [voltaUberValor, setVoltaUberValor] = useState<string>("");
+
+  // Em domingos, ocultamos transporte e limpamos quaisquer valores anteriores
+  useEffect(() => {
+    if (!isSunday) return;
+    setIdaModo("");
+    setIdaCarona("");
+    setIdaOnibusQtd("1");
+    setIdaUberValor("");
+    setVoltaModo("");
+    setVoltaCarona("");
+    setVoltaOnibusQtd("1");
+    setVoltaUberValor("");
+  }, [isSunday]);
 
   // Consumo
   type ConsumoItem = { product: string; quantity: string };
@@ -726,6 +751,102 @@ function PunchTab({ staff }: PunchTabProps) {
     });
   };
 
+
+  // ===== Registrar presença em eventos (turno = "evento") =====
+  const [eventSelectedId, setEventSelectedId] = useState<string>("");
+  const [eventDateRaw, setEventDateRaw] = useState<string>("");
+  const [eventPunching, setEventPunching] = useState(false);
+  const [eventConsumoItems, setEventConsumoItems] = useState<ConsumoItem[]>([
+    { product: "", quantity: "1" },
+  ]);
+
+  const handleAddEventConsumoRow = () => {
+    setEventConsumoItems((prev) => [...prev, { product: "", quantity: "1" }]);
+  };
+
+  const handleEventConsumoChange = (idx: number, field: "product" | "quantity", value: string) => {
+    setEventConsumoItems((prev) => {
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx], [field]: value };
+      return copy;
+    });
+  };
+
+  const handlePunchEvent = async () => {
+    if (eventPunching) return;
+    if (!eventSelectedId) {
+      alert("Nenhum nome foi selecionado");
+      return;
+    }
+    if (!eventDateRaw) {
+      alert("Selecione a data.");
+      return;
+    }
+
+    const entry = allPeople.find((p) => p.id === eventSelectedId);
+    const name = entry?.label || "";
+    if (!name) {
+      alert("Seleção inválida.");
+      return;
+    }
+
+    if (!SYNC_ENDPOINT) {
+      alert(
+        `Presença de evento registrada localmente para ${name}, mas nenhum endpoint está configurado.`
+      );
+      return;
+    }
+
+    const dateStr = formatDateForPayload(eventDateRaw);
+    if (!dateStr) {
+      alert("Data inválida.");
+      return;
+    }
+
+    const consumoLimpo = eventConsumoItems
+      .filter((c) => c.product && c.quantity)
+      .map((c) => ({
+        product: c.product,
+        quantity: c.quantity,
+      }));
+
+    const payload = {
+      action: "ponto",
+      date: dateStr,
+      staff: name,
+      timestamp: new Date().toISOString(),
+      turno: "evento",
+      setor: "Evento",
+      transporte: {}, // eventos: sem transporte
+      consumo: consumoLimpo,
+    };
+
+    setEventPunching(true);
+    try {
+      const resp = await fetch(SYNC_ENDPOINT, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+      });
+      // @ts-ignore
+      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
+        alert(`Presença (evento) registrada para ${name} em ${dateStr}.`);
+        return;
+      }
+      if (!resp.ok) {
+        const txt = await resp.text().catch(() => "");
+        alert(`Falha ao registrar presença (evento) (HTTP ${resp.status}). ${txt.slice(0, 180)}`);
+        return;
+      }
+      alert(`Presença (evento) registrada para ${name} em ${dateStr}.`);
+    } catch (err: any) {
+      alert(`Não foi possível enviar o registro de presença (evento). Erro: ${String(err)}`);
+    } finally {
+      setEventPunching(false);
+    }
+  };
+
   const handlePunch = async () => {
     if (punching) return;
     if (!selectedId) {
@@ -764,29 +885,33 @@ function PunchTab({ staff }: PunchTabProps) {
         quantity: c.quantity,
       }));
 
-    const payload = {
-      action: "ponto",
-      date: dateStr,
-      staff: name,
-      timestamp: new Date().toISOString(),
-      turno,
-      setor,
-      transporte: {
-        ida: {
-          modo: idaModo,
-          caronaCom: idaModo === "carona" ? idaCarona : "",
-          onibusQtd: idaModo === "onibus" ? idaOnibusQtd : "",
-          uberValor: idaModo === "uber" ? idaUberValor : "",
-        },
-        volta: {
-          modo: voltaModo,
-          caronaCom: voltaModo === "carona" ? voltaCarona : "",
-          onibusQtd: voltaModo === "onibus" ? voltaOnibusQtd : "",
-          uberValor: voltaModo === "uber" ? voltaUberValor : "",
-        },
-      },
-      consumo: consumoLimpo,
-    };
+    const transportePayload = isSunday
+          ? {}
+          : {
+            ida: {
+              modo: idaModo,
+              caronaCom: idaModo === "carona" ? idaCarona : "",
+              onibusQtd: idaModo === "onibus" ? idaOnibusQtd : "",
+              uberValor: idaModo === "uber" ? idaUberValor : "",
+            },
+            volta: {
+              modo: voltaModo,
+              caronaCom: voltaModo === "carona" ? voltaCarona : "",
+              onibusQtd: voltaModo === "onibus" ? voltaOnibusQtd : "",
+              uberValor: voltaModo === "uber" ? voltaUberValor : "",
+            },
+          };
+
+        const payload = {
+          action: "ponto",
+          date: dateStr,
+          staff: name,
+          timestamp: new Date().toISOString(),
+          turno,
+          setor,
+          transporte: transportePayload,
+          consumo: consumoLimpo,
+        };
 
     setPunching(true);
     try {
@@ -873,6 +998,12 @@ function PunchTab({ staff }: PunchTabProps) {
         </div>
       </div>
 
+      {isSunday ? (
+        <div className="text-xs text-gray-500">
+          Domingo: transporte não precisa ser preenchido.
+        </div>
+      ) : (
+        <>
       {/* Transporte ida/volta */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {/* Ida */}
@@ -1004,6 +1135,8 @@ function PunchTab({ staff }: PunchTabProps) {
         </div>
       </div>
 
+        </>
+      )}
       {/* Consumo */}
       <div className="border rounded-xl p-3 bg-white space-y-2">
         <div className="flex items-center justify-between">
@@ -1062,6 +1195,98 @@ function PunchTab({ staff }: PunchTabProps) {
           {punching ? "Processando..." : "Registrar presença"}
         </button>
       </div>
+
+      {/* Registrar presença em eventos */}
+      <div className="border rounded-xl p-4 bg-white space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="font-semibold text-sm">Registrar presença em eventos</div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Nome</label>
+            <select
+              className="input w-full"
+              value={eventSelectedId}
+              onChange={(e) => setEventSelectedId(e.target.value)}
+            >
+              <option value="">Selecionar nome</option>
+              {allPeople.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Data</label>
+            <input
+              type="date"
+              className="input w-full"
+              value={eventDateRaw}
+              onChange={(e) => setEventDateRaw(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="border rounded-xl p-3 bg-white space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="font-semibold text-sm">Consumo (evento)</div>
+            <button
+              type="button"
+              className="btn btn-ghost text-xs"
+              onClick={handleAddEventConsumoRow}
+            >
+              + Adicionar item
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            {eventConsumoItems.map((item, idx) => (
+              <div key={idx} className="grid grid-cols-3 sm:grid-cols-4 gap-2 items-center">
+                <div className="col-span-2 sm:col-span-3">
+                  <label className="text-xs text-gray-600 block mb-1">Produto</label>
+                  <select
+                    className="input w-full"
+                    value={item.product}
+                    onChange={(e) => handleEventConsumoChange(idx, "product", e.target.value)}
+                  >
+                    <option value="">Selecione</option>
+                    {produtos.map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs text-gray-600 block mb-1">Qtd.</label>
+                  <input
+                    type="number"
+                    min={1}
+                    className="input w-full"
+                    value={item.quantity}
+                    onChange={(e) => handleEventConsumoChange(idx, "quantity", e.target.value)}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="pt-2">
+          <button
+            onClick={handlePunchEvent}
+            disabled={eventPunching}
+            className={`btn btn-primary ${eventPunching ? "opacity-70 cursor-not-allowed" : ""}`}
+          >
+            {eventPunching ? "Processando..." : "Registrar presença (evento)"}
+          </button>
+        </div>
+      </div>
+
     </div>
   );
 }
@@ -1799,7 +2024,6 @@ function CommissionTab() {
       setSavingCommission(false);
     }
   };
-  
 
   const handlePaymentsReport = async () => {
     if (generatingReports) return;
