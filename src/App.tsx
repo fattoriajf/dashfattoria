@@ -1443,13 +1443,44 @@ function DashboardTab() {
   const [start, setStart] = useState<string>("");
   const [end, setEnd] = useState<string>("");
 
+  const [year, setYear] = useState<string>("Tudo");
+
   const [grupo, setGrupo] = useState<string>("Tudo");
   const [descricao, setDescricao] = useState<string>("Tudo");
+
   const itemOptions = useMemo(() => {
-  if (!meta) return [];
-  if (grupo === "Tudo") return meta.items || [];
-  return meta.itemsByGroup?.[grupo] || [];
+    if (!meta) return [];
+    if (grupo === "Tudo") return meta.items || [];
+    return meta.itemsByGroup?.[grupo] || [];
   }, [meta, grupo]);
+
+  const yearOptions = useMemo(() => {
+    if (!meta?.minDate || !meta?.maxDate) return [];
+    const minY = Number(String(meta.minDate).slice(0, 4));
+    const maxY = Number(String(meta.maxDate).slice(0, 4));
+    if (!Number.isFinite(minY) || !Number.isFinite(maxY)) return [];
+    const ys: string[] = [];
+    for (let y = minY; y <= maxY; y++) ys.push(String(y));
+    return ys;
+  }, [meta]);
+
+  // Quando seleciona um ano, ajusta start/end automaticamente para aquele ano (clamp em min/max)
+  useEffect(() => {
+    if (!meta) return;
+    if (year === "Tudo") return;
+
+    const y = Number(year);
+    if (!Number.isFinite(y)) return;
+
+    const yStart = `${y}-01-01`;
+    const yEnd = `${y}-12-31`;
+
+    const newStart = meta.minDate && yStart < meta.minDate ? meta.minDate : yStart;
+    const newEnd = meta.maxDate && yEnd > meta.maxDate ? meta.maxDate : yEnd;
+
+    setStart((curr) => (curr !== newStart ? newStart : curr));
+    setEnd((curr) => (curr !== newEnd ? newEnd : curr));
+  }, [year, meta]);
 
   const [rows, setRows] = useState<DashboardRow[]>([]);
   const [totalVlTotal, setTotalVlTotal] = useState<number>(0);
@@ -1502,7 +1533,7 @@ function DashboardTab() {
         `&start=${encodeURIComponent(start)}` +
         `&end=${encodeURIComponent(end)}` +
         `&grupo=${encodeURIComponent(grupo)}` +
-        `&descricao=${encodeURIComponent(descricao)}`+
+        `&descricao=${encodeURIComponent(descricao)}` +
         `&weekday=${encodeURIComponent(weekday)}`;
 
       const resp = await fetch(url);
@@ -1552,7 +1583,7 @@ function DashboardTab() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
           <div className="space-y-1">
             <label className="text-sm text-gray-600">Data inicial (dt_contabil)</label>
             <input
@@ -1573,6 +1604,23 @@ function DashboardTab() {
               onChange={(e) => setEnd(e.target.value)}
               disabled={loadingMeta}
             />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Ano</label>
+            <select
+              className="input w-full"
+              value={year}
+              onChange={(e) => setYear(e.target.value)}
+              disabled={loadingMeta}
+            >
+              <option value="Tudo">Tudo</option>
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="space-y-1">
@@ -1609,24 +1657,30 @@ function DashboardTab() {
             >
               <option value="Tudo">Tudo</option>
               {itemOptions.map((it) => (
-                <option key={it} value={it}>{it}</option>
+                <option key={it} value={it}>
+                  {it}
+                </option>
               ))}
             </select>
           </div>
         </div>
 
-          <div className="space-y-1">
-              <label className="text-sm text-gray-600">Dia da semana</label>
-              <select className="input w-full" value={weekday} onChange={(e) => setWeekday(e.target.value)}>
-                <option value="Tudo">Tudo</option>
-                <option value="domingo">Domingo</option>
-                <option value="segunda">Segunda</option>
-                <option value="terca">Terça</option>
-                <option value="quarta">Quarta</option>
-                <option value="quinta">Quinta</option>
-                <option value="sexta">Sexta</option>
-                <option value="sabado">Sábado</option>
-            </select>
+        <div className="space-y-1">
+          <label className="text-sm text-gray-600">Dia da semana</label>
+          <select
+            className="input w-full"
+            value={weekday}
+            onChange={(e) => setWeekday(e.target.value)}
+          >
+            <option value="Tudo">Tudo</option>
+            <option value="domingo">Domingo</option>
+            <option value="segunda">Segunda</option>
+            <option value="terca">Terça</option>
+            <option value="quarta">Quarta</option>
+            <option value="quinta">Quinta</option>
+            <option value="sexta">Sexta</option>
+            <option value="sabado">Sábado</option>
+          </select>
         </div>
 
         <div className="overflow-auto">
@@ -1656,7 +1710,9 @@ function DashboardTab() {
               ))}
 
               <tr className="bg-gray-50 font-semibold">
-                <td className="border px-3 py-2" colSpan={3}>Total</td>
+                <td className="border px-3 py-2" colSpan={3}>
+                  Total
+                </td>
                 <td className="border px-3 py-2 text-right">{totalQtd}</td>
                 <td className="border px-3 py-2 text-right">{fmtMoney(totalInformado)}</td>
                 <td className="border px-3 py-2 text-right">{fmtMoney(totalCalculado)}</td>
@@ -1673,6 +1729,7 @@ function DashboardTab() {
     </div>
   );
 }
+
 
 
 // ======== COMISSÃO E PAGAMENTO ========
