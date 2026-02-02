@@ -14,7 +14,7 @@ import {
 
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Trash2, Share2, Copy, BarChart3 } from "lucide-react";
+import { Trash2, Share2, Copy, BarChart3, Users } from "lucide-react";
 import {
 Calendar as Cal,
   RefreshCw,
@@ -27,6 +27,33 @@ type Day = { id: string; label: string; code: string };
 type Rule = { id: string; a: string; b: string; kind: "must" | "never" };
 type Availability = Record<string, string[]>;
 type State = { staff: Staff[]; days: Day[]; rules: Rule[]; availability: Availability };
+
+type ColaboradoresMeta = {
+  years: number[];
+  names: string[];
+  sectors: string[];
+  diariaOptions: number[];
+};
+
+type ColaboradoresRow = {
+  data: string;       // dd/mm/yyyy
+  weekday: string;    // domingo..sabado
+  turno: string;      // ex: "Almoço" / "Noite"
+  nome: string;
+  setor: string;
+  diariaFixa: number;
+  consumo: number;
+  comissao: number;
+  total: number;
+};
+
+type ColaboradoresTotals = {
+  diarias: number;
+  consumo: number;
+  comissao: number;
+  total: number;
+};
+
 
 interface StockItem {
   item: string;
@@ -149,7 +176,7 @@ export default function App() {
   const [mode, setMode] = useState<Mode>("admin");
 
   const [activeTab, setActiveTab] = useState<
-  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "dashboard" | "graficos"
+  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "dashboard" | "colaboradores" | "graficos"
   >("disponibilidade");
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
@@ -328,7 +355,16 @@ export default function App() {
                 label="Dashboard"
               />
             )}
-            {/* 7) gráficos – só admin */}
+            {/* 7) Colaboradores – só admin */}
+            {!isColab && (
+              <TabButton
+                icon={<Users className="w-4 h-4" />}
+                active={activeTab === "colaboradores"}
+                onClick={() => setActiveTab("colaboradores")}
+                label="Colaboradores"
+              />
+            )}
+            {/* 8) gráficos – só admin */}
             {!isColab && (
               <TabButton
                 label="Gráficos"
@@ -395,6 +431,14 @@ export default function App() {
         {!isColab && activeTab === "dashboard" && (
           <Card title="Dashboard" icon={<BarChart3 className="w-5 h-5" />}>
             <DashboardTab />
+          </Card>
+        )}
+
+
+        {/* Colaboradores – apenas admin */}
+        {!isColab && activeTab === "colaboradores" && (
+          <Card title="Colaboradores" icon={<Users className="w-5 h-5" />}>
+            <ColaboradoresTab />
           </Card>
         )}
         {/* Gráficos - apenas admin */}
@@ -1104,27 +1148,28 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
   };
 
   // Enviar escala por e-mail (para cada colaborador + resumo geral para fattoriajf@gmail.com)
-  const [isSendingEmails, setIsSendingEmails] = useState(false);
   const handleSendEmails = async () => {
     if (!SYNC_ENDPOINT) {
       alert("Nenhum endpoint de sincronização configurado.");
       return;
     }
+    if (sendingEmails) return;
 
-    // monta objeto { [dayCode]: [nomesÚnicos] }
-    const schedule: Record<string, string[]> = {};
-    for (const day of state.days) {
-      const arr = selects[day.id] || {};
-      const values = Array.isArray(arr) ? arr : [];
-      const names = values
-        .filter(Boolean)
-        .map((sid: string) => labelOf(sid))
-        .filter(Boolean);
-      const uniqueNames = Array.from(new Set(names));
-      schedule[day.code] = uniqueNames;
-    }
-
+    setSendingEmails(true);
     try {
+      // monta objeto { [dayCode]: [nomesÚnicos] }
+      const schedule: Record<string, string[]> = {};
+      for (const day of state.days) {
+        const arr = selects[day.id] || {};
+        const values = Array.isArray(arr) ? arr : [];
+        const names = values
+          .filter(Boolean)
+          .map((sid: string) => labelOf(sid))
+          .filter(Boolean);
+        const uniqueNames = Array.from(new Set(names));
+        schedule[day.code] = uniqueNames;
+      }
+
       const payload = {
         action: "send_schedule",
         weekId,
@@ -1150,18 +1195,10 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
       alert("Escalas enviadas por e-mail.");
     } catch (err: any) {
       alert(`Não foi possível enviar as escalas por e-mail. Erro: ${String(err)}`);
+    } finally {
+      setSendingEmails(false);
     }
   };
-
-  const handleSendEmailsClick = async () => {
-  setIsSendingEmails(true);
-  try {
-    await handleSendEmails(); // chama EXATAMENTE o que você já tinha
-  } finally {
-    setIsSendingEmails(false);
-  }
-  };
-
 
   return (
     <div className="space-y-6">
@@ -1274,11 +1311,17 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
       {/* BOTÃO ENVIAR ESCALA POR E-MAIL */}
       <div className="space-y-2">
         <button
-          onClick={handleSendEmailsClick}
-          className="btn btn-primary text-sm"
+          onClick={handleSendEmails}
+          disabled={sendingEmails}
+          className={`btn btn-primary text-sm ${sendingEmails ? "opacity-70 cursor-not-allowed" : ""}`}
         >
-          {isSendingEmails ? 'Processando...' : 'Enviar e-mails'}
+          {sendingEmails ? "Processando..." : "Enviar escala por e-mail"}
         </button>
+        <div className="text-xs text-gray-500">
+          Os e-mails serão enviados para os endereços cadastrados na planilha{" "}
+          <span className="font-semibold">"Cadastro_colaboradores"</span>, e o resumo
+          completo da semana será enviado para <b>fattoriajf@gmail.com</b>.
+        </div>
       </div>
     </div>
   );
@@ -1367,7 +1410,7 @@ function GraphsTab() {
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-base">Gráfico 1 — Faturamento mensal (últimos 12 meses)</h3>
           <button className="btn btn-ghost text-sm" onClick={load} disabled={loading}>
-            {loading ? "Carregando..." : "Recarregar"}
+            {loading ? "Processando..." : "Recarregar"}
           </button>
         </div>
         <div style={{ width: "100%", height: 280 }}>
@@ -1443,44 +1486,13 @@ function DashboardTab() {
   const [start, setStart] = useState<string>("");
   const [end, setEnd] = useState<string>("");
 
-  const [year, setYear] = useState<string>("Tudo");
-
   const [grupo, setGrupo] = useState<string>("Tudo");
   const [descricao, setDescricao] = useState<string>("Tudo");
-
   const itemOptions = useMemo(() => {
-    if (!meta) return [];
-    if (grupo === "Tudo") return meta.items || [];
-    return meta.itemsByGroup?.[grupo] || [];
+  if (!meta) return [];
+  if (grupo === "Tudo") return meta.items || [];
+  return meta.itemsByGroup?.[grupo] || [];
   }, [meta, grupo]);
-
-  const yearOptions = useMemo(() => {
-    if (!meta?.minDate || !meta?.maxDate) return [];
-    const minY = Number(String(meta.minDate).slice(0, 4));
-    const maxY = Number(String(meta.maxDate).slice(0, 4));
-    if (!Number.isFinite(minY) || !Number.isFinite(maxY)) return [];
-    const ys: string[] = [];
-    for (let y = minY; y <= maxY; y++) ys.push(String(y));
-    return ys;
-  }, [meta]);
-
-  // Quando seleciona um ano, ajusta start/end automaticamente para aquele ano (clamp em min/max)
-  useEffect(() => {
-    if (!meta) return;
-    if (year === "Tudo") return;
-
-    const y = Number(year);
-    if (!Number.isFinite(y)) return;
-
-    const yStart = `${y}-01-01`;
-    const yEnd = `${y}-12-31`;
-
-    const newStart = meta.minDate && yStart < meta.minDate ? meta.minDate : yStart;
-    const newEnd = meta.maxDate && yEnd > meta.maxDate ? meta.maxDate : yEnd;
-
-    setStart((curr) => (curr !== newStart ? newStart : curr));
-    setEnd((curr) => (curr !== newEnd ? newEnd : curr));
-  }, [year, meta]);
 
   const [rows, setRows] = useState<DashboardRow[]>([]);
   const [totalVlTotal, setTotalVlTotal] = useState<number>(0);
@@ -1533,7 +1545,7 @@ function DashboardTab() {
         `&start=${encodeURIComponent(start)}` +
         `&end=${encodeURIComponent(end)}` +
         `&grupo=${encodeURIComponent(grupo)}` +
-        `&descricao=${encodeURIComponent(descricao)}` +
+        `&descricao=${encodeURIComponent(descricao)}`+
         `&weekday=${encodeURIComponent(weekday)}`;
 
       const resp = await fetch(url);
@@ -1579,11 +1591,11 @@ function DashboardTab() {
             disabled={loading || !start || !end}
             className={`btn btn-ghost text-sm ${loading ? "opacity-70 cursor-not-allowed" : ""}`}
           >
-            {loading ? "Atualizando..." : "Atualizar"}
+            {loading ? "Processando..." : "Atualizar"}
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
           <div className="space-y-1">
             <label className="text-sm text-gray-600">Data inicial (dt_contabil)</label>
             <input
@@ -1604,23 +1616,6 @@ function DashboardTab() {
               onChange={(e) => setEnd(e.target.value)}
               disabled={loadingMeta}
             />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-sm text-gray-600">Ano</label>
-            <select
-              className="input w-full"
-              value={year}
-              onChange={(e) => setYear(e.target.value)}
-              disabled={loadingMeta}
-            >
-              <option value="Tudo">Tudo</option>
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
           </div>
 
           <div className="space-y-1">
@@ -1657,30 +1652,24 @@ function DashboardTab() {
             >
               <option value="Tudo">Tudo</option>
               {itemOptions.map((it) => (
-                <option key={it} value={it}>
-                  {it}
-                </option>
+                <option key={it} value={it}>{it}</option>
               ))}
             </select>
           </div>
         </div>
 
-        <div className="space-y-1">
-          <label className="text-sm text-gray-600">Dia da semana</label>
-          <select
-            className="input w-full"
-            value={weekday}
-            onChange={(e) => setWeekday(e.target.value)}
-          >
-            <option value="Tudo">Tudo</option>
-            <option value="domingo">Domingo</option>
-            <option value="segunda">Segunda</option>
-            <option value="terca">Terça</option>
-            <option value="quarta">Quarta</option>
-            <option value="quinta">Quinta</option>
-            <option value="sexta">Sexta</option>
-            <option value="sabado">Sábado</option>
-          </select>
+          <div className="space-y-1">
+              <label className="text-sm text-gray-600">Dia da semana</label>
+              <select className="input w-full" value={weekday} onChange={(e) => setWeekday(e.target.value)}>
+                <option value="Tudo">Tudo</option>
+                <option value="domingo">Domingo</option>
+                <option value="segunda">Segunda</option>
+                <option value="terca">Terça</option>
+                <option value="quarta">Quarta</option>
+                <option value="quinta">Quinta</option>
+                <option value="sexta">Sexta</option>
+                <option value="sabado">Sábado</option>
+            </select>
         </div>
 
         <div className="overflow-auto">
@@ -1710,9 +1699,7 @@ function DashboardTab() {
               ))}
 
               <tr className="bg-gray-50 font-semibold">
-                <td className="border px-3 py-2" colSpan={3}>
-                  Total
-                </td>
+                <td className="border px-3 py-2" colSpan={3}>Total</td>
                 <td className="border px-3 py-2 text-right">{totalQtd}</td>
                 <td className="border px-3 py-2 text-right">{fmtMoney(totalInformado)}</td>
                 <td className="border px-3 py-2 text-right">{fmtMoney(totalCalculado)}</td>
@@ -1729,7 +1716,6 @@ function DashboardTab() {
     </div>
   );
 }
-
 
 
 // ======== COMISSÃO E PAGAMENTO ========
@@ -1753,8 +1739,9 @@ function CommissionTab() {
     return `${d}/${m}/${y}`;
   };
 
-  const [isSavingCommission, setIsSavingCommission] = useState(false);
   const handleSaveCommission = async () => {
+    if (savingCommission) return;
+
     if (!dateRaw) {
       alert("Selecione a data.");
       return;
@@ -1787,6 +1774,7 @@ function CommissionTab() {
       faturamento,
     };
 
+    setSavingCommission(true);
     try {
       const resp = await fetch(SYNC_ENDPOINT, {
         method: "POST",
@@ -1807,21 +1795,15 @@ function CommissionTab() {
       alert("Comissão registrado.");
     } catch (err: any) {
       alert(`Não foi possível registrar a comissão. Erro: ${String(err)}`);
-    }
-  };
-
-  const handleSaveCommissionClick = async () => {
-    setIsSavingCommission(true);
-    try {
-      await Promise.resolve(handleSaveCommission());
     } finally {
-      setIsSavingCommission(false);
+      setSavingCommission(false);
     }
   };
-
-  const [isGeneratingPaymentsReport, setIsGeneratingPaymentsReport] = useState(false);
+  };
 
   const handlePaymentsReport = async () => {
+    if (generatingReports) return;
+
     if (!startRaw || !endRaw) {
       alert("Selecione data inicial e final.");
       return;
@@ -1844,6 +1826,7 @@ function CommissionTab() {
       endDate: endStr,
     };
 
+    setGeneratingReports(true);
     try {
       const resp = await fetch(SYNC_ENDPOINT, {
         method: "POST",
@@ -1853,13 +1836,13 @@ function CommissionTab() {
       });
       // @ts-ignore
       if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
-        alert("Relatórios de pagamentos gerados.");
+        alert("Relatórios de pagamentos gerados (solicitação enviada ao servidor).");
         return;
       }
       if (!resp.ok) {
         const txt = await resp.text().catch(() => "");
         alert(
-          `Falha ao gerar relatórios de pagamentos (HTTP ${resp.status}). ${txt.slice(
+          `Falha ao gerar relatórios (HTTP ${resp.status}). ${txt.slice(
             0,
             180
           )}`
@@ -1869,18 +1852,10 @@ function CommissionTab() {
       alert("Relatórios de pagamentos gerados.");
     } catch (err: any) {
       alert(`Não foi possível gerar os relatórios. Erro: ${String(err)}`);
-    }
-  };
-
-  const handlePaymentsReportClick = async () => {
-    setIsGeneratingPaymentsReport(true);
-    try {
-      await Promise.resolve(handlePaymentsReport());
     } finally {
-      setIsGeneratingPaymentsReport(false);
+      setGeneratingReports(false);
     }
   };
-
 
   return (
     <div className="space-y-6">
@@ -1931,13 +1906,12 @@ function CommissionTab() {
         </div>
 
         <button
-          onClick={handleSaveCommissionClick}
-          className="btn btn-primary"
-          disabled={isSavingCommission}
+          onClick={handleSaveCommission}
+          disabled={savingCommission}
+          className={`btn btn-primary ${savingCommission ? "opacity-70 cursor-not-allowed" : ""}`}
         >
-          {isSavingCommission ? "Processando..." : "Registrar comissão do dia"}
+          {savingCommission ? "Processando..." : "Registrar comissão do dia"}
         </button>
-
       </div>
 
       {/* Seção Pagamentos */}
@@ -1965,13 +1939,12 @@ function CommissionTab() {
         </div>
 
         <button
-          onClick={handlePaymentsReportClick}
-          className="btn btn-primary"
-          disabled={isGeneratingPaymentsReport}
+          onClick={handlePaymentsReport}
+          disabled={generatingReports}
+          className={`btn btn-primary ${generatingReports ? "opacity-70 cursor-not-allowed" : ""}`}
         >
-          {isGeneratingPaymentsReport ? "Processando..." : "Gerar relatórios de Pagamentos"}
+          {generatingReports ? "Processando..." : "Gerar relatórios de Pagamentos"}
         </button>
-
       </div>
     </div>
   );
@@ -1984,6 +1957,7 @@ function StockTab() {
   const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [dateRaw, setDateRaw] = useState<string>("");
   const [selectedSector, setSelectedSector] = useState<string>("");
+  const [creatingList, setCreatingList] = useState(false);
 
   useEffect(() => {
     const todayIso = new Date().toISOString().slice(0, 10);
@@ -2047,9 +2021,10 @@ function StockTab() {
     if (!y || !m || !d) return "";
     return `${d}/${m}/${y}`;
   };
-  
-  const [isCreatingList, setIsCreatingList] = useState(false);
+
   const handleCreateList = async () => {
+    if (creatingList) return;
+
     if (!SYNC_ENDPOINT) {
       alert("Nenhum endpoint de sincronização configurado.");
       return;
@@ -2080,6 +2055,7 @@ function StockTab() {
       entries,
     };
 
+    setCreatingList(true);
     try {
       const resp = await fetch(SYNC_ENDPOINT, {
         method: "POST",
@@ -2105,19 +2081,10 @@ function StockTab() {
       alert("Lista de compras gerada e enviada por e-mail.");
     } catch (err: any) {
       alert(`Não foi possível gerar a lista de compras. Erro: ${String(err)}`);
-    }
-  };
-
-  const handleCreateListClick = async () => {
-    setIsCreatingList(true);
-    try {
-      // chama a função original, sem modificar o que ela faz
-      await Promise.resolve(handleCreateList());
     } finally {
-      setIsCreatingList(false);
+      setCreatingList(false);
     }
   };
-
 
   return (
     <div className="space-y-4">
@@ -2173,10 +2140,11 @@ function StockTab() {
           <h3 className="font-semibold text-sm">Itens de estoque</h3>
           <button
             type="button"
-            className="btn btn-ghost text-xs"
             onClick={loadStock}
+            disabled={loading}
+            className={`btn btn-ghost text-xs ${loading ? "opacity-70 cursor-not-allowed" : ""}`}
           >
-            Recarregar itens
+            {loading ? "Processando..." : "Recarregar itens"}
           </button>
         </div>
         {loading && (
@@ -2247,9 +2215,311 @@ function StockTab() {
 
       {/* Botão principal */}
       <div className="pt-2">
-        <button onClick={handleCreateListClick} className="btn btn-primary" disabled={isCreatingList}>
-          {isCreatingList ? "Processando..." : "Criar lista de compras"}
+        <button
+          onClick={handleCreateList}
+          disabled={creatingList}
+          className={`btn btn-primary ${creatingList ? "opacity-70 cursor-not-allowed" : ""}`}
+        >
+          {creatingList ? "Processando..." : "Criar lista de compras"}
         </button>
+      </div>
+    </div>
+  );
+}
+
+function ColaboradoresTab() {
+  const [meta, setMeta] = useState<ColaboradoresMeta | null>(null);
+  const [loadingMeta, setLoadingMeta] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const defaultYear = (() => {
+    const y = new Date().getFullYear();
+    if (y < 2024) return "2024";
+    if (y > 2028) return "2028";
+    return String(y);
+  })();
+
+  const [year, setYear] = useState<string>(defaultYear);
+  const [start, setStart] = useState<string>(""); // opcional (YYYY-MM-DD)
+  const [end, setEnd] = useState<string>("");     // opcional (YYYY-MM-DD)
+  const [weekday, setWeekday] = useState<string>("Tudo");
+  const [name, setName] = useState<string>("Tudo");
+  const [setor, setSetor] = useState<string>("Tudo");
+
+  const [rows, setRows] = useState<ColaboradoresRow[]>([]);
+  const [period, setPeriod] = useState<{ start: string; end: string } | null>(null);
+  const [totals, setTotals] = useState<ColaboradoresTotals>({
+    diarias: 0,
+    consumo: 0,
+    comissao: 0,
+    total: 0,
+  });
+
+  const fmtMoney = (n: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
+
+  const intervalOk = (start && end) || (!start && !end);
+
+  const loadMeta = async () => {
+    if (!SYNC_ENDPOINT) return;
+    setLoadingMeta(true);
+    try {
+      const url = `${SYNC_ENDPOINT}?action=colaboradores_meta`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (!data?.ok) throw new Error(data?.error || "Resposta inválida (meta).");
+
+      const m: ColaboradoresMeta = {
+        years: Array.isArray(data.years) ? data.years.map((x: any) => Number(x)) : [2024, 2025, 2026, 2027, 2028],
+        names: Array.isArray(data.names) ? data.names.map((x: any) => String(x)) : [],
+        sectors: Array.isArray(data.sectors) ? data.sectors.map((x: any) => String(x)) : [],
+        diariaOptions: Array.isArray(data.diariaOptions) ? data.diariaOptions.map((x: any) => Number(x)) : [],
+      };
+
+      setMeta(m);
+
+      // Se o year atual não estiver na lista, força para o primeiro disponível
+      if (m.years.length) {
+        const y0 = String(m.years[0]);
+        const y = String(year);
+        const exists = m.years.some((yy) => String(yy) === y);
+        if (!exists) setYear(y0);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingMeta(false);
+    }
+  };
+
+  const loadRows = async () => {
+    if (!SYNC_ENDPOINT) return;
+    if (!year) return;
+    if (!intervalOk) return;
+
+    setLoading(true);
+    try {
+      const qStart = start && end ? start : "";
+      const qEnd = start && end ? end : "";
+
+      const url =
+        `${SYNC_ENDPOINT}?action=colaboradores_rows` +
+        `&year=${encodeURIComponent(year)}` +
+        `&start=${encodeURIComponent(qStart)}` +
+        `&end=${encodeURIComponent(qEnd)}` +
+        `&weekday=${encodeURIComponent(weekday)}` +
+        `&name=${encodeURIComponent(name)}` +
+        `&setor=${encodeURIComponent(setor)}`;
+
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (!data?.ok) throw new Error(data?.error || "Resposta inválida (rows).");
+
+      setRows(Array.isArray(data.rows) ? (data.rows as ColaboradoresRow[]) : []);
+      setPeriod(data.period && typeof data.period === "object" ? { start: String(data.period.start || ""), end: String(data.period.end || "") } : null);
+
+      const t = data.totals && typeof data.totals === "object" ? data.totals : {};
+      setTotals({
+        diarias: Number(t.diarias || 0),
+        consumo: Number(t.consumo || 0),
+        comissao: Number(t.comissao || 0),
+        total: Number(t.total || 0),
+      });
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadMeta();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // carrega automaticamente quando filtros mudam
+  useEffect(() => {
+    if (!meta) return;
+    if (!year) return;
+    if (!intervalOk) return;
+    loadRows();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meta, year, start, end, weekday, name, setor]);
+
+  if (!SYNC_ENDPOINT) {
+    return <div className="text-sm text-red-600">Nenhum endpoint de sincronização configurado.</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="border rounded-xl p-4 bg-white space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <h3 className="font-semibold text-base">Colaboradores</h3>
+            {period?.start && period?.end && (
+              <div className="text-xs text-gray-500">
+                Período carregado: {period.start} → {period.end}
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={loadRows}
+            disabled={loading || loadingMeta || !year || !intervalOk}
+            className={`btn btn-ghost text-sm ${loading ? "opacity-70 cursor-not-allowed" : ""}`}
+            title={!intervalOk ? "Preencha data inicial e final (ou deixe ambas vazias)" : ""}
+          >
+            {loading ? "Atualizando..." : "Atualizar"}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Ano</label>
+            <select
+              className="input w-full"
+              value={year}
+              onChange={(e) => setYear(e.target.value)}
+              disabled={loadingMeta}
+            >
+              {(meta?.years?.length ? meta.years : [2024, 2025, 2026, 2027, 2028]).map((y) => (
+                <option key={String(y)} value={String(y)}>
+                  {String(y)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Data inicial (opcional)</label>
+            <input
+              type="date"
+              className="input w-full"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              disabled={loadingMeta}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Data final (opcional)</label>
+            <input
+              type="date"
+              className="input w-full"
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+              disabled={loadingMeta}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Dia da semana (opcional)</label>
+            <select
+              className="input w-full"
+              value={weekday}
+              onChange={(e) => setWeekday(e.target.value)}
+              disabled={loadingMeta}
+            >
+              <option value="Tudo">Tudo</option>
+              <option value="domingo">Domingo</option>
+              <option value="segunda">Segunda</option>
+              <option value="terca">Terça</option>
+              <option value="quarta">Quarta</option>
+              <option value="quinta">Quinta</option>
+              <option value="sexta">Sexta</option>
+              <option value="sabado">Sábado</option>
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Nome (opcional)</label>
+            <select
+              className="input w-full"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              disabled={loadingMeta}
+            >
+              <option value="Tudo">Tudo</option>
+              {(meta?.names || []).map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Setor (opcional)</label>
+            <select
+              className="input w-full"
+              value={setor}
+              onChange={(e) => setSetor(e.target.value)}
+              disabled={loadingMeta}
+            >
+              <option value="Tudo">Tudo</option>
+              {(meta?.sectors || []).map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {!intervalOk && (
+            <div className="text-xs text-red-600 flex items-end">
+              Preencha data inicial e final, ou deixe ambas vazias (para usar o ano inteiro).
+            </div>
+          )}
+        </div>
+
+        <div className="overflow-auto">
+          <table className="min-w-full border text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="border px-3 py-2 text-left">Data</th>
+                <th className="border px-3 py-2 text-left">Dia</th>
+                <th className="border px-3 py-2 text-left">Turno</th>
+                <th className="border px-3 py-2 text-left">Nome</th>
+                <th className="border px-3 py-2 text-left">Setor</th>
+                <th className="border px-3 py-2 text-right">Diária fixa</th>
+                <th className="border px-3 py-2 text-right">Consumo</th>
+                <th className="border px-3 py-2 text-right">Comissão</th>
+                <th className="border px-3 py-2 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, idx) => (
+                <tr key={idx}>
+                  <td className="border px-3 py-2">{r.data}</td>
+                  <td className="border px-3 py-2">{r.weekday}</td>
+                  <td className="border px-3 py-2">{r.turno}</td>
+                  <td className="border px-3 py-2">{r.nome}</td>
+                  <td className="border px-3 py-2">{r.setor}</td>
+                  <td className="border px-3 py-2 text-right">{fmtMoney(r.diariaFixa)}</td>
+                  <td className="border px-3 py-2 text-right">{fmtMoney(r.consumo)}</td>
+                  <td className="border px-3 py-2 text-right">{fmtMoney(r.comissao)}</td>
+                  <td className="border px-3 py-2 text-right">{fmtMoney(r.total)}</td>
+                </tr>
+              ))}
+
+              <tr className="bg-gray-50 font-semibold">
+                <td className="border px-3 py-2" colSpan={5}>
+                  Totais
+                </td>
+                <td className="border px-3 py-2 text-right">{fmtMoney(totals.diarias)}</td>
+                <td className="border px-3 py-2 text-right">{fmtMoney(totals.consumo)}</td>
+                <td className="border px-3 py-2 text-right">{fmtMoney(totals.comissao)}</td>
+                <td className="border px-3 py-2 text-right">{fmtMoney(totals.total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {rows.length === 0 && !loading && (
+          <div className="text-sm text-gray-500">Nenhum registro para os filtros selecionados.</div>
+        )}
       </div>
     </div>
   );
