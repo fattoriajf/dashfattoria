@@ -1799,7 +1799,7 @@ function CommissionTab() {
       setSavingCommission(false);
     }
   };
-  };
+  
 
   const handlePaymentsReport = async () => {
     if (generatingReports) return;
