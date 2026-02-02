@@ -1276,7 +1276,7 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
           onClick={handleSendEmailsClick}
           className="btn btn-primary text-sm"
         >
-          {isSendingEmails ? 'Processando...' : 'Enviar e-mails'}
+          {isSendingEmails ? 'Processando...' : 'Teste'}
         </button>
       </div>
     </div>
