@@ -1104,6 +1104,7 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
   };
 
   // Enviar escala por e-mail (para cada colaborador + resumo geral para fattoriajf@gmail.com)
+  const [isSendingEmails, setIsSendingEmails] = useState(false);
   const handleSendEmails = async () => {
     if (!SYNC_ENDPOINT) {
       alert("Nenhum endpoint de sincronização configurado.");
