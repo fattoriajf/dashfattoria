@@ -755,6 +755,7 @@ function PunchTab({ staff }: PunchTabProps) {
   // ===== Registrar presença em eventos (turno = "evento") =====
   const [eventSelectedId, setEventSelectedId] = useState<string>("");
   const [eventDateRaw, setEventDateRaw] = useState<string>("");
+  const [eventSetor, setEventSetor] = useState<string>("Salão/Bar");
   const [eventPunching, setEventPunching] = useState(false);
   const [eventConsumoItems, setEventConsumoItems] = useState<ConsumoItem[]>([
     { product: "", quantity: "1" },
@@ -816,7 +817,7 @@ function PunchTab({ staff }: PunchTabProps) {
       staff: name,
       timestamp: new Date().toISOString(),
       turno: "evento",
-      setor: "Evento",
+      setor: eventSetor,
       transporte: {}, // eventos: sem transporte
       consumo: consumoLimpo,
     };
@@ -1202,7 +1203,7 @@ function PunchTab({ staff }: PunchTabProps) {
           <div className="font-semibold text-sm">Registrar presença em eventos</div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="space-y-1">
             <label className="text-sm text-gray-600">Nome</label>
             <select
@@ -1227,6 +1228,18 @@ function PunchTab({ staff }: PunchTabProps) {
               value={eventDateRaw}
               onChange={(e) => setEventDateRaw(e.target.value)}
             />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Setor</label>
+            <select
+              className="input w-full"
+              value={eventSetor}
+              onChange={(e) => setEventSetor(e.target.value)}
+            >
+              <option value="Salão/Bar">Salão/Bar</option>
+              <option value="Pizzaria/Cozinha">Pizzaria/Cozinha</option>
+            </select>
           </div>
         </div>
 
