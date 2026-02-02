@@ -1696,6 +1696,7 @@ function CommissionTab() {
     return `${d}/${m}/${y}`;
   };
 
+  const [isSavingCommission, setIsSavingCommission] = useState(false);
   const handleSaveCommission = async () => {
     if (!dateRaw) {
       alert("Selecione a data.");
@@ -1751,6 +1752,16 @@ function CommissionTab() {
       alert(`Não foi possível registrar a comissão. Erro: ${String(err)}`);
     }
   };
+
+  const handleSaveCommissionClick = async () => {
+    setIsSavingCommission(true);
+    try {
+      await Promise.resolve(handleSaveCommission());
+    } finally {
+      setIsSavingCommission(false);
+    }
+  };
+
 
   const handlePaymentsReport = async () => {
     if (!startRaw || !endRaw) {
@@ -1851,9 +1862,14 @@ function CommissionTab() {
           </div>
         </div>
 
-        <button onClick={handleSaveCommission} className="btn btn-primary">
-          Registrar comissão do dia
+        <button
+          onClick={handleSaveCommissionClick}
+          className="btn btn-primary"
+          disabled={isSavingCommission}
+        >
+          {isSavingCommission ? "Processando..." : "Registrar comissão do dia"}
         </button>
+
       </div>
 
       {/* Seção Pagamentos */}
