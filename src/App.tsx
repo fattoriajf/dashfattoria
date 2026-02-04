@@ -1585,25 +1585,28 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
   };
 
   const handleSendEmailsClick = async () => {
+    if (isSendingEmails) return;
     setIsSendingEmails(true);
+
+    // cria tabela editável e persiste até a virada de domingo->segunda (00:00)
+    // Fazemos isso ANTES do envio para garantir que a tabela apareça mesmo se o fetch demorar.
+    const baselineByDayId = buildUniqueIdsByDay();
+    const pack: FinalSchedulePack = {
+      weekId: String(weekId || ""),
+      createdAt: Date.now(),
+      expiresAt: computeNextMonday00(),
+      baselineByDayId,
+      currentByDayId: baselineByDayId,
+    };
+    setFinalPack(pack);
+    persistPack(pack);
+
+    const init: Record<string, string[]> = {};
+    for (const d of state.days) init[d.id] = Array(ADD_SLOTS).fill("");
+    setAddPick(init);
+
     try {
       await handleSendEmails(); // chama EXATAMENTE o que você já tinha
-
-      // cria tabela editável e persiste até a virada de domingo->segunda (00:00)
-      const baselineByDayId = buildUniqueIdsByDay();
-      const pack: FinalSchedulePack = {
-        weekId: String(weekId || ""),
-        createdAt: Date.now(),
-        expiresAt: computeNextMonday00(),
-        baselineByDayId,
-        currentByDayId: baselineByDayId,
-      };
-      setFinalPack(pack);
-      persistPack(pack);
-
-      const init: Record<string, string[]> = {};
-      for (const d of state.days) init[d.id] = Array(ADD_SLOTS).fill("");
-      setAddPick(init);
     } finally {
       setIsSendingEmails(false);
     }
@@ -2476,6 +2479,9 @@ function CommissionTab() {
           disabled={isSavingCommission}
         >
           {isSavingCommission ? "Processando..." : "Registrar comissão do dia"}
+        </button>
+
+          {savingCommission ? "Processando..." : "Registrar comissão do dia"}
         </button>
       </div>
 
