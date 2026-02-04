@@ -1314,9 +1314,10 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
   const total = state.staff.length;
 
   const [refreshing, setRefreshing] = useState(false);
+
+  // Mantemos o comportamento original do envio
   const [sendingEmails, setSendingEmails] = useState(false);
   const [isSendingEmails, setIsSendingEmails] = useState(false);
-  const [sendingUpdates, setSendingUpdates] = useState(false);
 
   const labelOf = (sid: string) => state.staff.find((s) => s.id === sid)?.name || "";
 
@@ -1337,9 +1338,7 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
       const names: string[] = [];
       for (const s of state.staff) {
         const daysOfS = availability[s.id] || [];
-        if (daysOfS.includes(day.id)) {
-          names.push(s.name);
-        }
+        if (daysOfS.includes(day.id)) names.push(s.name);
       }
       names.sort((a, b) => a.localeCompare(b, "pt-BR"));
       out[day.id] = names;
@@ -1353,21 +1352,16 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
       const ids: string[] = [];
       for (const s of state.staff) {
         const daysOfS = availability[s.id] || [];
-        if (daysOfS.includes(day.id)) {
-          ids.push(s.id);
-        }
+        if (daysOfS.includes(day.id)) ids.push(s.id);
       }
       out[day.id] = ids;
     }
     return out;
   }, [state.days, state.staff, availability]);
 
-  // ======= TABELA DE SELEÇÃO (até 15 por dia) =======
   const [selects, setSelects] = useState<Record<string, string[]>>(() => {
     const init: Record<string, string[]> = {};
-    for (const d of state.days) {
-      init[d.id] = Array(SLOTS_PER_DAY).fill("");
-    }
+    for (const d of state.days) init[d.id] = Array(SLOTS_PER_DAY).fill("");
     return init;
   });
 
@@ -1391,134 +1385,153 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
     });
   };
 
-  // ======= UTIL: monta schedule { [dayCode]: [nomesÚnicos] } a partir dos selects =======
-  type ScheduleMap = Record<string, string[]>;
-  const buildScheduleFromSelects = (): ScheduleMap => {
-    const schedule: ScheduleMap = {};
+  // ======= Escala final (editável) persistida até a virada de domingo->segunda (00:00) =======
+  type FinalSchedulePack = {
+    weekId: string;
+    createdAt: number;
+    expiresAt: number;
+    baselineByDayId: Record<string, string[]>;
+    currentByDayId: Record<string, string[]>;
+  };
+
+  const LS_KEY = useMemo(() => `fattoria_final_schedule_${weekId || "semana"}`, [weekId]);
+
+  const computeNextMonday00 = () => {
+    const now = new Date();
+    const dow = now.getDay(); // 0=domingo ... 6=sábado
+    const daysUntilNextMonday = ((8 - dow) % 7) || 7;
+    const next = new Date(now);
+    next.setDate(now.getDate() + daysUntilNextMonday);
+    next.setHours(0, 0, 0, 0);
+    return next.getTime();
+  };
+
+  const buildUniqueIdsByDay = () => {
+    const out: Record<string, string[]> = {};
     for (const day of state.days) {
-      const arr = selects[day.id] || [];
-      const values = Array.isArray(arr) ? arr : [];
-      const names = values
-        .filter(Boolean)
-        .map((sid: string) => labelOf(sid))
-        .filter(Boolean);
-      const uniqueNames = Array.from(new Set(names));
-      schedule[day.code] = uniqueNames;
+      const vals = Array.isArray(selects[day.id]) ? selects[day.id] : [];
+      const ids = vals.filter(Boolean);
+      const unique = Array.from(new Set(ids));
+      out[day.id] = unique;
     }
-    return schedule;
+    return out;
   };
 
-  // ======= Persistência (até domingo 23:59; zera na virada dom->seg) =======
-  const storageKey = useMemo(() => (weekId ? `fattoria_final_schedule_${weekId}` : ""), [weekId]);
+  const [finalPack, setFinalPack] = useState<FinalSchedulePack | null>(null);
+  const [updatingEmails, setUpdatingEmails] = useState(false);
 
-  const parseWeekIdToDate = (wk: string): Date | null => {
-    const s = String(wk || "").trim();
-    const m = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
-    if (!m) return null;
-    const dd = Number(m[1]);
-    const mm = Number(m[2]);
-    const yyyy = Number(m[3]);
-    const d = new Date(yyyy, mm - 1, dd);
-    if (Number.isNaN(d.getTime())) return null;
-    d.setHours(0, 0, 0, 0);
-    return d;
-  };
+  // 3 selects de "Adicionar..." por dia
+  const ADD_SLOTS = 3;
+  const [addPick, setAddPick] = useState<Record<string, string[]>>({});
 
-  const computeExpiresAt = (): number => {
-    const base = weekId ? parseWeekIdToDate(weekId) : null;
-    const d = base ? new Date(base.getTime()) : new Date();
-    d.setHours(0, 0, 0, 0);
-
-    // próxima segunda-feira 00:00 (após a data base)
-    const dow = d.getDay(); // 0=dom..6=sab
-    let daysToMonday = (1 - dow + 7) % 7;
-    if (daysToMonday === 0) daysToMonday = 7;
-    d.setDate(d.getDate() + daysToMonday);
-    d.setHours(0, 0, 0, 0);
-    return d.getTime();
-  };
-
-  const [sentSchedule, setSentSchedule] = useState<ScheduleMap | null>(null);
-  const [finalSchedule, setFinalSchedule] = useState<ScheduleMap | null>(null);
-  const [finalExpiresAt, setFinalExpiresAt] = useState<number>(0);
-  const [addPickByCode, setAddPickByCode] = useState<Record<string, string>>({});
-
-  const clearFinalSchedule = () => {
-    setSentSchedule(null);
-    setFinalSchedule(null);
-    setFinalExpiresAt(0);
-    setAddPickByCode({});
-    if (storageKey) {
-      try {
-        localStorage.removeItem(storageKey);
-      } catch {
-        // ignore
-      }
-    }
-  };
-
-  // carrega do localStorage
-  useEffect(() => {
-    if (!storageKey) return;
+  const persistPack = (p: FinalSchedulePack | null) => {
     try {
-      const raw = localStorage.getItem(storageKey);
+      if (!p) {
+        localStorage.removeItem(LS_KEY);
+      } else {
+        localStorage.setItem(LS_KEY, JSON.stringify(p));
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    // carrega do localStorage ao entrar na aba
+    try {
+      const raw = localStorage.getItem(LS_KEY);
       if (!raw) return;
-      const obj = JSON.parse(raw);
-      const expiresAt = Number(obj?.expiresAt || 0);
-      const wk = String(obj?.weekId || "");
-      if (wk !== String(weekId || "") || !expiresAt || Date.now() >= expiresAt) {
-        localStorage.removeItem(storageKey);
+      const parsed = JSON.parse(raw) as FinalSchedulePack;
+      if (!parsed || !parsed.expiresAt || Date.now() >= Number(parsed.expiresAt)) {
+        localStorage.removeItem(LS_KEY);
         return;
       }
-      const ss = obj?.sentSchedule && typeof obj.sentSchedule === "object" ? (obj.sentSchedule as ScheduleMap) : null;
-      const fs = obj?.finalSchedule && typeof obj.finalSchedule === "object" ? (obj.finalSchedule as ScheduleMap) : null;
-      if (ss && fs) {
-        setSentSchedule(ss);
-        setFinalSchedule(fs);
-        setFinalExpiresAt(expiresAt);
-      }
+      setFinalPack(parsed);
+
+      // init addPick
+      const init: Record<string, string[]> = {};
+      for (const d of state.days) init[d.id] = Array(ADD_SLOTS).fill("");
+      setAddPick(init);
     } catch {
-      // ignore
+      // ignora
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storageKey]);
+  }, [LS_KEY]);
 
-  // persiste mudanças
   useEffect(() => {
-    if (!storageKey) return;
-    if (!sentSchedule || !finalSchedule || !finalExpiresAt) return;
-    if (Date.now() >= finalExpiresAt) return;
-    try {
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify({
-          weekId,
-          expiresAt: finalExpiresAt,
-          sentSchedule,
-          finalSchedule,
-        })
-      );
-    } catch {
-      // ignore
-    }
-  }, [storageKey, weekId, sentSchedule, finalSchedule, finalExpiresAt]);
-
-  // limpa automaticamente na virada (quando o app estiver aberto)
-  useEffect(() => {
-    if (!finalExpiresAt) return;
-    const ms = finalExpiresAt - Date.now();
+    if (!finalPack) return;
+    const ms = finalPack.expiresAt - Date.now();
     if (ms <= 0) {
-      clearFinalSchedule();
+      setFinalPack(null);
+      persistPack(null);
       return;
     }
     const t = window.setTimeout(() => {
-      clearFinalSchedule();
-    }, ms + 250);
+      setFinalPack(null);
+      persistPack(null);
+    }, ms + 1000);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [finalExpiresAt, storageKey]);
+  }, [finalPack?.expiresAt]);
 
-  // ======= Enviar escala por e-mail (mantém a lógica original) =======
+  const removeFromFinal = (dayId: string, sid: string) => {
+    setFinalPack((prev) => {
+      if (!prev) return prev;
+      const cur = prev.currentByDayId[dayId] || [];
+      const nextDay = cur.filter((x) => x !== sid);
+      const next: FinalSchedulePack = {
+        ...prev,
+        currentByDayId: { ...prev.currentByDayId, [dayId]: nextDay },
+      };
+      persistPack(next);
+      return next;
+    });
+  };
+
+  const addToFinal = (dayId: string, sid: string) => {
+    setFinalPack((prev) => {
+      if (!prev) return prev;
+      const cur = prev.currentByDayId[dayId] || [];
+      if (cur.includes(sid)) return prev;
+      const nextDay = [...cur, sid];
+      const next: FinalSchedulePack = {
+        ...prev,
+        currentByDayId: { ...prev.currentByDayId, [dayId]: nextDay },
+      };
+      persistPack(next);
+      return next;
+    });
+  };
+
+  const computeDiffs = () => {
+    const removed: Record<string, string[]> = {};
+    const added: Record<string, string[]> = {};
+    if (!finalPack) return { removed, added };
+
+    for (const day of state.days) {
+      const base = finalPack.baselineByDayId[day.id] || [];
+      const cur = finalPack.currentByDayId[day.id] || [];
+
+      const removedIds = base.filter((sid) => !cur.includes(sid));
+      const addedIds = cur.filter((sid) => !base.includes(sid));
+
+      removedIds.forEach((sid) => {
+        const nm = labelOf(sid);
+        if (!nm) return;
+        if (!removed[nm]) removed[nm] = [];
+        removed[nm].push(day.label);
+      });
+
+      addedIds.forEach((sid) => {
+        const nm = labelOf(sid);
+        if (!nm) return;
+        if (!added[nm]) added[nm] = [];
+        added[nm].push(day.label);
+      });
+    }
+
+    return { removed, added };
+  };
+
+  // Enviar escala por e-mail (EXATAMENTE como estava)
   const handleSendEmails = async () => {
     if (!SYNC_ENDPOINT) {
       alert("Nenhum endpoint de sincronização configurado.");
@@ -1528,7 +1541,18 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
 
     setSendingEmails(true);
     try {
-      const schedule = buildScheduleFromSelects();
+      // monta objeto { [dayCode]: [nomesÚnicos] }
+      const schedule: Record<string, string[]> = {};
+      for (const day of state.days) {
+        const arr = selects[day.id] || {};
+        const values = Array.isArray(arr) ? arr : [];
+        const names = values
+          .filter(Boolean)
+          .map((sid: string) => labelOf(sid))
+          .filter(Boolean);
+        const uniqueNames = Array.from(new Set(names));
+        schedule[day.code] = uniqueNames;
+      }
 
       const payload = {
         action: "send_schedule",
@@ -1561,85 +1585,28 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
   };
 
   const handleSendEmailsClick = async () => {
-    if (!SYNC_ENDPOINT) {
-      alert("Nenhum endpoint de sincronização configurado.");
-      return;
-    }
-    if (isSendingEmails) return;
-
     setIsSendingEmails(true);
     try {
-      await handleSendEmails(); // dispara EXATAMENTE o que já existia
-      const schedule = buildScheduleFromSelects();
-      const expiresAt = computeExpiresAt();
-      setSentSchedule(schedule);
-      setFinalSchedule(schedule);
-      setFinalExpiresAt(expiresAt);
+      await handleSendEmails(); // chama EXATAMENTE o que você já tinha
+
+      // cria tabela editável e persiste até a virada de domingo->segunda (00:00)
+      const baselineByDayId = buildUniqueIdsByDay();
+      const pack: FinalSchedulePack = {
+        weekId: String(weekId || ""),
+        createdAt: Date.now(),
+        expiresAt: computeNextMonday00(),
+        baselineByDayId,
+        currentByDayId: baselineByDayId,
+      };
+      setFinalPack(pack);
+      persistPack(pack);
+
+      const init: Record<string, string[]> = {};
+      for (const d of state.days) init[d.id] = Array(ADD_SLOTS).fill("");
+      setAddPick(init);
     } finally {
       setIsSendingEmails(false);
     }
-  };
-
-  // ======= Editor da escala enviada (até domingo) =======
-  const dayLabelByCode: Record<string, string> = useMemo(() => {
-    const out: Record<string, string> = {};
-    for (const d of state.days) out[d.code] = d.label;
-    return out;
-  }, [state.days]);
-
-  const availNamesByCode: Record<string, string[]> = useMemo(() => {
-    const out: Record<string, string[]> = {};
-    for (const d of state.days) out[d.code] = availNamesByDay[d.id] || [];
-    return out;
-  }, [state.days, availNamesByDay]);
-
-  const removeFromFinal = (dayCode: string, name: string) => {
-    setFinalSchedule((prev) => {
-      if (!prev) return prev;
-      const next = { ...prev };
-      const arr = Array.isArray(next[dayCode]) ? next[dayCode] : [];
-      next[dayCode] = arr.filter((n) => n !== name);
-      return next;
-    });
-  };
-
-  const addToFinal = (dayCode: string, name: string) => {
-    setFinalSchedule((prev) => {
-      if (!prev) return prev;
-      const next = { ...prev };
-      const arr = Array.isArray(next[dayCode]) ? next[dayCode] : [];
-      if (arr.includes(name)) return prev;
-      if (arr.length >= SLOTS_PER_DAY) return prev;
-      next[dayCode] = [...arr, name];
-      return next;
-    });
-  };
-
-  const diffSchedules = (before: ScheduleMap, after: ScheduleMap) => {
-    const removed: Record<string, string[]> = {};
-    const added: Record<string, string[]> = {};
-
-    const codes = Array.from(new Set([...Object.keys(before || {}), ...Object.keys(after || {})]));
-    for (const code of codes) {
-      const a1 = Array.isArray(before[code]) ? before[code] : [];
-      const a2 = Array.isArray(after[code]) ? after[code] : [];
-      const set1 = new Set(a1);
-      const set2 = new Set(a2);
-      for (const n of set1) {
-        if (!set2.has(n)) {
-          if (!removed[n]) removed[n] = [];
-          removed[n].push(dayLabelByCode[code] || code);
-        }
-      }
-      for (const n of set2) {
-        if (!set1.has(n)) {
-          if (!added[n]) added[n] = [];
-          added[n].push(dayLabelByCode[code] || code);
-        }
-      }
-    }
-
-    return { removed, added };
   };
 
   const handleSendUpdatedEmails = async () => {
@@ -1647,20 +1614,20 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
       alert("Nenhum endpoint de sincronização configurado.");
       return;
     }
-    if (!sentSchedule || !finalSchedule) {
-      alert("Nenhuma escala enviada para atualizar.");
+    if (!finalPack) return;
+    if (updatingEmails) return;
+
+    const { removed, added } = computeDiffs();
+    const hasAny =
+      Object.keys(removed).some((k) => (removed[k] || []).length > 0) ||
+      Object.keys(added).some((k) => (added[k] || []).length > 0);
+
+    if (!hasAny) {
+      alert("Nenhuma modificação detectada na escala.");
       return;
     }
-    if (sendingUpdates) return;
 
-    const { removed, added } = diffSchedules(sentSchedule, finalSchedule);
-    const hasChanges = Object.keys(removed).length > 0 || Object.keys(added).length > 0;
-    if (!hasChanges) {
-      alert("Nenhuma modificação detectada.");
-      return;
-    }
-
-    setSendingUpdates(true);
+    setUpdatingEmails(true);
     try {
       const payload = {
         action: "send_schedule_updates",
@@ -1676,42 +1643,30 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
         body: JSON.stringify(payload),
       });
 
-      // Em no-cors a resposta é 'opaque'; tratamos como sucesso
       // @ts-ignore
       if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
-        alert("E-mails de atualização enviados (solicitação enviada ao servidor).");
-        setSentSchedule(finalSchedule);
-        return;
-      }
-
-      if (!resp.ok) {
+        alert("E-mails atualizados enviados (solicitação enviada ao servidor).");
+      } else if (!resp.ok) {
         const txt = await resp.text().catch(() => "");
         alert(`Falha ao enviar e-mails atualizados (HTTP ${resp.status}). ${txt.slice(0, 180)}`);
-        return;
+      } else {
+        alert("E-mails atualizados enviados.");
       }
 
-      alert("E-mails de atualização enviados.");
-      setSentSchedule(finalSchedule);
+      // depois de enviar, atualiza o baseline para evitar reenviar de novo
+      setFinalPack((prev) => {
+        if (!prev) return prev;
+        const next: FinalSchedulePack = {
+          ...prev,
+          baselineByDayId: prev.currentByDayId,
+        };
+        persistPack(next);
+        return next;
+      });
     } catch (err: any) {
-      alert(`Não foi possível enviar os e-mails atualizados. Erro: ${String(err)}`);
+      alert(`Não foi possível enviar e-mails atualizados. Erro: ${String(err)}`);
     } finally {
-      setSendingUpdates(false);
-    }
-  };
-
-  const showFinal = !!finalSchedule && !!finalExpiresAt && Date.now() < finalExpiresAt;
-
-  const fmtExpire = (ts: number) => {
-    try {
-      return new Intl.DateTimeFormat("pt-BR", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      }).format(new Date(ts));
-    } catch {
-      return "";
+      setUpdatingEmails(false);
     }
   };
 
@@ -1826,23 +1781,18 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
 
       {/* BOTÃO ENVIAR ESCALA POR E-MAIL */}
       <div className="space-y-3">
-        <button onClick={handleSendEmailsClick} className="btn btn-primary text-sm" disabled={isSendingEmails}>
+        <button onClick={handleSendEmailsClick} className="btn btn-primary text-sm">
           {isSendingEmails ? "Processando..." : "Enviar e-mails"}
         </button>
 
-        {/* TABELA FINAL (editável até domingo; zera na virada dom->seg) */}
-        {showFinal && finalSchedule && (
+        {/* TABELA FINAL EDITÁVEL (só aparece depois de enviar) */}
+        {finalPack && (
           <div className="border rounded-xl p-4 bg-white space-y-3">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h4 className="font-semibold text-sm">Escala enviada (editável)</h4>
-                <div className="text-xs text-gray-600">
-                  Esta tabela fica disponível até <span className="font-medium">{fmtExpire(finalExpiresAt)}</span>.
-                </div>
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-base">Escala enviada (editável)</h3>
+              <div className="text-xs text-gray-500">
+                Visível até {new Date(finalPack.expiresAt).toLocaleString("pt-BR")}
               </div>
-              <button onClick={clearFinalSchedule} className="btn btn-ghost text-xs">
-                Limpar
-              </button>
             </div>
 
             <div className="overflow-auto">
@@ -1850,61 +1800,65 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
                 <thead className="bg-gray-100">
                   <tr>
                     <th className="border px-3 py-2 text-left">Dia/Turno</th>
-                    <th className="border px-3 py-2 text-left">Escalação final (editar)</th>
+                    <th className="border px-3 py-2 text-left">Escalados</th>
                   </tr>
                 </thead>
                 <tbody>
                   {state.days.map((day) => {
-                    const code = day.code;
-                    const names = (finalSchedule[code] || []).filter(Boolean);
-                    const avail = (availNamesByCode[code] || []).filter((n) => !names.includes(n));
-                    const addPick = addPickByCode[code] || "";
-                    const canAdd = names.length < SLOTS_PER_DAY && avail.length > 0;
+                    const currentIds = finalPack.currentByDayId[day.id] || [];
+                    const availableIds = (selectOptionsByDay[day.id] || []).filter((sid) => !currentIds.includes(sid));
+
+                    const picks = addPick[day.id] || Array(ADD_SLOTS).fill("");
 
                     return (
-                      <tr key={code}>
+                      <tr key={day.id}>
                         <td className="border px-3 py-2 align-top">{day.label}</td>
                         <td className="border px-3 py-2">
                           <div className="flex flex-wrap gap-2">
-                            {names.map((n) => (
+                            {currentIds.map((sid) => (
                               <select
-                                key={n}
+                                key={`cur-${sid}`}
                                 className="input text-xs py-1 px-2"
-                                value={n}
+                                value={sid}
                                 onChange={(e) => {
                                   const v = e.target.value;
-                                  if (v === "__remove__") removeFromFinal(code, n);
+                                  if (v === "__REMOVE__") removeFromFinal(day.id, sid);
                                 }}
                               >
-                                <option value={n}>{n}</option>
-                                <option value="__remove__">Remover</option>
+                                <option value={sid}>{labelOf(sid)}</option>
+                                <option value="__REMOVE__">Remover</option>
                               </select>
                             ))}
 
-                            <select
-                              className="input text-xs py-1 px-2"
-                              value={addPick}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                if (!v) return;
-                                addToFinal(code, v);
-                                setAddPickByCode((prev) => ({ ...prev, [code]: "" }));
-                              }}
-                              disabled={!canAdd}
-                            >
-                              <option value="">
-                                {names.length === 0 ? "Adicionar" : "Adicionar +"}
-                              </option>
-                              {avail.map((n) => (
-                                <option key={n} value={n}>
-                                  {n}
-                                </option>
-                              ))}
-                            </select>
-
-                            {!canAdd && names.length >= SLOTS_PER_DAY && (
-                              <span className="text-xs text-gray-500 self-center">limite de 15</span>
-                            )}
+                            {Array.from({ length: ADD_SLOTS }).map((_, i) => (
+                              <select
+                                key={`add-${day.id}-${i}`}
+                                className="input text-xs py-1 px-2"
+                                value={picks[i] || ""}
+                                onChange={(e) => {
+                                  const sid = e.target.value;
+                                  setAddPick((prev) => ({
+                                    ...prev,
+                                    [day.id]: (prev[day.id] || []).map((v, idx) => (idx === i ? sid : v)),
+                                  }));
+                                  if (sid) {
+                                    addToFinal(day.id, sid);
+                                    // reseta este select para "Adicionar..."
+                                    setAddPick((prev) => ({
+                                      ...prev,
+                                      [day.id]: (prev[day.id] || []).map((v, idx) => (idx === i ? "" : v)),
+                                    }));
+                                  }
+                                }}
+                              >
+                                <option value="">Adicionar...</option>
+                                {availableIds.map((sid) => (
+                                  <option key={`opt-${day.id}-${sid}`} value={sid}>
+                                    {labelOf(sid)}
+                                  </option>
+                                ))}
+                              </select>
+                            ))}
                           </div>
                         </td>
                       </tr>
@@ -1914,18 +1868,13 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
               </table>
             </div>
 
-            <div>
-              <button
-                onClick={handleSendUpdatedEmails}
-                className="btn btn-primary text-sm"
-                disabled={sendingUpdates || !sentSchedule || !finalSchedule}
-              >
-                {sendingUpdates ? "Processando..." : "Mandar e-mails atualizados"}
-              </button>
-              <div className="text-xs text-gray-500 mt-1">
-                Envia e-mail apenas para quem foi removido(a) ou adicionado(a) após a escala enviada.
-              </div>
-            </div>
+            <button
+              onClick={handleSendUpdatedEmails}
+              className={`btn btn-primary text-sm ${updatingEmails ? "opacity-70 cursor-not-allowed" : ""}`}
+              disabled={updatingEmails}
+            >
+              {updatingEmails ? "Processando..." : "Mandar e-mails atualizados"}
+            </button>
           </div>
         )}
       </div>
@@ -2527,9 +2476,6 @@ function CommissionTab() {
           disabled={isSavingCommission}
         >
           {isSavingCommission ? "Processando..." : "Registrar comissão do dia"}
-        </button>
-
-          {savingCommission ? "Processando..." : "Registrar comissão do dia"}
         </button>
       </div>
 
