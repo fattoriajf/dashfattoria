@@ -1312,17 +1312,22 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
   const respondedSet = new Set(respondedIds);
   const missing = state.staff.filter((s) => !respondedSet.has(s.id)).map((s) => s.name);
   const total = state.staff.length;
+
   const [refreshing, setRefreshing] = useState(false);
   const [sendingEmails, setSendingEmails] = useState(false);
+  const [isSendingEmails, setIsSendingEmails] = useState(false);
+  const [sendingUpdates, setSendingUpdates] = useState(false);
+
   const labelOf = (sid: string) => state.staff.find((s) => s.id === sid)?.name || "";
 
   const handleRefreshClick = async () => {
-  if (refreshing) return;
-  setRefreshing(true);
-  try {
-    await Promise.resolve(onRefresh());
-    alert("Respostas atualizadas.");
-      } finally {setRefreshing(false);
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await Promise.resolve(onRefresh());
+      alert("Respostas atualizadas.");
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -1357,6 +1362,7 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
     return out;
   }, [state.days, state.staff, availability]);
 
+  // ======= TABELA DE SELEÇÃO (até 15 por dia) =======
   const [selects, setSelects] = useState<Record<string, string[]>>(() => {
     const init: Record<string, string[]> = {};
     for (const d of state.days) {
@@ -1385,9 +1391,134 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
     });
   };
 
-  // Enviar escala por e-mail (para cada colaborador + resumo geral para fattoriajf@gmail.com)
-  const [isSendingEmails, setIsSendingEmails] = useState(false);
+  // ======= UTIL: monta schedule { [dayCode]: [nomesÚnicos] } a partir dos selects =======
+  type ScheduleMap = Record<string, string[]>;
+  const buildScheduleFromSelects = (): ScheduleMap => {
+    const schedule: ScheduleMap = {};
+    for (const day of state.days) {
+      const arr = selects[day.id] || [];
+      const values = Array.isArray(arr) ? arr : [];
+      const names = values
+        .filter(Boolean)
+        .map((sid: string) => labelOf(sid))
+        .filter(Boolean);
+      const uniqueNames = Array.from(new Set(names));
+      schedule[day.code] = uniqueNames;
+    }
+    return schedule;
+  };
 
+  // ======= Persistência (até domingo 23:59; zera na virada dom->seg) =======
+  const storageKey = useMemo(() => (weekId ? `fattoria_final_schedule_${weekId}` : ""), [weekId]);
+
+  const parseWeekIdToDate = (wk: string): Date | null => {
+    const s = String(wk || "").trim();
+    const m = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+    if (!m) return null;
+    const dd = Number(m[1]);
+    const mm = Number(m[2]);
+    const yyyy = Number(m[3]);
+    const d = new Date(yyyy, mm - 1, dd);
+    if (Number.isNaN(d.getTime())) return null;
+    d.setHours(0, 0, 0, 0);
+    return d;
+  };
+
+  const computeExpiresAt = (): number => {
+    const base = weekId ? parseWeekIdToDate(weekId) : null;
+    const d = base ? new Date(base.getTime()) : new Date();
+    d.setHours(0, 0, 0, 0);
+
+    // próxima segunda-feira 00:00 (após a data base)
+    const dow = d.getDay(); // 0=dom..6=sab
+    let daysToMonday = (1 - dow + 7) % 7;
+    if (daysToMonday === 0) daysToMonday = 7;
+    d.setDate(d.getDate() + daysToMonday);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  };
+
+  const [sentSchedule, setSentSchedule] = useState<ScheduleMap | null>(null);
+  const [finalSchedule, setFinalSchedule] = useState<ScheduleMap | null>(null);
+  const [finalExpiresAt, setFinalExpiresAt] = useState<number>(0);
+  const [addPickByCode, setAddPickByCode] = useState<Record<string, string>>({});
+
+  const clearFinalSchedule = () => {
+    setSentSchedule(null);
+    setFinalSchedule(null);
+    setFinalExpiresAt(0);
+    setAddPickByCode({});
+    if (storageKey) {
+      try {
+        localStorage.removeItem(storageKey);
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  // carrega do localStorage
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return;
+      const obj = JSON.parse(raw);
+      const expiresAt = Number(obj?.expiresAt || 0);
+      const wk = String(obj?.weekId || "");
+      if (wk !== String(weekId || "") || !expiresAt || Date.now() >= expiresAt) {
+        localStorage.removeItem(storageKey);
+        return;
+      }
+      const ss = obj?.sentSchedule && typeof obj.sentSchedule === "object" ? (obj.sentSchedule as ScheduleMap) : null;
+      const fs = obj?.finalSchedule && typeof obj.finalSchedule === "object" ? (obj.finalSchedule as ScheduleMap) : null;
+      if (ss && fs) {
+        setSentSchedule(ss);
+        setFinalSchedule(fs);
+        setFinalExpiresAt(expiresAt);
+      }
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey]);
+
+  // persiste mudanças
+  useEffect(() => {
+    if (!storageKey) return;
+    if (!sentSchedule || !finalSchedule || !finalExpiresAt) return;
+    if (Date.now() >= finalExpiresAt) return;
+    try {
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          weekId,
+          expiresAt: finalExpiresAt,
+          sentSchedule,
+          finalSchedule,
+        })
+      );
+    } catch {
+      // ignore
+    }
+  }, [storageKey, weekId, sentSchedule, finalSchedule, finalExpiresAt]);
+
+  // limpa automaticamente na virada (quando o app estiver aberto)
+  useEffect(() => {
+    if (!finalExpiresAt) return;
+    const ms = finalExpiresAt - Date.now();
+    if (ms <= 0) {
+      clearFinalSchedule();
+      return;
+    }
+    const t = window.setTimeout(() => {
+      clearFinalSchedule();
+    }, ms + 250);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finalExpiresAt, storageKey]);
+
+  // ======= Enviar escala por e-mail (mantém a lógica original) =======
   const handleSendEmails = async () => {
     if (!SYNC_ENDPOINT) {
       alert("Nenhum endpoint de sincronização configurado.");
@@ -1397,18 +1528,7 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
 
     setSendingEmails(true);
     try {
-      // monta objeto { [dayCode]: [nomesÚnicos] }
-      const schedule: Record<string, string[]> = {};
-      for (const day of state.days) {
-        const arr = selects[day.id] || {};
-        const values = Array.isArray(arr) ? arr : [];
-        const names = values
-          .filter(Boolean)
-          .map((sid: string) => labelOf(sid))
-          .filter(Boolean);
-        const uniqueNames = Array.from(new Set(names));
-        schedule[day.code] = uniqueNames;
-      }
+      const schedule = buildScheduleFromSelects();
 
       const payload = {
         action: "send_schedule",
@@ -1439,15 +1559,161 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
       setSendingEmails(false);
     }
   };
+
   const handleSendEmailsClick = async () => {
+    if (!SYNC_ENDPOINT) {
+      alert("Nenhum endpoint de sincronização configurado.");
+      return;
+    }
+    if (isSendingEmails) return;
+
     setIsSendingEmails(true);
     try {
-      await handleSendEmails(); // chama EXATAMENTE o que você já tinha
+      await handleSendEmails(); // dispara EXATAMENTE o que já existia
+      const schedule = buildScheduleFromSelects();
+      const expiresAt = computeExpiresAt();
+      setSentSchedule(schedule);
+      setFinalSchedule(schedule);
+      setFinalExpiresAt(expiresAt);
     } finally {
       setIsSendingEmails(false);
     }
   };
 
+  // ======= Editor da escala enviada (até domingo) =======
+  const dayLabelByCode: Record<string, string> = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const d of state.days) out[d.code] = d.label;
+    return out;
+  }, [state.days]);
+
+  const availNamesByCode: Record<string, string[]> = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const d of state.days) out[d.code] = availNamesByDay[d.id] || [];
+    return out;
+  }, [state.days, availNamesByDay]);
+
+  const removeFromFinal = (dayCode: string, name: string) => {
+    setFinalSchedule((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev };
+      const arr = Array.isArray(next[dayCode]) ? next[dayCode] : [];
+      next[dayCode] = arr.filter((n) => n !== name);
+      return next;
+    });
+  };
+
+  const addToFinal = (dayCode: string, name: string) => {
+    setFinalSchedule((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev };
+      const arr = Array.isArray(next[dayCode]) ? next[dayCode] : [];
+      if (arr.includes(name)) return prev;
+      if (arr.length >= SLOTS_PER_DAY) return prev;
+      next[dayCode] = [...arr, name];
+      return next;
+    });
+  };
+
+  const diffSchedules = (before: ScheduleMap, after: ScheduleMap) => {
+    const removed: Record<string, string[]> = {};
+    const added: Record<string, string[]> = {};
+
+    const codes = Array.from(new Set([...Object.keys(before || {}), ...Object.keys(after || {})]));
+    for (const code of codes) {
+      const a1 = Array.isArray(before[code]) ? before[code] : [];
+      const a2 = Array.isArray(after[code]) ? after[code] : [];
+      const set1 = new Set(a1);
+      const set2 = new Set(a2);
+      for (const n of set1) {
+        if (!set2.has(n)) {
+          if (!removed[n]) removed[n] = [];
+          removed[n].push(dayLabelByCode[code] || code);
+        }
+      }
+      for (const n of set2) {
+        if (!set1.has(n)) {
+          if (!added[n]) added[n] = [];
+          added[n].push(dayLabelByCode[code] || code);
+        }
+      }
+    }
+
+    return { removed, added };
+  };
+
+  const handleSendUpdatedEmails = async () => {
+    if (!SYNC_ENDPOINT) {
+      alert("Nenhum endpoint de sincronização configurado.");
+      return;
+    }
+    if (!sentSchedule || !finalSchedule) {
+      alert("Nenhuma escala enviada para atualizar.");
+      return;
+    }
+    if (sendingUpdates) return;
+
+    const { removed, added } = diffSchedules(sentSchedule, finalSchedule);
+    const hasChanges = Object.keys(removed).length > 0 || Object.keys(added).length > 0;
+    if (!hasChanges) {
+      alert("Nenhuma modificação detectada.");
+      return;
+    }
+
+    setSendingUpdates(true);
+    try {
+      const payload = {
+        action: "send_schedule_updates",
+        weekId,
+        removed,
+        added,
+      };
+
+      const resp = await fetch(SYNC_ENDPOINT, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+      });
+
+      // Em no-cors a resposta é 'opaque'; tratamos como sucesso
+      // @ts-ignore
+      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
+        alert("E-mails de atualização enviados (solicitação enviada ao servidor).");
+        setSentSchedule(finalSchedule);
+        return;
+      }
+
+      if (!resp.ok) {
+        const txt = await resp.text().catch(() => "");
+        alert(`Falha ao enviar e-mails atualizados (HTTP ${resp.status}). ${txt.slice(0, 180)}`);
+        return;
+      }
+
+      alert("E-mails de atualização enviados.");
+      setSentSchedule(finalSchedule);
+    } catch (err: any) {
+      alert(`Não foi possível enviar os e-mails atualizados. Erro: ${String(err)}`);
+    } finally {
+      setSendingUpdates(false);
+    }
+  };
+
+  const showFinal = !!finalSchedule && !!finalExpiresAt && Date.now() < finalExpiresAt;
+
+  const fmtExpire = (ts: number) => {
+    try {
+      return new Intl.DateTimeFormat("pt-BR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(ts));
+    } catch {
+      return "";
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -1461,16 +1727,25 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
             {total - missing.length} de {total} já responderam.
             <span className="block text-xs mt-1">Sem resposta: {missing.join(", ")}</span>
             <div className="mt-2">
-              <button onClick={handleRefreshClick} disabled={refreshing} className={`btn btn-ghost text-sm ${refreshing ? "opacity-70 cursor-not-allowed" : ""}`} >
+              <button
+                onClick={handleRefreshClick}
+                disabled={refreshing}
+                className={`btn btn-ghost text-sm ${refreshing ? "opacity-70 cursor-not-allowed" : ""}`}
+              >
                 {refreshing ? "Processando..." : "Atualizar respostas"}
               </button>
             </div>
           </div>
         )}
+
         {missing.length === 0 && (
           <div className="mt-2">
-            <button onClick={handleRefreshClick} disabled={refreshing} className={`btn btn-ghost text-sm ${refreshing ? "opacity-70 cursor-not-allowed" : ""}`} >
-               {refreshing ? "Processando..." : "Atualizar respostas"}
+            <button
+              onClick={handleRefreshClick}
+              disabled={refreshing}
+              className={`btn btn-ghost text-sm ${refreshing ? "opacity-70 cursor-not-allowed" : ""}`}
+            >
+              {refreshing ? "Processando..." : "Atualizar respostas"}
             </button>
           </div>
         )}
@@ -1484,9 +1759,7 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
             <thead className="bg-gray-100">
               <tr>
                 <th className="border px-3 py-2 text-left">Dia/Turno</th>
-                <th className="border px-3 py-2 text-left">
-                  Disponíveis (ordem alfabética)
-                </th>
+                <th className="border px-3 py-2 text-left">Disponíveis (ordem alfabética)</th>
               </tr>
             </thead>
             <tbody>
@@ -1496,11 +1769,7 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
                   <tr key={day.id}>
                     <td className="border px-3 py-2">{day.label}</td>
                     <td className="border px-3 py-2">
-                      {names.length ? (
-                        names.join(", ")
-                      ) : (
-                        <span className="text-red-600">— ninguém disponível</span>
-                      )}
+                      {names.length ? names.join(", ") : <span className="text-red-600">— ninguém disponível</span>}
                     </td>
                   </tr>
                 );
@@ -1535,9 +1804,7 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
                             key={idx}
                             className="input text-xs py-1 px-2"
                             value={val}
-                            onChange={(e) =>
-                              setSelectCell(day.id, idx, e.target.value)
-                            }
+                            onChange={(e) => setSelectCell(day.id, idx, e.target.value)}
                           >
                             <option value="">- Selecionar -</option>
                             {optionIds.map((sid) => (
@@ -1558,15 +1825,109 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
       </div>
 
       {/* BOTÃO ENVIAR ESCALA POR E-MAIL */}
-      <div className="space-y-2">
-        <button
-          onClick={handleSendEmailsClick}
-          className="btn btn-primary text-sm"
-        >
-          {isSendingEmails ? 'Processando...' : 'Enviar e-mails'}
+      <div className="space-y-3">
+        <button onClick={handleSendEmailsClick} className="btn btn-primary text-sm" disabled={isSendingEmails}>
+          {isSendingEmails ? "Processando..." : "Enviar e-mails"}
         </button>
 
-      
+        {/* TABELA FINAL (editável até domingo; zera na virada dom->seg) */}
+        {showFinal && finalSchedule && (
+          <div className="border rounded-xl p-4 bg-white space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h4 className="font-semibold text-sm">Escala enviada (editável)</h4>
+                <div className="text-xs text-gray-600">
+                  Esta tabela fica disponível até <span className="font-medium">{fmtExpire(finalExpiresAt)}</span>.
+                </div>
+              </div>
+              <button onClick={clearFinalSchedule} className="btn btn-ghost text-xs">
+                Limpar
+              </button>
+            </div>
+
+            <div className="overflow-auto">
+              <table className="min-w-full border text-sm">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="border px-3 py-2 text-left">Dia/Turno</th>
+                    <th className="border px-3 py-2 text-left">Escalação final (editar)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {state.days.map((day) => {
+                    const code = day.code;
+                    const names = (finalSchedule[code] || []).filter(Boolean);
+                    const avail = (availNamesByCode[code] || []).filter((n) => !names.includes(n));
+                    const addPick = addPickByCode[code] || "";
+                    const canAdd = names.length < SLOTS_PER_DAY && avail.length > 0;
+
+                    return (
+                      <tr key={code}>
+                        <td className="border px-3 py-2 align-top">{day.label}</td>
+                        <td className="border px-3 py-2">
+                          <div className="flex flex-wrap gap-2">
+                            {names.map((n) => (
+                              <select
+                                key={n}
+                                className="input text-xs py-1 px-2"
+                                value={n}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  if (v === "__remove__") removeFromFinal(code, n);
+                                }}
+                              >
+                                <option value={n}>{n}</option>
+                                <option value="__remove__">Remover</option>
+                              </select>
+                            ))}
+
+                            <select
+                              className="input text-xs py-1 px-2"
+                              value={addPick}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                if (!v) return;
+                                addToFinal(code, v);
+                                setAddPickByCode((prev) => ({ ...prev, [code]: "" }));
+                              }}
+                              disabled={!canAdd}
+                            >
+                              <option value="">
+                                {names.length === 0 ? "Adicionar" : "Adicionar +"}
+                              </option>
+                              {avail.map((n) => (
+                                <option key={n} value={n}>
+                                  {n}
+                                </option>
+                              ))}
+                            </select>
+
+                            {!canAdd && names.length >= SLOTS_PER_DAY && (
+                              <span className="text-xs text-gray-500 self-center">limite de 15</span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div>
+              <button
+                onClick={handleSendUpdatedEmails}
+                className="btn btn-primary text-sm"
+                disabled={sendingUpdates || !sentSchedule || !finalSchedule}
+              >
+                {sendingUpdates ? "Processando..." : "Mandar e-mails atualizados"}
+              </button>
+              <div className="text-xs text-gray-500 mt-1">
+                Envia e-mail apenas para quem foi removido(a) ou adicionado(a) após a escala enviada.
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
