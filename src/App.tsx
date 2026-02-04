@@ -2044,6 +2044,8 @@ function CommissionTab() {
       setSavingCommission(false);
     }
   };
+  const [isSavingCommission, setIsSavingCommission] = useState(false);
+
 
   const handlePaymentsReport = async () => {
     if (generatingReports) return;
@@ -2100,6 +2102,15 @@ function CommissionTab() {
       setGeneratingReports(false);
     }
   };
+  const handleSaveCommissionClick = async () => {
+    setIsSavingCommission(true);
+    try {
+      await Promise.resolve(handleSaveCommission());
+    } finally {
+      setIsSavingCommission(false);
+    }
+  };
+
 
   return (
     <div className="space-y-6">
@@ -2150,10 +2161,13 @@ function CommissionTab() {
         </div>
 
         <button
-          onClick={handleSaveCommission}
-          disabled={savingCommission}
-          className={`btn btn-primary ${savingCommission ? "opacity-70 cursor-not-allowed" : ""}`}
+          onClick={handleSaveCommissionClick}
+          className="btn btn-primary"
+          disabled={isSavingCommission}
         >
+          {isSavingCommission ? "Processando..." : "Registrar comissão do dia"}
+        </button>
+
           {savingCommission ? "Processando..." : "Registrar comissão do dia"}
         </button>
       </div>
