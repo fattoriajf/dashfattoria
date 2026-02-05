@@ -668,8 +668,6 @@ function PunchTab({ staff }: PunchTabProps) {
   // Data, turno, setor
   const [dateRaw, setDateRaw] = useState<string>("");
   const [turno, setTurno] = useState<string>("Noite");
-  const [setor, setSetor] = useState<string>("Salão/Bar");
-
   const isSunday = useMemo(() => {
     if (!dateRaw) return false;
     const parts = dateRaw.split("-");
@@ -755,7 +753,6 @@ function PunchTab({ staff }: PunchTabProps) {
   // ===== Registrar presença em eventos (turno = "evento") =====
   const [eventSelectedId, setEventSelectedId] = useState<string>("");
   const [eventDateRaw, setEventDateRaw] = useState<string>("");
-  const [eventSetor, setEventSetor] = useState<string>("Salão/Bar");
   const [eventPunching, setEventPunching] = useState(false);
   const [eventConsumoItems, setEventConsumoItems] = useState<ConsumoItem[]>([
     { product: "", quantity: "1" },
@@ -817,7 +814,6 @@ function PunchTab({ staff }: PunchTabProps) {
       staff: name,
       timestamp: new Date().toISOString(),
       turno: "evento",
-      setor: eventSetor,
       transporte: {}, // eventos: sem transporte
       consumo: consumoLimpo,
     };
@@ -909,7 +905,6 @@ function PunchTab({ staff }: PunchTabProps) {
           staff: name,
           timestamp: new Date().toISOString(),
           turno,
-          setor,
           transporte: transportePayload,
           consumo: consumoLimpo,
         };
@@ -985,19 +980,7 @@ function PunchTab({ staff }: PunchTabProps) {
             <option value="Noite">Noite</option>
           </select>
         </div>
-
-        <div className="space-y-1">
-          <label className="text-sm text-gray-600">Setor</label>
-          <select
-            className="input w-full"
-            value={setor}
-            onChange={(e) => setSetor(e.target.value)}
-          >
-            <option value="Salão/Bar">Salão/Bar</option>
-            <option value="Pizzaria/Cozinha">Pizzaria/Cozinha</option>
-          </select>
-        </div>
-      </div>
+</div>
 
       {isSunday ? (
         <div className="text-xs text-gray-500">
@@ -1203,7 +1186,7 @@ function PunchTab({ staff }: PunchTabProps) {
           <div className="font-semibold text-sm">Registrar presença em eventos</div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1">
             <label className="text-sm text-gray-600">Nome</label>
             <select
@@ -1229,19 +1212,7 @@ function PunchTab({ staff }: PunchTabProps) {
               onChange={(e) => setEventDateRaw(e.target.value)}
             />
           </div>
-
-          <div className="space-y-1">
-            <label className="text-sm text-gray-600">Setor</label>
-            <select
-              className="input w-full"
-              value={eventSetor}
-              onChange={(e) => setEventSetor(e.target.value)}
-            >
-              <option value="Salão/Bar">Salão/Bar</option>
-              <option value="Pizzaria/Cozinha">Pizzaria/Cozinha</option>
-            </select>
-          </div>
-        </div>
+</div>
 
         <div className="border rounded-xl p-3 bg-white space-y-2">
           <div className="flex items-center justify-between">
