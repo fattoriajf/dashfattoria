@@ -2451,9 +2451,6 @@ function CommissionTab() {
         >
           {isSavingCommission ? "Processando..." : "Registrar comissão do dia"}
         </button>
-
-          {savingCommission ? "Processando..." : "Registrar comissão do dia"}
-        </button>
       </div>
 
       {/* Seção Pagamentos */}
