@@ -2497,6 +2497,7 @@ function StockTab() {
   const [dateRaw, setDateRaw] = useState<string>("");
   const [selectedSector, setSelectedSector] = useState<string>("");
   const [creatingList, setCreatingList] = useState(false);
+  const [extraItems, setExtraItems] = useState<string[]>([]);
 
   useEffect(() => {
     const todayIso = new Date().toISOString().slice(0, 10);
@@ -2548,6 +2549,15 @@ function StockTab() {
     setQuantities((prev) => ({ ...prev, [itemName]: value }));
   };
 
+  const addExtraItem = () => setExtraItems((prev) => [...prev, ""]);
+  const updateExtraItem = (idx: number, value: string) => {
+    setExtraItems((prev) => prev.map((v, i) => (i === idx ? value : v)));
+  };
+  const removeExtraItem = (idx: number) => {
+    setExtraItems((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+
   const formatDateForPayload = (raw: string | Date) => {
     if (raw instanceof Date) {
       const y = raw.getFullYear();
@@ -2592,6 +2602,7 @@ function StockTab() {
       date: dateStr,
       setor: selectedSector,
       entries,
+      extras: extraItems.map((s) => String(s || "").trim()).filter(Boolean),
     };
 
     setCreatingList(true);
@@ -2748,6 +2759,48 @@ function StockTab() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      {/* Itens extras (observações) */}
+      <div className="border rounded-xl p-3 bg-white space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-sm">Itens extras (observações)</h3>
+          <button
+            type="button"
+            onClick={addExtraItem}
+            className="btn btn-ghost text-xs"
+          >
+            Adicionar item extra
+          </button>
+        </div>
+
+        {extraItems.length === 0 && (
+          <div className="text-xs text-gray-500">
+            Use para adicionar observações/itens que não estão no cadastro de estoque. Eles serão incluídos no e-mail da lista de compras.
+          </div>
+        )}
+
+        {extraItems.length > 0 && (
+          <div className="space-y-2">
+            {extraItems.map((txt, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <input
+                  className="input flex-1"
+                  value={txt}
+                  onChange={(e) => updateExtraItem(idx, e.target.value)}
+                  placeholder="Ex.: Guardanapos / Gelo / Sacolas / ..."
+                />
+                <button
+                  type="button"
+                  onClick={() => removeExtraItem(idx)}
+                  className="btn btn-ghost text-xs"
+                >
+                  Remover
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </div>
