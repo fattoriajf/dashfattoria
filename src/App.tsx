@@ -2067,17 +2067,21 @@ function DashboardTab() {
     if (!SYNC_ENDPOINT) return;
     if (!start || !end) return;
 
+    // evita range invertido (não altera o input, só a consulta)
+    const [s, e] = start > end ? [end, start] : [start, end];
+
     setLoading(true);
     try {
       const url =
         `${SYNC_ENDPOINT}?action=dashboard_base_rows` +
-        `&start=${encodeURIComponent(start)}` +
-        `&end=${encodeURIComponent(end)}` +
+        `&start=${encodeURIComponent(s)}` +
+        `&end=${encodeURIComponent(e)}` +
         `&grupo=${encodeURIComponent(grupo)}` +
-        `&descricao=${encodeURIComponent(descricao)}`+
-        `&weekday=${encodeURIComponent(weekday)}`;
+        `&descricao=${encodeURIComponent(descricao)}` +
+        `&weekday=${encodeURIComponent(weekday)}` +
+        `&__ts=${Date.now()}`; // cache-buster
 
-      const resp = await fetch(url);
+      const resp = await fetch(url, { cache: "no-store" });
       const data = await resp.json();
       if (!data?.ok) throw new Error(data?.error || "Resposta inválida (rows).");
 
@@ -2088,6 +2092,13 @@ function DashboardTab() {
       setTotalQtd(Number(data.totalQtd || 0));
     } catch (err) {
       console.error(err);
+      alert(`Erro ao filtrar dados do Dashboard. ${String(err)}`);
+      // se der erro, limpa a tabela para não parecer que o filtro foi ignorado
+      setRows([]);
+      setTotalVlTotal(0);
+      setTotalInformado(0);
+      setTotalCalculado(0);
+      setTotalQtd(0);
     } finally {
       setLoading(false);
     }
