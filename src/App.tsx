@@ -14,7 +14,7 @@ import {
 
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Trash2, Share2, Copy, BarChart3, Users } from "lucide-react";
+import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet } from "lucide-react";
 import {
 Calendar as Cal,
   RefreshCw,
@@ -176,7 +176,7 @@ export default function App() {
   const [mode, setMode] = useState<Mode>("admin");
 
   const [activeTab, setActiveTab] = useState<
-  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "dashboard" | "colaboradores" | "graficos"
+  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos"
   >("disponibilidade");
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
@@ -346,7 +346,25 @@ export default function App() {
                 label="Comissão e Pagamento"
               />
             )}
-            {/* 6) Dashboard – só admin */}
+            {/* 6) Adiantamentos – só admin */}
+            {!isColab && (
+              <TabButton
+                icon={<Banknote className="w-4 h-4" />}
+                active={activeTab === "adiantamentos"}
+                onClick={() => setActiveTab("adiantamentos")}
+                label="Adiantamentos"
+              />
+            )}
+            {/* 7) Caixa – só admin */}
+            {!isColab && (
+              <TabButton
+                icon={<Wallet className="w-4 h-4" />}
+                active={activeTab === "caixa"}
+                onClick={() => setActiveTab("caixa")}
+                label="Caixa"
+              />
+            )}
+            {/* 8) Dashboard – só admin */}
             {!isColab && (
               <TabButton
                 icon={<BarChart3 className="w-4 h-4" />}
@@ -425,6 +443,18 @@ export default function App() {
         {!isColab && activeTab === "comissao" && (
           <Card title="Comissão e Pagamento" icon={<Cal className="w-5 h-5" />}>
             <CommissionTab />
+          </Card>
+        )}
+        {/* Adiantamentos – apenas admin */}
+        {!isColab && activeTab === "adiantamentos" && (
+          <Card title="Adiantamentos" icon={<Banknote className="w-5 h-5" />}>
+            <AdiantamentosTab />
+          </Card>
+        )}
+        {/* Caixa – apenas admin */}
+        {!isColab && activeTab === "caixa" && (
+          <Card title="Caixa" icon={<Wallet className="w-5 h-5" />}>
+            <CaixaTab />
           </Card>
         )}
         {/* Dashboard – apenas admin */}
@@ -2495,6 +2525,643 @@ function CommissionTab() {
         >
           {generatingReports ? "Processando..." : "Gerar relatórios de Pagamentos"}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ======== ABA CAIXA ========
+interface CaixaRow {
+  timestamp: string;
+  data: string;
+  tipo: "entrada" | "saida";
+  valor: number;
+  categoria: string;
+  observacao: string;
+}
+
+function CaixaTab() {
+  const [categorias, setCategorias] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [loadingData, setLoadingData] = useState(false);
+  const [rows, setRows] = useState<CaixaRow[]>([]);
+  const [totalEntradas, setTotalEntradas] = useState(0);
+  const [totalSaidas, setTotalSaidas] = useState(0);
+  const [saldo, setSaldo] = useState(0);
+
+  // form
+  const [tipo, setTipo] = useState<"entrada" | "saida">("entrada");
+  const [valor, setValor] = useState("");
+  const [dateRaw, setDateRaw] = useState(new Date().toISOString().slice(0, 10));
+  const [categoria, setCategoria] = useState("");
+  const [observacao, setObservacao] = useState("");
+
+  // filtro histórico
+  const [filterStart, setFilterStart] = useState("");
+  const [filterEnd, setFilterEnd] = useState("");
+
+  const fmtMoney = (n: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
+
+  const formatDateForPayload = (raw: string) => {
+    if (!raw) return "";
+    const [y, m, d] = raw.split("-");
+    if (!y || !m || !d) return "";
+    return `${d}/${m}/${y}`;
+  };
+
+  useEffect(() => {
+    loadCategorias();
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function loadCategorias() {
+    if (!SYNC_ENDPOINT) return;
+    try {
+      const resp = await fetch(`${SYNC_ENDPOINT}?action=caixa_categorias`);
+      const data = await resp.json();
+      if (data?.ok && Array.isArray(data.categorias)) {
+        setCategorias(data.categorias as string[]);
+        if (data.categorias.length > 0) setCategoria(data.categorias[0]);
+      }
+    } catch (err) {
+      console.error("Falha ao carregar categorias:", err);
+    }
+  }
+
+  async function loadData() {
+    if (!SYNC_ENDPOINT) return;
+    setLoadingData(true);
+    try {
+      const startParam = filterStart ? encodeURIComponent(formatDateForPayload(filterStart)) : "";
+      const endParam   = filterEnd   ? encodeURIComponent(formatDateForPayload(filterEnd))   : "";
+      const url = `${SYNC_ENDPOINT}?action=caixa_lista&start=${startParam}&end=${endParam}`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (data?.ok) {
+        setRows(Array.isArray(data.rows) ? data.rows : []);
+        setTotalEntradas(Number(data.totalEntradas || 0));
+        setTotalSaidas(Number(data.totalSaidas || 0));
+        setSaldo(Number(data.saldo || 0));
+      }
+    } catch (err) {
+      console.error("Falha ao carregar caixa:", err);
+    } finally {
+      setLoadingData(false);
+    }
+  }
+
+  async function handleSave() {
+    if (saving) return;
+    if (!dateRaw)  { alert("Selecione a data."); return; }
+    if (!valor)    { alert("Informe o valor."); return; }
+    const num = parseFloat(valor.replace(",", "."));
+    if (isNaN(num) || num <= 0) { alert("Valor inválido."); return; }
+    if (!categoria) { alert("Selecione a categoria."); return; }
+    if (!SYNC_ENDPOINT) { alert("Nenhum endpoint configurado."); return; }
+
+    const payload = {
+      action: "save_caixa",
+      date: formatDateForPayload(dateRaw),
+      tipo,
+      valor: num,
+      categoria,
+      observacao,
+    };
+
+    setSaving(true);
+    try {
+      const resp = await fetch(SYNC_ENDPOINT, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+      });
+      // @ts-ignore
+      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
+        alert("Lançamento registrado.");
+        setValor("");
+        setObservacao("");
+        loadData();
+        return;
+      }
+      if (!resp.ok) {
+        const txt = await resp.text().catch(() => "");
+        alert(`Falha ao registrar (HTTP ${resp.status}). ${txt.slice(0, 180)}`);
+        return;
+      }
+      alert("Lançamento registrado.");
+      setValor("");
+      setObservacao("");
+      loadData();
+    } catch (err: any) {
+      alert(`Erro: ${String(err)}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!SYNC_ENDPOINT) {
+    return <div className="text-sm text-red-600">Nenhum endpoint de sincronização configurado.</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+
+      {/* Saldo em destaque */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className={`border-2 rounded-xl p-4 text-center ${saldo >= 0 ? "border-green-400 bg-green-50" : "border-red-400 bg-red-50"}`}>
+          <div className="text-xs text-gray-500 mb-1">Saldo em caixa</div>
+          <div className={`text-2xl font-bold ${saldo >= 0 ? "text-green-700" : "text-red-700"}`}>
+            {fmtMoney(saldo)}
+          </div>
+        </div>
+        <div className="border rounded-xl p-4 text-center bg-white">
+          <div className="text-xs text-gray-500 mb-1">Total entradas</div>
+          <div className="text-xl font-semibold text-green-600">{fmtMoney(totalEntradas)}</div>
+        </div>
+        <div className="border rounded-xl p-4 text-center bg-white">
+          <div className="text-xs text-gray-500 mb-1">Total saídas</div>
+          <div className="text-xl font-semibold text-red-600">{fmtMoney(totalSaidas)}</div>
+        </div>
+      </div>
+
+      {/* Formulário */}
+      <div className="border rounded-xl p-4 bg-white space-y-4">
+        <h3 className="font-semibold text-base">Novo lançamento</h3>
+
+        {/* Entrada / Saída toggle */}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setTipo("entrada")}
+            className={`flex-1 py-2 rounded-lg font-medium text-sm border transition-colors ${
+              tipo === "entrada"
+                ? "bg-green-500 text-white border-green-500"
+                : "bg-white text-gray-600 border-gray-300"
+            }`}
+          >
+            ↑ Entrada
+          </button>
+          <button
+            type="button"
+            onClick={() => setTipo("saida")}
+            className={`flex-1 py-2 rounded-lg font-medium text-sm border transition-colors ${
+              tipo === "saida"
+                ? "bg-red-500 text-white border-red-500"
+                : "bg-white text-gray-600 border-gray-300"
+            }`}
+          >
+            ↓ Saída
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Valor (R$)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input w-full"
+              value={valor}
+              onChange={(e) => setValor(e.target.value)}
+              placeholder="0,00"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Data</label>
+            <input
+              type="date"
+              className="input w-full"
+              value={dateRaw}
+              onChange={(e) => setDateRaw(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Categoria</label>
+            <select
+              className="input w-full"
+              value={categoria}
+              onChange={(e) => setCategoria(e.target.value)}
+            >
+              {categorias.length === 0 && (
+                <option value="">Nenhuma categoria cadastrada</option>
+              )}
+              {categorias.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+            {categorias.length === 0 && (
+              <div className="text-xs text-amber-600">
+                Crie a planilha "Categorias_Caixa" na pasta do app para listar as categorias.
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Observação (opcional)</label>
+            <input
+              type="text"
+              className="input w-full"
+              value={observacao}
+              onChange={(e) => setObservacao(e.target.value)}
+              placeholder="Ex.: Troco para abertura"
+            />
+          </div>
+        </div>
+
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className={`btn ${tipo === "entrada" ? "btn-primary" : "bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-medium"} ${saving ? "opacity-70 cursor-not-allowed" : ""}`}
+        >
+          {saving ? "Registrando..." : `Registrar ${tipo === "entrada" ? "entrada" : "saída"}`}
+        </button>
+      </div>
+
+      {/* Histórico */}
+      <div className="border rounded-xl p-4 bg-white space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-base">Histórico</h3>
+          <button
+            onClick={loadData}
+            disabled={loadingData}
+            className={`btn btn-ghost text-xs ${loadingData ? "opacity-70 cursor-not-allowed" : ""}`}
+          >
+            {loadingData ? "Carregando..." : "Atualizar"}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Data inicial</label>
+            <input
+              type="date"
+              className="input w-full"
+              value={filterStart}
+              onChange={(e) => setFilterStart(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Data final</label>
+            <input
+              type="date"
+              className="input w-full"
+              value={filterEnd}
+              onChange={(e) => setFilterEnd(e.target.value)}
+            />
+          </div>
+          <button onClick={loadData} disabled={loadingData} className="btn btn-secondary">
+            Filtrar
+          </button>
+        </div>
+
+        {loadingData && <div className="text-sm text-gray-500">Carregando...</div>}
+
+        {!loadingData && rows.length === 0 && (
+          <div className="text-sm text-gray-500">Nenhum lançamento encontrado.</div>
+        )}
+
+        {!loadingData && rows.length > 0 && (
+          <div className="overflow-auto">
+            <table className="min-w-full border text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="border px-3 py-2 text-left">Data</th>
+                  <th className="border px-3 py-2 text-left">Tipo</th>
+                  <th className="border px-3 py-2 text-right">Valor</th>
+                  <th className="border px-3 py-2 text-left">Categoria</th>
+                  <th className="border px-3 py-2 text-left">Observação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                    <td className="border px-3 py-2">{r.data}</td>
+                    <td className="border px-3 py-2">
+                      <span className={`font-medium ${r.tipo === "entrada" ? "text-green-600" : "text-red-600"}`}>
+                        {r.tipo === "entrada" ? "↑ Entrada" : "↓ Saída"}
+                      </span>
+                    </td>
+                    <td className={`border px-3 py-2 text-right font-medium ${r.tipo === "entrada" ? "text-green-600" : "text-red-600"}`}>
+                      {r.tipo === "saida" ? "- " : ""}{fmtMoney(r.valor)}
+                    </td>
+                    <td className="border px-3 py-2">{r.categoria || "—"}</td>
+                    <td className="border px-3 py-2 text-gray-600">{r.observacao || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ======== ABA ADIANTAMENTOS ========
+interface AdiantamentoRow {
+  timestamp: string;
+  data: string;
+  colaborador: string;
+  valor: number;
+  metodo: string;
+  observacao: string;
+}
+
+function AdiantamentosTab() {
+  const [staff, setStaff] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [history, setHistory] = useState<AdiantamentoRow[]>([]);
+
+  // form
+  const [colaborador, setColaborador] = useState<string>("");
+  const [dateRaw, setDateRaw] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [valor, setValor] = useState<string>("");
+  const [metodo, setMetodo] = useState<string>("pix");
+  const [observacao, setObservacao] = useState<string>("");
+
+  // filtro histórico
+  const [filterStart, setFilterStart] = useState<string>("");
+  const [filterEnd, setFilterEnd] = useState<string>("");
+
+  const fmtMoney = (n: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
+
+  const formatDateForPayload = (raw: string) => {
+    if (!raw) return "";
+    const [y, m, d] = raw.split("-");
+    if (!y || !m || !d) return "";
+    return `${d}/${m}/${y}`;
+  };
+
+  useEffect(() => {
+    loadStaff();
+    loadHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function loadStaff() {
+    if (!SYNC_ENDPOINT) return;
+    try {
+      const resp = await fetch(`${SYNC_ENDPOINT}?action=staff`);
+      const data = await resp.json();
+      if (data?.ok && Array.isArray(data.names)) {
+        setStaff(data.names as string[]);
+      }
+    } catch (err) {
+      console.error("Falha ao carregar colaboradores:", err);
+    }
+  }
+
+  async function loadHistory() {
+    if (!SYNC_ENDPOINT) return;
+    setLoadingHistory(true);
+    try {
+      const startParam = filterStart ? encodeURIComponent(formatDateForPayload(filterStart)) : "";
+      const endParam   = filterEnd   ? encodeURIComponent(formatDateForPayload(filterEnd))   : "";
+      const url = `${SYNC_ENDPOINT}?action=adiantamentos_lista&start=${startParam}&end=${endParam}`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (data?.ok && Array.isArray(data.rows)) {
+        setHistory(data.rows as AdiantamentoRow[]);
+      }
+    } catch (err) {
+      console.error("Falha ao carregar histórico:", err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  }
+
+  async function handleSave() {
+    if (saving) return;
+    if (!colaborador) { alert("Selecione o colaborador."); return; }
+    if (!dateRaw)     { alert("Selecione a data."); return; }
+    if (!valor)       { alert("Informe o valor."); return; }
+    const num = parseFloat(valor.replace(",", "."));
+    if (isNaN(num) || num <= 0) { alert("Valor inválido."); return; }
+
+    if (!SYNC_ENDPOINT) { alert("Nenhum endpoint configurado."); return; }
+
+    const payload = {
+      action: "save_adiantamento",
+      date: formatDateForPayload(dateRaw),
+      colaborador,
+      valor: num,
+      metodo,
+      observacao,
+    };
+
+    setSaving(true);
+    try {
+      const resp = await fetch(SYNC_ENDPOINT, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+      });
+      // @ts-ignore
+      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
+        alert("Adiantamento registrado.");
+        setValor("");
+        setObservacao("");
+        loadHistory();
+        return;
+      }
+      if (!resp.ok) {
+        const txt = await resp.text().catch(() => "");
+        alert(`Falha ao registrar (HTTP ${resp.status}). ${txt.slice(0, 180)}`);
+        return;
+      }
+      alert("Adiantamento registrado.");
+      setValor("");
+      setObservacao("");
+      loadHistory();
+    } catch (err: any) {
+      alert(`Erro: ${String(err)}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const totalHistorico = history.reduce((acc, r) => acc + Number(r.valor || 0), 0);
+
+  if (!SYNC_ENDPOINT) {
+    return <div className="text-sm text-red-600">Nenhum endpoint de sincronização configurado.</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Formulário de registro */}
+      <div className="border rounded-xl p-4 bg-white space-y-4">
+        <h3 className="font-semibold text-base">Registrar adiantamento</h3>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Colaborador</label>
+            <select
+              className="input w-full"
+              value={colaborador}
+              onChange={(e) => setColaborador(e.target.value)}
+            >
+              <option value="">Selecione...</option>
+              {staff.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Data</label>
+            <input
+              type="date"
+              className="input w-full"
+              value={dateRaw}
+              onChange={(e) => setDateRaw(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Valor (R$)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input w-full"
+              value={valor}
+              onChange={(e) => setValor(e.target.value)}
+              placeholder="0,00"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Método</label>
+            <select
+              className="input w-full"
+              value={metodo}
+              onChange={(e) => setMetodo(e.target.value)}
+            >
+              <option value="pix">Pix</option>
+              <option value="dinheiro">Dinheiro</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-sm text-gray-600">Observação (opcional)</label>
+          <input
+            type="text"
+            className="input w-full"
+            value={observacao}
+            onChange={(e) => setObservacao(e.target.value)}
+            placeholder="Ex.: Adiantamento de quinzena"
+          />
+        </div>
+
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className={`btn btn-primary ${saving ? "opacity-70 cursor-not-allowed" : ""}`}
+        >
+          {saving ? "Registrando..." : "Registrar adiantamento"}
+        </button>
+      </div>
+
+      {/* Histórico */}
+      <div className="border rounded-xl p-4 bg-white space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-base">Histórico de adiantamentos</h3>
+          <button
+            onClick={loadHistory}
+            disabled={loadingHistory}
+            className={`btn btn-ghost text-xs ${loadingHistory ? "opacity-70 cursor-not-allowed" : ""}`}
+          >
+            {loadingHistory ? "Carregando..." : "Atualizar"}
+          </button>
+        </div>
+
+        {/* Filtros */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Data inicial</label>
+            <input
+              type="date"
+              className="input w-full"
+              value={filterStart}
+              onChange={(e) => setFilterStart(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Data final</label>
+            <input
+              type="date"
+              className="input w-full"
+              value={filterEnd}
+              onChange={(e) => setFilterEnd(e.target.value)}
+            />
+          </div>
+          <button
+            onClick={loadHistory}
+            disabled={loadingHistory}
+            className="btn btn-secondary"
+          >
+            Filtrar
+          </button>
+        </div>
+
+        {loadingHistory && (
+          <div className="text-sm text-gray-500">Carregando histórico...</div>
+        )}
+
+        {!loadingHistory && history.length === 0 && (
+          <div className="text-sm text-gray-500">Nenhum adiantamento encontrado para o período.</div>
+        )}
+
+        {!loadingHistory && history.length > 0 && (
+          <>
+            <div className="overflow-auto">
+              <table className="min-w-full border text-sm">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="border px-3 py-2 text-left">Data</th>
+                    <th className="border px-3 py-2 text-left">Colaborador</th>
+                    <th className="border px-3 py-2 text-right">Valor</th>
+                    <th className="border px-3 py-2 text-left">Método</th>
+                    <th className="border px-3 py-2 text-left">Observação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((r, i) => (
+                    <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                      <td className="border px-3 py-2">{r.data}</td>
+                      <td className="border px-3 py-2">{r.colaborador}</td>
+                      <td className="border px-3 py-2 text-right font-medium text-red-600">
+                        {fmtMoney(r.valor)}
+                      </td>
+                      <td className="border px-3 py-2 capitalize">{r.metodo}</td>
+                      <td className="border px-3 py-2 text-gray-600">{r.observacao || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-gray-100 font-semibold">
+                  <tr>
+                    <td colSpan={2} className="border px-3 py-2">Total</td>
+                    <td className="border px-3 py-2 text-right text-red-600">{fmtMoney(totalHistorico)}</td>
+                    <td colSpan={2} className="border px-3 py-2"></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <div className="text-xs text-gray-500">
+              {history.length} registro(s) · Os adiantamentos serão descontados automaticamente no relatório de pagamentos do período correspondente.
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
