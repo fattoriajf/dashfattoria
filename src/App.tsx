@@ -97,7 +97,10 @@ interface PunchTabProps {
   staff: Staff[];
 }
 
-const LS_KEY = "escala_fattoria_state_v4";
+const LS_KEY = "escala_fattoria_state_v5";
+// Limpa versões antigas do localStorage automaticamente
+try { localStorage.removeItem("escala_fattoria_state_v4"); } catch {}
+try { localStorage.removeItem("escala_fattoria_state_v3"); } catch {}
 const SYNC_ENDPOINT =
   "https://script.google.com/macros/s/AKfycby8uigXivDMKz6yM5w74dZhvxYBrgvt7thmrw9jVV1rnHB3xLwVbzrrUtoNoFze7pZOWQ/exec";
 
