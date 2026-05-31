@@ -301,6 +301,22 @@ export default function App() {
 
   const isColab = mode === "colab";
 
+  // ===== LOGIN ADMIN =====
+  const [adminLogado, setAdminLogado] = useState<boolean>(() => {
+    try { return sessionStorage.getItem("fattoria_admin_auth") === "1"; } catch { return false; }
+  });
+
+  if (mode === "admin" && !adminLogado) {
+    return (
+      <LoginAdmin
+        onLogin={() => {
+          try { sessionStorage.setItem("fattoria_admin_auth", "1"); } catch {}
+          setAdminLogado(true);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen text-gray-900 p-4 sm:p-6">
       <div className="max-w-5xl mx-auto">
@@ -479,6 +495,87 @@ export default function App() {
         <div className="mt-6 text-xs text-gray-500 flex items-center gap-2">
           <RefreshCw className="w-4 h-4" /> 
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ======== TELA DE LOGIN ADMIN ========
+function LoginAdmin({ onLogin }: { onLogin: () => void }) {
+  const [usuario, setUsuario] = useState("");
+  const [senha, setSenha] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [erro, setErro] = useState("");
+
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+    if (!usuario || !senha) { setErro("Preencha usuário e senha."); return; }
+    if (!SYNC_ENDPOINT) { setErro("Endpoint não configurado."); return; }
+
+    setLoading(true);
+    setErro("");
+    try {
+      const url = `${SYNC_ENDPOINT}?action=login&usuario=${encodeURIComponent(usuario)}&senha=${encodeURIComponent(senha)}`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (data?.ok && data?.autorizado) {
+        onLogin();
+      } else {
+        setErro("Usuário ou senha incorretos.");
+      }
+    } catch {
+      setErro("Erro ao conectar. Tente novamente.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+      <div className="w-full max-w-sm bg-white border rounded-2xl p-8 shadow-sm space-y-6">
+        <div className="text-center space-y-1">
+          <h1 className="text-2xl font-bold">Fattoria</h1>
+          <p className="text-sm text-gray-500">Acesso administrativo</p>
+        </div>
+
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Usuário</label>
+            <input
+              type="text"
+              className="input w-full"
+              value={usuario}
+              onChange={(e) => setUsuario(e.target.value)}
+              autoComplete="username"
+              autoFocus
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Senha</label>
+            <input
+              type="password"
+              className="input w-full"
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              autoComplete="current-password"
+            />
+          </div>
+
+          {erro && (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {erro}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className={`btn btn-primary w-full ${loading ? "opacity-70 cursor-not-allowed" : ""}`}
+          >
+            {loading ? "Verificando..." : "Entrar"}
+          </button>
+        </form>
       </div>
     </div>
   );
