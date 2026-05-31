@@ -99,7 +99,7 @@ interface PunchTabProps {
 
 const LS_KEY = "escala_fattoria_state_v4";
 const SYNC_ENDPOINT =
-   "https://script.google.com/macros/s/AKfycbxQGdpPgraA8l6TXC42X7f42CDqr2w1wKDl1A0gc7z69z6sovGGjCLqXF5j_UpXqoYG7g/exec";
+  "https://script.google.com/macros/s/AKfycby8uigXivDMKz6yM5w74dZhvxYBrgvt7thmrw9jVV1rnHB3xLwVbzrrUtoNoFze7pZOWQ/exec";
 
 function id() {
   return Math.random().toString(36).slice(2, 10);
@@ -138,7 +138,6 @@ const defaultState: State = {
     { id: id(), label: "Quinta", code: "qui" },
     { id: id(), label: "Sexta", code: "sex" },
     { id: id(), label: "Sábado", code: "sab" },
-    { id: id(), label: "Domingo (Almoço)", code: "dom_almoco" },
     { id: id(), label: "Domingo (Noite)", code: "dom_noite" },
   ],
   rules: [],
@@ -1006,7 +1005,6 @@ function PunchTab({ staff }: PunchTabProps) {
             value={turno}
             onChange={(e) => setTurno(e.target.value)}
           >
-            <option value="Almoço">Almoço</option>
             <option value="Noite">Noite</option>
           </select>
         </div>
@@ -2295,7 +2293,7 @@ function CommissionTab() {
   const [savingCommission, setSavingCommission] = useState(false);
   const [generatingReports, setGeneratingReports] = useState(false);
   const [dateRaw, setDateRaw] = useState<string>("");
-  const [turno, setTurno] = useState<string>("Almoço");
+  const [turno, setTurno] = useState<string>("Noite");
   const [valor, setValor] = useState<string>("");
   const [faturamento, setFaturamento] = useState<string>("");
 
@@ -2459,7 +2457,6 @@ function CommissionTab() {
               value={turno}
               onChange={(e) => setTurno(e.target.value)}
             >
-              <option value="Almoço">Almoço</option>
               <option value="Noite">Noite</option>
             </select>
           </div>
