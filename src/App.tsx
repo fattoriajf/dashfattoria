@@ -14,7 +14,7 @@ import {
 
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet } from "lucide-react";
+import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet, Menu, X, Package } from "lucide-react";
 import {
 Calendar as Cal,
   RefreshCw,
@@ -317,180 +317,139 @@ export default function App() {
     );
   }
 
-  return (
-    <div className="min-h-screen">
-      <div className="app-header">
-        <div className="app-header-top">
-          <img src="/logo.png" alt="Fattoria" className="h-10 w-auto" />
-          <span className="text-white text-xs opacity-60 hidden sm:block">Gestão Interna</span>
-        </div>
-        <nav className="app-header-nav">
-            {/* 1) Sempre visível: Disponibilidade */}
-            <TabButton
-              icon={<ClipboardList className="w-4 h-4" />}
-              active={activeTab === "disponibilidade"}
-              onClick={() => setActiveTab("disponibilidade")}
-              label="Disponibilidade"
-            />
-            {/* 2) Escalar – só admin */}
-            {!isColab && (
-              <TabButton
-                icon={<Cal className="w-4 h-4" />}
-                active={activeTab === "escalar"}
-                onClick={() => setActiveTab("escalar")}
-                label="Escalar"
-              />
-            )}
-            {/* 3) Registrar presença – visível para todos */}
-            <TabButton
-              icon={<Cal className="w-4 h-4" />}
-              active={activeTab === "presenca"}
-              onClick={() => setActiveTab("presenca")}
-              label="Registrar presença"
-            />
-            {/* 4) Compras de Estoque – agora visível para todos */}
-            <TabButton
-              icon={<ShoppingCart className="w-4 h-4" />}
-              active={activeTab === "estoque"}
-              onClick={() => setActiveTab("estoque")}
-              label="Compras de Estoque"
-            />
-            {/* 5) Comissão e Pagamento – só admin */}
-            {!isColab && (
-              <TabButton
-                icon={<Cal className="w-4 h-4" />}
-                active={activeTab === "comissao"}
-                onClick={() => setActiveTab("comissao")}
-                label="Comissão e Pagamento"
-              />
-            )}
-            {/* 6) Adiantamentos – só admin */}
-            {!isColab && (
-              <TabButton
-                icon={<Banknote className="w-4 h-4" />}
-                active={activeTab === "adiantamentos"}
-                onClick={() => setActiveTab("adiantamentos")}
-                label="Adiantamentos"
-              />
-            )}
-            {/* 7) Caixa – só admin */}
-            {!isColab && (
-              <TabButton
-                icon={<Wallet className="w-4 h-4" />}
-                active={activeTab === "caixa"}
-                onClick={() => setActiveTab("caixa")}
-                label="Caixa"
-              />
-            )}
-            {/* 8) Dashboard – só admin */}
-            {!isColab && (
-              <TabButton
-                icon={<BarChart3 className="w-4 h-4" />}
-                active={activeTab === "dashboard"}
-                onClick={() => setActiveTab("dashboard")}
-                label="Dashboard"
-              />
-            )}
-            {/* 7) Colaboradores – só admin */}
-            {!isColab && (
-              <TabButton
-                icon={<Users className="w-4 h-4" />}
-                active={activeTab === "colaboradores"}
-                onClick={() => setActiveTab("colaboradores")}
-                label="Colaboradores"
-              />
-            )}
-            {/* 8) gráficos – só admin */}
-            {!isColab && (
-              <TabButton
-                label="Gráficos"
-                active={activeTab === "graficos"}
-                onClick={() => setActiveTab("graficos")}
-                icon={<LineChartIcon className="w-4 h-4" />}
-              />
-            )}
-        </nav>
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const navItem = (tab: typeof activeTab, label: string, icon: React.ReactNode, adminOnly = false) => {
+    if (adminOnly && isColab) return null;
+    return (
+      <button
+        className={`sidebar-item ${activeTab === tab ? "active" : ""}`}
+        onClick={() => { setActiveTab(tab); setMobileMenuOpen(false); }}
+      >
+        {icon}
+        {label}
+      </button>
+    );
+  };
+
+  const SidebarContent = () => (
+    <>
+      <div className="sidebar-category">
+        <div className="sidebar-category-label">Pessoal</div>
+        {navItem("disponibilidade", "Disponibilidade", <ClipboardList className="w-4 h-4" />)}
+        {navItem("escalar", "Escalar", <Cal className="w-4 h-4" />, true)}
+        {navItem("presenca", "Registrar Presença", <Cal className="w-4 h-4" />)}
       </div>
+      <div className="sidebar-category">
+        <div className="sidebar-category-label">Inventário</div>
+        {navItem("estoque", "Compras de Estoque", <ShoppingCart className="w-4 h-4" />)}
+      </div>
+      {!isColab && (
+        <div className="sidebar-category">
+          <div className="sidebar-category-label">Financeiro</div>
+          {navItem("comissao", "Comissão e Pagamento", <Cal className="w-4 h-4" />, true)}
+          {navItem("adiantamentos", "Adiantamentos", <Banknote className="w-4 h-4" />, true)}
+          {navItem("caixa", "Caixa", <Wallet className="w-4 h-4" />, true)}
+        </div>
+      )}
+      {!isColab && (
+        <div className="sidebar-category">
+          <div className="sidebar-category-label">Indicadores</div>
+          {navItem("dashboard", "Dashboard", <BarChart3 className="w-4 h-4" />, true)}
+          {navItem("colaboradores", "Colaboradores", <Users className="w-4 h-4" />, true)}
+          {navItem("graficos", "Gráficos", <LineChartIcon className="w-4 h-4" />, true)}
+        </div>
+      )}
+    </>
+  );
 
-      <div className="page-content">
-        {/* Disponibilidade – sempre acessível */}
-        {activeTab === "disponibilidade" && (
-          <Card
-            title={`Formulário de Disponibilidade – Semana ${weekIdSlash || "(definir)"}`}
-            icon={<ClipboardList className="w-5 h-5" />}
+  return (
+    <div className="app-layout">
+      {/* Top bar */}
+      <header className="app-topbar">
+        <div className="flex items-center gap-3">
+          <button
+            className="hamburger-btn p-1.5 rounded-lg hover:bg-gray-100 text-gray-600"
+            onClick={() => setMobileMenuOpen(true)}
           >
-            <AvailabilityForm
-              state={state}
-              update={update}
-              selectedStaffId={selectedStaffId}
-              setSelectedStaffId={setSelectedStaffId}
-              weekId={weekIdDash}
-              syncEnabled={syncEnabled}
-              onSaved={refreshServer}
-            />
-          </Card>
-        )}
+            <Menu className="w-5 h-5" />
+          </button>
+          <img src="/logo.png" alt="Fattoria" className="h-9 w-auto" />
+        </div>
+        <span className="text-xs text-gray-400 hidden sm:block">Gestão Interna</span>
+      </header>
 
-        {/* Escalar – apenas admin */}
-        {!isColab && activeTab === "escalar" && (
-          <Card title="Escalar" icon={<Cal className="w-5 h-5" />}>
-            <SolverUI
-              state={state}
-              availability={availabilityForSolver}
-              onRefresh={refreshServer}
-              weekId={weekIdDash}
-            />
-          </Card>
-        )}
+      {/* Mobile menu overlay */}
+      {mobileMenuOpen && (
+        <>
+          <div className="mobile-menu-overlay" onClick={() => setMobileMenuOpen(false)} />
+          <div className="mobile-sidebar">
+            <div className="flex items-center justify-between mb-2">
+              <img src="/logo.png" alt="Fattoria" className="h-8 w-auto" />
+              <button onClick={() => setMobileMenuOpen(false)} className="p-1 rounded-lg hover:bg-gray-100">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <SidebarContent />
+          </div>
+        </>
+      )}
 
-        {/* Registrar presença – sempre acessível */}
-        {activeTab === "presenca" && (
-          <Card title="Registrar presença" icon={<Cal className="w-5 h-5" />}>
-            <PunchTab staff={state.staff} />
-          </Card>
-        )}
+      <div className="app-body">
+        {/* Desktop sidebar */}
+        <aside className="sidebar">
+          <SidebarContent />
+        </aside>
 
-        {/* Compras de Estoque – disponível para admin e colab */}
-        {activeTab === "estoque" && (
-          <Card title="Compras de Estoque" icon={<ShoppingCart className="w-5 h-5" />}>
-            <StockTab />
-          </Card>
-        )}
-
-        {/* Comissão e Pagamento – apenas admin */}
-        {!isColab && activeTab === "comissao" && (
-          <Card title="Comissão e Pagamento" icon={<Cal className="w-5 h-5" />}>
-            <CommissionTab />
-          </Card>
-        )}
-        {/* Adiantamentos – apenas admin */}
-        {!isColab && activeTab === "adiantamentos" && (
-          <Card title="Adiantamentos" icon={<Banknote className="w-5 h-5" />}>
-            <AdiantamentosTab />
-          </Card>
-        )}
-        {/* Caixa – apenas admin */}
-        {!isColab && activeTab === "caixa" && (
-          <Card title="Caixa" icon={<Wallet className="w-5 h-5" />}>
-            <CaixaTab />
-          </Card>
-        )}
-        {/* Dashboard – apenas admin */}
-        {!isColab && activeTab === "dashboard" && (
-          <Card title="Dashboard" icon={<BarChart3 className="w-5 h-5" />}>
-            <DashboardTab />
-          </Card>
-        )}
-
-
-        {/* Colaboradores – apenas admin */}
-        {!isColab && activeTab === "colaboradores" && (
-          <Card title="Colaboradores" icon={<Users className="w-5 h-5" />}>
-            <ColaboradoresTab />
-          </Card>
-        )}
-        {/* Gráficos - apenas admin */}
-        {!isColab && activeTab === "graficos" && <GraphsTab />}
+        {/* Main content */}
+        <main className="main-content">
+          {activeTab === "disponibilidade" && (
+            <Card title={`Disponibilidade – Semana ${weekIdSlash || "(definir)"}`} icon={<ClipboardList className="w-5 h-5" />}>
+              <AvailabilityForm state={state} update={update} selectedStaffId={selectedStaffId} setSelectedStaffId={setSelectedStaffId} weekId={weekIdDash} syncEnabled={syncEnabled} onSaved={refreshServer} />
+            </Card>
+          )}
+          {!isColab && activeTab === "escalar" && (
+            <Card title="Escalar" icon={<Cal className="w-5 h-5" />}>
+              <SolverUI state={state} availability={availabilityForSolver} onRefresh={refreshServer} weekId={weekIdDash} />
+            </Card>
+          )}
+          {activeTab === "presenca" && (
+            <Card title="Registrar Presença" icon={<Cal className="w-5 h-5" />}>
+              <PunchTab staff={state.staff} />
+            </Card>
+          )}
+          {activeTab === "estoque" && (
+            <Card title="Compras de Estoque" icon={<ShoppingCart className="w-5 h-5" />}>
+              <StockTab />
+            </Card>
+          )}
+          {!isColab && activeTab === "comissao" && (
+            <Card title="Comissão e Pagamento" icon={<Cal className="w-5 h-5" />}>
+              <CommissionTab />
+            </Card>
+          )}
+          {!isColab && activeTab === "adiantamentos" && (
+            <Card title="Adiantamentos" icon={<Banknote className="w-5 h-5" />}>
+              <AdiantamentosTab />
+            </Card>
+          )}
+          {!isColab && activeTab === "caixa" && (
+            <Card title="Caixa" icon={<Wallet className="w-5 h-5" />}>
+              <CaixaTab />
+            </Card>
+          )}
+          {!isColab && activeTab === "dashboard" && (
+            <Card title="Dashboard" icon={<BarChart3 className="w-5 h-5" />}>
+              <DashboardTab />
+            </Card>
+          )}
+          {!isColab && activeTab === "colaboradores" && (
+            <Card title="Colaboradores" icon={<Users className="w-5 h-5" />}>
+              <ColaboradoresTab />
+            </Card>
+          )}
+          {!isColab && activeTab === "graficos" && <GraphsTab />}
+        </main>
       </div>
     </div>
   );
