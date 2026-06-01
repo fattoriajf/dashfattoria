@@ -332,7 +332,7 @@ export default function App() {
     );
   };
 
-  const SidebarContent = () => (
+  const sidebarJSX = (
     <>
       <div className="sidebar-category">
         <div className="sidebar-category-label">Pessoal</div>
@@ -390,7 +390,7 @@ export default function App() {
                 <X className="w-5 h-5 text-gray-500" />
               </button>
             </div>
-            <SidebarContent />
+            {sidebarJSX}
           </div>
         </>
       )}
@@ -398,7 +398,7 @@ export default function App() {
       <div className="app-body">
         {/* Desktop sidebar */}
         <aside className="sidebar">
-          <SidebarContent />
+          {sidebarJSX}
         </aside>
 
         {/* Main content */}
