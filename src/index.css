@@ -52,7 +52,8 @@ body {
 
 /* ===== INPUT ===== */
 .input {
-  @apply px-3 py-2 rounded-xl text-sm w-full transition-all duration-150;
+  @apply px-3 py-2 rounded-xl w-full transition-all duration-150;
+  font-size: 16px; /* evita zoom automÃ¡tico no iOS */
   border: 1.5px solid var(--border);
   background-color: #fff;
   color: var(--text);
@@ -61,6 +62,10 @@ body {
   outline: none;
   border-color: var(--navy);
   box-shadow: 0 0 0 3px rgba(26,45,79,0.1);
+}
+/* mantÃ©m tamanho de fonte menor em telas grandes */
+@media (min-width: 768px) {
+  .input { font-size: 0.875rem; }
 }
 
 /* ===== LAYOUT ===== */
@@ -185,6 +190,7 @@ body {
 @media (max-width: 767px) {
   .sidebar { display: none; }
   .main-content { padding: 1rem; }
+  .app-topbar img { height: 2.5rem; } /* logo maior no mobile */
 }
 @media (min-width: 768px) {
   .hamburger-btn { display: none; }
