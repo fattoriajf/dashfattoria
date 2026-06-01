@@ -374,7 +374,7 @@ export default function App() {
           >
             <Menu className="w-5 h-5" />
           </button>
-          <img src="/logo.png" alt="Fattoria" className="h-9 w-auto" />
+          <img src="/logo.png" alt="Fattoria" className="h-14 sm:h-9 w-auto" />
         </div>
         <span className="text-xs text-gray-400 hidden sm:block">Gestão Interna</span>
       </header>
