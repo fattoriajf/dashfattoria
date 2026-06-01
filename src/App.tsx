@@ -306,6 +306,8 @@ export default function App() {
     try { return sessionStorage.getItem("fattoria_admin_auth") === "1"; } catch { return false; }
   });
 
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   if (mode === "admin" && !adminLogado) {
     return (
       <LoginAdmin
@@ -316,8 +318,6 @@ export default function App() {
       />
     );
   }
-
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navItem = (tab: typeof activeTab, label: string, icon: React.ReactNode, adminOnly = false) => {
     if (adminOnly && isColab) return null;
