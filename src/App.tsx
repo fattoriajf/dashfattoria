@@ -318,13 +318,13 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen text-gray-900 p-4 sm:p-6">
-      <div className="max-w-5xl mx-auto">
-        <header className="flex items-center justify-between mb-4">
-          <div>
-            <h1 className="text-2xl font-bold">Escalação Semanal Fattoria</h1>
-          </div>
-          <div className="flex gap-2 overflow-auto">
+    <div className="min-h-screen">
+      <div className="app-header">
+        <div className="app-header-top">
+          <img src="/logo.png" alt="Fattoria" className="h-10 w-auto" />
+          <span className="text-white text-xs opacity-60 hidden sm:block">Gestão Interna</span>
+        </div>
+        <nav className="app-header-nav">
             {/* 1) Sempre visível: Disponibilidade */}
             <TabButton
               icon={<ClipboardList className="w-4 h-4" />}
@@ -409,10 +409,10 @@ export default function App() {
                 icon={<LineChartIcon className="w-4 h-4" />}
               />
             )}
-          
-            </div>
-        </header>
+        </nav>
+      </div>
 
+      <div className="page-content">
         {/* Disponibilidade – sempre acessível */}
         {activeTab === "disponibilidade" && (
           <Card
@@ -490,11 +490,7 @@ export default function App() {
           </Card>
         )}
         {/* Gráficos - apenas admin */}
-        {!isColab && activeTab === "graficos" && <GraphsTab />}  
-      
-        <div className="mt-6 text-xs text-gray-500 flex items-center gap-2">
-          <RefreshCw className="w-4 h-4" /> 
-        </div>
+        {!isColab && activeTab === "graficos" && <GraphsTab />}
       </div>
     </div>
   );
@@ -531,11 +527,14 @@ function LoginAdmin({ onLogin }: { onLogin: () => void }) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-      <div className="w-full max-w-sm bg-white border rounded-2xl p-8 shadow-sm space-y-6">
-        <div className="text-center space-y-1">
-          <h1 className="text-2xl font-bold">Fattoria</h1>
-          <p className="text-sm text-gray-500">Acesso administrativo</p>
+    <div className="login-page">
+      <div className="login-header">
+        <img src="/logo.png" alt="Fattoria" className="h-16 w-auto" />
+      </div>
+      <div className="login-card">
+        <div className="text-center space-y-1 mb-6">
+          <h2 className="text-lg font-semibold text-gray-800">Acesso administrativo</h2>
+          <p className="text-sm text-gray-500">Entre com suas credenciais</p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
