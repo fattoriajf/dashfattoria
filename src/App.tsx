@@ -305,14 +305,30 @@ export default function App() {
   const [adminLogado, setAdminLogado] = useState<boolean>(() => {
     try { return sessionStorage.getItem("fattoria_admin_auth") === "1"; } catch { return false; }
   });
+  const [abasPermitidas, setAbasPermitidas] = useState<string[] | "tudo">(() => {
+    try {
+      const raw = sessionStorage.getItem("fattoria_admin_abas");
+      if (!raw) return "tudo";
+      return raw === "tudo" ? "tudo" : JSON.parse(raw) as string[];
+    } catch { return "tudo"; }
+  });
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const podeVer = (aba: string) => {
+    if (abasPermitidas === "tudo") return true;
+    return (abasPermitidas as string[]).includes(aba.toLowerCase());
+  };
 
   if (mode === "admin" && !adminLogado) {
     return (
       <LoginAdmin
-        onLogin={() => {
-          try { sessionStorage.setItem("fattoria_admin_auth", "1"); } catch {}
+        onLogin={(abas) => {
+          try {
+            sessionStorage.setItem("fattoria_admin_auth", "1");
+            sessionStorage.setItem("fattoria_admin_abas", abas === "tudo" ? "tudo" : JSON.stringify(abas));
+          } catch {}
+          setAbasPermitidas(abas);
           setAdminLogado(true);
         }}
       />
@@ -321,6 +337,7 @@ export default function App() {
 
   const navItem = (tab: typeof activeTab, label: string, icon: React.ReactNode, adminOnly = false) => {
     if (adminOnly && isColab) return null;
+    if (!isColab && !podeVer(tab)) return null;
     return (
       <button
         className={`sidebar-item ${activeTab === tab ? "active" : ""}`}
@@ -456,7 +473,7 @@ export default function App() {
 }
 
 // ======== TELA DE LOGIN ADMIN ========
-function LoginAdmin({ onLogin }: { onLogin: () => void }) {
+function LoginAdmin({ onLogin }: { onLogin: (abas: string[] | "tudo") => void }) {
   const [usuario, setUsuario] = useState("");
   const [senha, setSenha] = useState("");
   const [loading, setLoading] = useState(false);
@@ -474,7 +491,8 @@ function LoginAdmin({ onLogin }: { onLogin: () => void }) {
       const resp = await fetch(url);
       const data = await resp.json();
       if (data?.ok && data?.autorizado) {
-        onLogin();
+        const abas = data.abas === "tudo" ? "tudo" : (Array.isArray(data.abas) ? data.abas : "tudo");
+        onLogin(abas);
       } else {
         setErro("Usuário ou senha incorretos.");
       }
