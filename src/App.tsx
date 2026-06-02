@@ -320,6 +320,17 @@ export default function App() {
     return (abasPermitidas as string[]).includes(aba.toLowerCase());
   };
 
+  // se a aba ativa não é permitida, redireciona para a primeira permitida
+  useEffect(() => {
+    if (mode === "admin" && adminLogado && abasPermitidas !== "tudo") {
+      if (!podeVer(activeTab)) {
+        const abas = abasPermitidas as string[];
+        if (abas.length > 0) setActiveTab(abas[0] as typeof activeTab);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminLogado, abasPermitidas]);
+
   if (mode === "admin" && !adminLogado) {
     return (
       <LoginAdmin
@@ -329,6 +340,11 @@ export default function App() {
             sessionStorage.setItem("fattoria_admin_abas", abas === "tudo" ? "tudo" : JSON.stringify(abas));
           } catch {}
           setAbasPermitidas(abas);
+          // define a primeira aba permitida como ativa
+          if (abas !== "tudo" && Array.isArray(abas) && abas.length > 0) {
+            const primeiraAba = abas[0] as typeof activeTab;
+            setActiveTab(primeiraAba);
+          }
           setAdminLogado(true);
         }}
       />
