@@ -321,6 +321,10 @@ export default function App() {
     return (abasPermitidas as string[]).includes(aba.toLowerCase());
   };
 
+  // Aba efetiva: se a aba ativa não tem permissão, usa a primeira permitida
+  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos"];
+  const abaEfetiva: typeof activeTab = podeVer(activeTab) ? activeTab : (todasAbas.find(t => podeVer(t)) ?? "disponibilidade");
+
   if (mode === "admin" && !adminLogado) {
     return (
       <LoginAdmin
@@ -330,11 +334,6 @@ export default function App() {
             sessionStorage.setItem("fattoria_admin_abas", abas === "tudo" ? "tudo" : JSON.stringify(abas));
           } catch {}
           setAbasPermitidas(abas);
-          // define a primeira aba permitida como ativa
-          if (abas !== "tudo" && Array.isArray(abas) && abas.length > 0) {
-            const primeiraAba = abas[0] as typeof activeTab;
-            setActiveTab(primeiraAba);
-          }
           setAdminLogado(true);
         }}
       />
@@ -346,7 +345,7 @@ export default function App() {
     if (!podeVer(tab)) return null;
     return (
       <button
-        className={`sidebar-item ${activeTab === tab ? "active" : ""}`}
+        className={`sidebar-item ${abaEfetiva === tab ? "active" : ""}`}
         onClick={() => { setActiveTab(tab); setMobileMenuOpen(false); }}
       >
         {icon}
@@ -426,52 +425,52 @@ export default function App() {
 
         {/* Main content */}
         <main className="main-content">
-          {activeTab === "disponibilidade" && (
+          {abaEfetiva === "disponibilidade" && (
             <Card title={`Disponibilidade – Semana ${weekIdSlash || "(definir)"}`} icon={<ClipboardList className="w-5 h-5" />}>
               <AvailabilityForm state={state} update={update} selectedStaffId={selectedStaffId} setSelectedStaffId={setSelectedStaffId} weekId={weekIdDash} syncEnabled={syncEnabled} onSaved={refreshServer} />
             </Card>
           )}
-          {!isColab && activeTab === "escalar" && (
+          {!isColab && abaEfetiva === "escalar" && (
             <Card title="Escalar" icon={<Cal className="w-5 h-5" />}>
               <SolverUI state={state} availability={availabilityForSolver} onRefresh={refreshServer} weekId={weekIdDash} />
             </Card>
           )}
-          {activeTab === "presenca" && (
+          {abaEfetiva === "presenca" && (
             <Card title="Registrar Presença" icon={<Cal className="w-5 h-5" />}>
               <PunchTab staff={state.staff} />
             </Card>
           )}
-          {activeTab === "estoque" && (
+          {abaEfetiva === "estoque" && (
             <Card title="Compras de Estoque" icon={<ShoppingCart className="w-5 h-5" />}>
               <StockTab />
             </Card>
           )}
-          {!isColab && activeTab === "comissao" && (
+          {!isColab && abaEfetiva === "comissao" && (
             <Card title="Comissão e Pagamento" icon={<Cal className="w-5 h-5" />}>
               <CommissionTab />
             </Card>
           )}
-          {!isColab && activeTab === "adiantamentos" && (
+          {!isColab && abaEfetiva === "adiantamentos" && (
             <Card title="Adiantamentos" icon={<Banknote className="w-5 h-5" />}>
               <AdiantamentosTab />
             </Card>
           )}
-          {!isColab && activeTab === "caixa" && (
+          {!isColab && abaEfetiva === "caixa" && (
             <Card title="Caixa" icon={<Wallet className="w-5 h-5" />}>
               <CaixaTab />
             </Card>
           )}
-          {!isColab && activeTab === "dashboard" && (
+          {!isColab && abaEfetiva === "dashboard" && (
             <Card title="Dashboard" icon={<BarChart3 className="w-5 h-5" />}>
               <DashboardTab />
             </Card>
           )}
-          {!isColab && activeTab === "colaboradores" && (
+          {!isColab && abaEfetiva === "colaboradores" && (
             <Card title="Colaboradores" icon={<Users className="w-5 h-5" />}>
               <ColaboradoresTab />
             </Card>
           )}
-          {!isColab && activeTab === "graficos" && <GraphsTab />}
+          {!isColab && abaEfetiva === "graficos" && <GraphsTab />}
         </main>
       </div>
     </div>
