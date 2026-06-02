@@ -36,14 +36,15 @@ type ColaboradoresMeta = {
 };
 
 type ColaboradoresRow = {
-  data: string;       // dd/mm/yyyy
-  weekday: string;    // domingo..sabado
-  turno: string;      // ex: "Almoço" / "Noite"
+  data: string;
+  weekday: string;
+  turno: string;
   nome: string;
   setor: string;
   diariaFixa: number;
   consumo: number;
   comissao: number;
+  adiantamentos: number;
   total: number;
 };
 
@@ -51,6 +52,7 @@ type ColaboradoresTotals = {
   diarias: number;
   consumo: number;
   comissao: number;
+  adiantamentos: number;
   total: number;
 };
 
@@ -3834,6 +3836,7 @@ function ColaboradoresTab() {
                 <th className="border px-3 py-2 text-right">Diária fixa</th>
                 <th className="border px-3 py-2 text-right">Consumo</th>
                 <th className="border px-3 py-2 text-right">Comissão</th>
+                <th className="border px-3 py-2 text-right">Adiantamentos</th>
                 <th className="border px-3 py-2 text-right">Total</th>
               </tr>
             </thead>
@@ -3848,6 +3851,7 @@ function ColaboradoresTab() {
                   <td className="border px-3 py-2 text-right">{fmtMoney(r.diariaFixa)}</td>
                   <td className="border px-3 py-2 text-right">{fmtMoney(r.consumo)}</td>
                   <td className="border px-3 py-2 text-right">{fmtMoney(r.comissao)}</td>
+                  <td className="border px-3 py-2 text-right text-red-600">{fmtMoney(r.adiantamentos || 0)}</td>
                   <td className="border px-3 py-2 text-right">{fmtMoney(r.total)}</td>
                 </tr>
               ))}
@@ -3859,6 +3863,7 @@ function ColaboradoresTab() {
                 <td className="border px-3 py-2 text-right">{fmtMoney(totals.diarias)}</td>
                 <td className="border px-3 py-2 text-right">{fmtMoney(totals.consumo)}</td>
                 <td className="border px-3 py-2 text-right">{fmtMoney(totals.comissao)}</td>
+                <td className="border px-3 py-2 text-right text-red-600">{fmtMoney(totals.adiantamentos || 0)}</td>
                 <td className="border px-3 py-2 text-right">{fmtMoney(totals.total)}</td>
               </tr>
             </tbody>
