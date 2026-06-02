@@ -315,21 +315,11 @@ export default function App() {
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const podeVer = (aba: string) => {
+  const podeVer = (aba: string): boolean => {
+    if (isColab) return true;
     if (abasPermitidas === "tudo") return true;
     return (abasPermitidas as string[]).includes(aba.toLowerCase());
   };
-
-  // se a aba ativa não é permitida, redireciona para a primeira permitida
-  useEffect(() => {
-    if (mode === "admin" && adminLogado && abasPermitidas !== "tudo") {
-      if (!podeVer(activeTab)) {
-        const abas = abasPermitidas as string[];
-        if (abas.length > 0) setActiveTab(abas[0] as typeof activeTab);
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adminLogado, abasPermitidas]);
 
   if (mode === "admin" && !adminLogado) {
     return (
@@ -353,7 +343,7 @@ export default function App() {
 
   const navItem = (tab: typeof activeTab, label: string, icon: React.ReactNode, adminOnly = false) => {
     if (adminOnly && isColab) return null;
-    if (!isColab && !podeVer(tab)) return null;
+    if (!podeVer(tab)) return null;
     return (
       <button
         className={`sidebar-item ${activeTab === tab ? "active" : ""}`}
