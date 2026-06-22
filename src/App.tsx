@@ -3602,6 +3602,7 @@ function ColaboradoresTab() {
     diarias: 0,
     consumo: 0,
     comissao: 0,
+    adiantamentos: 0,
     total: 0,
   });
 
@@ -3673,6 +3674,7 @@ function ColaboradoresTab() {
         diarias: Number(t.diarias || 0),
         consumo: Number(t.consumo || 0),
         comissao: Number(t.comissao || 0),
+        adiantamentos: Number(t.adiantamentos || 0),
         total: Number(t.total || 0),
       });
     } catch (err) {
