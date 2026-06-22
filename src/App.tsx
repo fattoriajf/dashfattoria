@@ -180,7 +180,7 @@ export default function App() {
   const [mode, setMode] = useState<Mode>("admin");
 
   const [activeTab, setActiveTab] = useState<
-  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos"
+  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv"
   >("disponibilidade");
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
@@ -324,7 +324,7 @@ export default function App() {
   };
 
   // Aba efetiva: se a aba ativa não tem permissão, usa a primeira permitida
-  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos"];
+  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv"];
   const abaEfetiva: typeof activeTab = podeVer(activeTab) ? activeTab : (todasAbas.find(t => podeVer(t)) ?? "disponibilidade");
 
   if (mode === "admin" && !adminLogado) {
@@ -367,6 +367,7 @@ export default function App() {
       <div className="sidebar-category">
         <div className="sidebar-category-label">Inventário</div>
         {navItem("estoque", "Compras de Estoque", <ShoppingCart className="w-4 h-4" />)}
+        {navItem("fichaTecnica", "Ficha Técnica", <Package className="w-4 h-4" />, true)}
       </div>
       {!isColab && (
         <div className="sidebar-category">
@@ -374,6 +375,7 @@ export default function App() {
           {navItem("comissao", "Comissão e Pagamento", <Cal className="w-4 h-4" />, true)}
           {navItem("adiantamentos", "Adiantamentos", <Banknote className="w-4 h-4" />, true)}
           {navItem("caixa", "Caixa", <Wallet className="w-4 h-4" />, true)}
+          {navItem("cmv", "CMV", <BarChart3 className="w-4 h-4" />, true)}
         </div>
       )}
       {!isColab && (
@@ -460,6 +462,16 @@ export default function App() {
           {!isColab && abaEfetiva === "caixa" && (
             <Card title="Caixa" icon={<Wallet className="w-5 h-5" />}>
               <CaixaTab />
+            </Card>
+          )}
+          {!isColab && abaEfetiva === "cmv" && (
+            <Card title="CMV" icon={<BarChart3 className="w-5 h-5" />}>
+              <CMVTab />
+            </Card>
+          )}
+          {!isColab && abaEfetiva === "fichaTecnica" && (
+            <Card title="Ficha Técnica" icon={<Package className="w-5 h-5" />}>
+              <FichaTecnicaTab />
             </Card>
           )}
           {!isColab && abaEfetiva === "dashboard" && (
@@ -2629,7 +2641,7 @@ function CaixaTab() {
   const [totalSaidas, setTotalSaidas] = useState(0);
   const [saldo, setSaldo] = useState(0);
 
-  // form
+  // form novo lançamento
   const [tipo, setTipo] = useState<"entrada" | "saida">("entrada");
   const [valor, setValor] = useState("");
   const [dateRaw, setDateRaw] = useState(new Date().toISOString().slice(0, 10));
@@ -2639,6 +2651,15 @@ function CaixaTab() {
   // filtro histórico
   const [filterStart, setFilterStart] = useState("");
   const [filterEnd, setFilterEnd] = useState("");
+
+  // edição inline
+  const [editingTs, setEditingTs] = useState<string | null>(null);
+  const [editDate, setEditDate] = useState("");
+  const [editTipo, setEditTipo] = useState<"entrada" | "saida">("entrada");
+  const [editValor, setEditValor] = useState("");
+  const [editCategoria, setEditCategoria] = useState("");
+  const [editObservacao, setEditObservacao] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
 
   const fmtMoney = (n: number) =>
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
@@ -2691,6 +2712,88 @@ function CaixaTab() {
       setLoadingData(false);
     }
   }
+
+  // converte YYYY-MM-DD → DD/MM/YYYY para o backend
+  const toPayloadDate = (raw: string) => {
+    if (!raw) return "";
+    const [y, m, d] = raw.split("-");
+    return d && m && y ? `${d}/${m}/${y}` : "";
+  };
+  // converte DD/MM/YYYY → YYYY-MM-DD para input[type=date]
+  const toInputDate = (dmy: string) => {
+    if (!dmy) return "";
+    const [d, m, y] = dmy.split("/");
+    return d && m && y ? `${y}-${m}-${d}` : "";
+  };
+
+  const startEdit = (r: CaixaRow) => {
+    setEditingTs(r.timestamp);
+    setEditDate(toInputDate(r.data));
+    setEditTipo(r.tipo);
+    setEditValor(String(r.valor));
+    setEditCategoria(r.categoria);
+    setEditObservacao(r.observacao);
+  };
+
+  const cancelEdit = () => setEditingTs(null);
+
+  const handleSaveEdit = async () => {
+    if (editSaving || !editingTs) return;
+    if (!editDate)  { alert("Selecione a data."); return; }
+    if (!editValor) { alert("Informe o valor."); return; }
+    const num = parseFloat(editValor.replace(",", "."));
+    if (isNaN(num) || num <= 0) { alert("Valor inválido."); return; }
+
+    setEditSaving(true);
+    try {
+      const resp = await fetch(SYNC_ENDPOINT, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({
+          action: "update_caixa",
+          timestamp: editingTs,
+          date: toPayloadDate(editDate),
+          tipo: editTipo,
+          valor: num,
+          categoria: editCategoria,
+          observacao: editObservacao,
+        }),
+      });
+      // @ts-ignore
+      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
+        setEditingTs(null);
+        loadData();
+        return;
+      }
+      setEditingTs(null);
+      loadData();
+    } catch (err: any) {
+      alert(`Erro ao salvar edição: ${String(err)}`);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const handleDeleteRow = async (timestamp: string) => {
+    if (!confirm("Excluir este lançamento?")) return;
+    try {
+      const resp = await fetch(SYNC_ENDPOINT, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "delete_caixa", timestamp }),
+      });
+      // @ts-ignore
+      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
+        loadData();
+        return;
+      }
+      loadData();
+    } catch (err: any) {
+      alert(`Erro ao excluir: ${String(err)}`);
+    }
+  };
 
   async function handleSave() {
     if (saving) return;
@@ -2916,24 +3019,63 @@ function CaixaTab() {
                   <th className="border px-3 py-2 text-right">Valor</th>
                   <th className="border px-3 py-2 text-left">Categoria</th>
                   <th className="border px-3 py-2 text-left">Observação</th>
+                  <th className="border px-3 py-2"></th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
-                    <td className="border px-3 py-2">{r.data}</td>
-                    <td className="border px-3 py-2">
-                      <span className={`font-medium ${r.tipo === "entrada" ? "text-green-600" : "text-red-600"}`}>
-                        {r.tipo === "entrada" ? "↑ Entrada" : "↓ Saída"}
-                      </span>
-                    </td>
-                    <td className={`border px-3 py-2 text-right font-medium ${r.tipo === "entrada" ? "text-green-600" : "text-red-600"}`}>
-                      {r.tipo === "saida" ? "- " : ""}{fmtMoney(r.valor)}
-                    </td>
-                    <td className="border px-3 py-2">{r.categoria || "—"}</td>
-                    <td className="border px-3 py-2 text-gray-600">{r.observacao || "—"}</td>
-                  </tr>
-                ))}
+                {rows.map((r, i) => {
+                  const isEditing = editingTs === r.timestamp;
+                  return isEditing ? (
+                    <tr key={i} className="bg-blue-50">
+                      <td className="border px-2 py-1">
+                        <input type="date" className="input w-full text-xs" value={editDate} onChange={e => setEditDate(e.target.value)} />
+                      </td>
+                      <td className="border px-2 py-1">
+                        <select className="input w-full text-xs" value={editTipo} onChange={e => setEditTipo(e.target.value as "entrada" | "saida")}>
+                          <option value="entrada">↑ Entrada</option>
+                          <option value="saida">↓ Saída</option>
+                        </select>
+                      </td>
+                      <td className="border px-2 py-1">
+                        <input type="number" step="0.01" className="input w-full text-xs" value={editValor} onChange={e => setEditValor(e.target.value)} />
+                      </td>
+                      <td className="border px-2 py-1">
+                        <select className="input w-full text-xs" value={editCategoria} onChange={e => setEditCategoria(e.target.value)}>
+                          {categorias.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </td>
+                      <td className="border px-2 py-1">
+                        <input type="text" className="input w-full text-xs" value={editObservacao} onChange={e => setEditObservacao(e.target.value)} />
+                      </td>
+                      <td className="border px-2 py-1 whitespace-nowrap">
+                        <button onClick={handleSaveEdit} disabled={editSaving} className="btn btn-primary text-xs py-1 px-2 mr-1">
+                          {editSaving ? "..." : "Salvar"}
+                        </button>
+                        <button onClick={cancelEdit} className="btn btn-ghost text-xs py-1 px-2">
+                          Cancelar
+                        </button>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                      <td className="border px-3 py-2">{r.data}</td>
+                      <td className="border px-3 py-2">
+                        <span className={`font-medium ${r.tipo === "entrada" ? "text-green-600" : "text-red-600"}`}>
+                          {r.tipo === "entrada" ? "↑ Entrada" : "↓ Saída"}
+                        </span>
+                      </td>
+                      <td className={`border px-3 py-2 text-right font-medium ${r.tipo === "entrada" ? "text-green-600" : "text-red-600"}`}>
+                        {r.tipo === "saida" ? "- " : ""}{fmtMoney(r.valor)}
+                      </td>
+                      <td className="border px-3 py-2">{r.categoria || "—"}</td>
+                      <td className="border px-3 py-2 text-gray-600">{r.observacao || "—"}</td>
+                      <td className="border px-3 py-2 whitespace-nowrap">
+                        <button onClick={() => startEdit(r)} className="text-xs text-blue-600 hover:underline mr-2">Editar</button>
+                        <button onClick={() => handleDeleteRow(r.timestamp)} className="text-xs text-red-500 hover:underline">Excluir</button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -3874,6 +4016,549 @@ function ColaboradoresTab() {
 
         {rows.length === 0 && !loading && (
           <div className="text-sm text-gray-500">Nenhum registro para os filtros selecionados.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ======== FICHA TÉCNICA ========
+type FichaIngrediente = {
+  ingrediente: string;
+  quantidade: number;
+  unidade: string;
+  custoPorUnidade: number;
+  custoTotal: number;
+};
+
+type FichaProduto = {
+  nome: string;
+  precoVenda: number;
+  custoTotal: number;
+  margem: number;
+  margemPct: number;
+  cmvPct: number;
+  ingredientes: FichaIngrediente[];
+};
+
+function FichaTecnicaTab() {
+  const [produtos, setProdutos] = useState<FichaProduto[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedProduto, setSelectedProduto] = useState<string | null>(null);
+
+  // form novo produto
+  const [showNewProduto, setShowNewProduto] = useState(false);
+  const [novoProduto, setNovoProduto] = useState("");
+  const [novoPrecoVenda, setNovoPrecoVenda] = useState("");
+
+  // form novo ingrediente
+  const [showNewIngrediente, setShowNewIngrediente] = useState(false);
+  const [novoIngrediente, setNovoIngrediente] = useState("");
+  const [novoQtd, setNovoQtd] = useState("");
+  const [novoUnidade, setNovoUnidade] = useState("");
+  const [novoCusto, setNovoCusto] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // edição de preço de venda
+  const [editingPreco, setEditingPreco] = useState(false);
+  const [editPrecoVal, setEditPrecoVal] = useState("");
+
+  const fmtMoney = (n: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
+  const fmtPct = (n: number) => `${Number(n || 0).toFixed(1)}%`;
+
+  const loadProdutos = async () => {
+    if (!SYNC_ENDPOINT) return;
+    setLoading(true);
+    try {
+      const resp = await fetch(`${SYNC_ENDPOINT}?action=fichas_lista`);
+      const data = await resp.json();
+      if (data?.ok && Array.isArray(data.produtos)) {
+        setProdutos(data.produtos as FichaProduto[]);
+      } else if (!data?.ok) {
+        console.error(data?.error);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadProdutos(); }, []);
+
+  const produto = selectedProduto ? produtos.find(p => p.nome === selectedProduto) : null;
+
+  const resetIngredienteForm = () => {
+    setNovoIngrediente(""); setNovoQtd(""); setNovoUnidade(""); setNovoCusto("");
+    setShowNewIngrediente(false);
+  };
+
+  const handleSaveIngrediente = async () => {
+    if (saving || !selectedProduto) return;
+    if (!novoIngrediente.trim()) { alert("Informe o nome do ingrediente."); return; }
+    if (!novoQtd) { alert("Informe a quantidade."); return; }
+    if (!novoCusto) { alert("Informe o custo por unidade."); return; }
+
+    const precoAtual = novoPrecoVenda || String(produto?.precoVenda || 0);
+    const payload = {
+      action: "save_ficha_item",
+      produto: selectedProduto,
+      precoVenda: precoAtual,
+      ingrediente: novoIngrediente.trim(),
+      quantidade: novoQtd,
+      unidade: novoUnidade,
+      custoPorUnidade: novoCusto,
+    };
+
+    setSaving(true);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST", mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+      });
+      resetIngredienteForm();
+      await loadProdutos();
+    } catch (err: any) {
+      alert(`Erro: ${String(err)}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSavePreco = async () => {
+    if (!selectedProduto || !produto) return;
+    if (produto.ingredientes.length === 0) {
+      alert("Adicione ao menos um ingrediente antes de atualizar o preço de venda.");
+      setEditingPreco(false); return;
+    }
+    const ing = produto.ingredientes[0];
+    const payload = {
+      action: "save_ficha_item",
+      produto: selectedProduto,
+      precoVenda: editPrecoVal,
+      ingrediente: ing.ingrediente,
+      quantidade: ing.quantidade,
+      unidade: ing.unidade,
+      custoPorUnidade: ing.custoPorUnidade,
+    };
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST", mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+      });
+      setEditingPreco(false);
+      await loadProdutos();
+    } catch (err: any) { alert(`Erro: ${String(err)}`); }
+  };
+
+  const handleDeleteIngrediente = async (prodNome: string, ingNome: string) => {
+    if (!confirm(`Excluir "${ingNome}" da ficha de "${prodNome}"?`)) return;
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST", mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "delete_ficha_item", produto: prodNome, ingrediente: ingNome }),
+      });
+      await loadProdutos();
+    } catch (err: any) { alert(`Erro: ${String(err)}`); }
+  };
+
+  const handleDeleteProduto = async (nome: string) => {
+    if (!confirm(`Excluir toda a ficha técnica de "${nome}"?`)) return;
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST", mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "delete_produto_ficha", produto: nome }),
+      });
+      setSelectedProduto(null);
+      await loadProdutos();
+    } catch (err: any) { alert(`Erro: ${String(err)}`); }
+  };
+
+  const handleCreateProduto = () => {
+    if (!novoProduto.trim()) { alert("Informe o nome do produto."); return; }
+    if (!novoPrecoVenda) { alert("Informe o preço de venda."); return; }
+    const nome = novoProduto.trim();
+    setSelectedProduto(nome);
+    if (!produtos.find(p => p.nome === nome)) {
+      setProdutos(prev => [...prev, {
+        nome, precoVenda: parseFloat(novoPrecoVenda), custoTotal: 0,
+        margem: parseFloat(novoPrecoVenda), margemPct: 100, cmvPct: 0, ingredientes: []
+      }]);
+    }
+    setShowNewProduto(false);
+    setNovoProduto("");
+    setShowNewIngrediente(true);
+  };
+
+  if (!SYNC_ENDPOINT) return <div className="text-sm text-red-600">Endpoint não configurado.</div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="border rounded-xl p-4 bg-white space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-base">Fichas Técnicas</h3>
+          <div className="flex gap-2">
+            <button className="btn btn-ghost text-sm" onClick={loadProdutos} disabled={loading}>
+              {loading ? "Carregando..." : "Atualizar"}
+            </button>
+            <button className="btn btn-primary text-sm" onClick={() => { setShowNewProduto(true); setSelectedProduto(null); resetIngredienteForm(); }}>
+              + Novo produto
+            </button>
+          </div>
+        </div>
+
+        {showNewProduto && (
+          <div className="border rounded-xl p-3 bg-gray-50 space-y-3">
+            <div className="font-medium text-sm">Novo produto</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs text-gray-600">Nome do produto</label>
+                <input type="text" className="input w-full" value={novoProduto}
+                  onChange={e => setNovoProduto(e.target.value)} placeholder="Ex.: Pizza Margherita" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-gray-600">Preço de venda (R$)</label>
+                <input type="number" step="0.01" className="input w-full" value={novoPrecoVenda}
+                  onChange={e => setNovoPrecoVenda(e.target.value)} placeholder="0,00" />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button className="btn btn-primary text-sm" onClick={handleCreateProduto}>Avançar →</button>
+              <button className="btn btn-ghost text-sm" onClick={() => setShowNewProduto(false)}>Cancelar</button>
+            </div>
+          </div>
+        )}
+
+        {!loading && produtos.length === 0 && (
+          <div className="text-sm text-gray-500">
+            Nenhuma ficha técnica cadastrada. A planilha "Fichas_Tecnicas" será criada automaticamente ao salvar o primeiro produto.
+          </div>
+        )}
+
+        <div className="space-y-2">
+          {produtos.map(p => (
+            <div key={p.nome} className={`border rounded-xl overflow-hidden ${selectedProduto === p.nome ? "border-blue-400" : "border-gray-200"}`}>
+              <div
+                className={`flex items-center justify-between px-4 py-3 cursor-pointer ${selectedProduto === p.nome ? "bg-blue-50" : "bg-white hover:bg-gray-50"}`}
+                onClick={() => { setSelectedProduto(selectedProduto === p.nome ? null : p.nome); resetIngredienteForm(); setEditingPreco(false); }}
+              >
+                <div>
+                  <div className="font-medium">{p.nome}</div>
+                  <div className="text-xs text-gray-500 space-x-3">
+                    <span>Custo: {fmtMoney(p.custoTotal)}</span>
+                    <span>Venda: {fmtMoney(p.precoVenda)}</span>
+                    <span className={p.margemPct >= 50 ? "text-green-600 font-medium" : p.margemPct >= 30 ? "text-yellow-600 font-medium" : "text-red-600 font-medium"}>
+                      Margem: {fmtPct(p.margemPct)}
+                    </span>
+                    <span className={p.cmvPct <= 35 ? "text-green-600" : p.cmvPct <= 45 ? "text-yellow-600" : "text-red-600"}>
+                      CMV: {fmtPct(p.cmvPct)}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button className="text-xs text-red-500 hover:underline"
+                    onClick={e => { e.stopPropagation(); handleDeleteProduto(p.nome); }}>
+                    Excluir
+                  </button>
+                  <span className="text-gray-400 text-xs">{selectedProduto === p.nome ? "▲" : "▼"}</span>
+                </div>
+              </div>
+
+              {selectedProduto === p.nome && (
+                <div className="px-4 py-3 bg-white border-t space-y-3">
+                  <div className="flex items-center gap-3 text-sm">
+                    <span className="text-gray-600">Preço de venda:</span>
+                    {editingPreco ? (
+                      <>
+                        <input type="number" step="0.01" className="input w-28 text-sm" value={editPrecoVal} onChange={e => setEditPrecoVal(e.target.value)} />
+                        <button className="btn btn-primary text-xs" onClick={handleSavePreco}>Salvar</button>
+                        <button className="btn btn-ghost text-xs" onClick={() => setEditingPreco(false)}>Cancelar</button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-semibold">{fmtMoney(p.precoVenda)}</span>
+                        <button className="text-xs text-blue-600 hover:underline"
+                          onClick={() => { setEditingPreco(true); setEditPrecoVal(String(p.precoVenda)); }}>
+                          Editar preço
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  {p.ingredientes.length > 0 ? (
+                    <div className="overflow-auto">
+                      <table className="min-w-full border text-sm">
+                        <thead className="bg-gray-100">
+                          <tr>
+                            <th className="border px-3 py-2 text-left">Ingrediente</th>
+                            <th className="border px-3 py-2 text-right">Qtd</th>
+                            <th className="border px-3 py-2 text-left">Unidade</th>
+                            <th className="border px-3 py-2 text-right">Custo/un</th>
+                            <th className="border px-3 py-2 text-right">Custo total</th>
+                            <th className="border px-3 py-2"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {p.ingredientes.map((ing, idx) => (
+                            <tr key={idx}>
+                              <td className="border px-3 py-2">{ing.ingrediente}</td>
+                              <td className="border px-3 py-2 text-right">{ing.quantidade}</td>
+                              <td className="border px-3 py-2">{ing.unidade || "—"}</td>
+                              <td className="border px-3 py-2 text-right">{fmtMoney(ing.custoPorUnidade)}</td>
+                              <td className="border px-3 py-2 text-right">{fmtMoney(ing.custoTotal)}</td>
+                              <td className="border px-3 py-2 text-center">
+                                <button className="text-xs text-red-500 hover:underline"
+                                  onClick={() => handleDeleteIngrediente(p.nome, ing.ingrediente)}>
+                                  Excluir
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                          <tr className="bg-gray-50 font-semibold">
+                            <td colSpan={4} className="border px-3 py-2">Custo total do produto</td>
+                            <td className="border px-3 py-2 text-right">{fmtMoney(p.custoTotal)}</td>
+                            <td className="border px-3 py-2"></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-gray-500">Nenhum ingrediente cadastrado ainda.</div>
+                  )}
+
+                  {showNewIngrediente ? (
+                    <div className="border rounded-xl p-3 bg-gray-50 space-y-3">
+                      <div className="font-medium text-sm">Novo ingrediente</div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <div className="col-span-2 sm:col-span-1 space-y-1">
+                          <label className="text-xs text-gray-600">Ingrediente</label>
+                          <input type="text" className="input w-full" value={novoIngrediente}
+                            onChange={e => setNovoIngrediente(e.target.value)} placeholder="Ex.: Farinha" />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-gray-600">Quantidade</label>
+                          <input type="number" step="0.001" className="input w-full" value={novoQtd}
+                            onChange={e => setNovoQtd(e.target.value)} placeholder="0" />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-gray-600">Unidade</label>
+                          <input type="text" className="input w-full" value={novoUnidade}
+                            onChange={e => setNovoUnidade(e.target.value)} placeholder="kg, g, ml..." />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-gray-600">Custo/un (R$)</label>
+                          <input type="number" step="0.001" className="input w-full" value={novoCusto}
+                            onChange={e => setNovoCusto(e.target.value)} placeholder="0,00" />
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button className="btn btn-primary text-sm" onClick={handleSaveIngrediente} disabled={saving}>
+                          {saving ? "Salvando..." : "Salvar ingrediente"}
+                        </button>
+                        <button className="btn btn-ghost text-sm" onClick={resetIngredienteForm}>Cancelar</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button className="btn btn-ghost text-sm" onClick={() => setShowNewIngrediente(true)}>
+                      + Adicionar ingrediente
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ======== CMV ========
+function CMVTab() {
+  const [startRaw, setStartRaw] = useState("");
+  const [endRaw, setEndRaw] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [rows, setRows] = useState<any[]>([]);
+  const [totalCusto, setTotalCusto] = useState(0);
+  const [totalReceita, setTotalReceita] = useState(0);
+  const [cmvGeral, setCmvGeral] = useState(0);
+
+  const fmtMoney = (n: number | null) =>
+    n === null ? "—" : new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
+  const fmtPct = (n: number | null) =>
+    n === null ? "—" : `${Number(n || 0).toFixed(1)}%`;
+
+  const cmvColor = (v: number | null) => {
+    if (v === null) return "";
+    if (v <= 35) return "text-green-600";
+    if (v <= 45) return "text-yellow-600";
+    return "text-red-600";
+  };
+
+  const load = async () => {
+    if (!startRaw || !endRaw) { alert("Selecione data inicial e final."); return; }
+    if (!SYNC_ENDPOINT) return;
+
+    setLoading(true);
+    try {
+      // 1. Fichas técnicas
+      const fichasResp = await fetch(`${SYNC_ENDPOINT}?action=fichas_lista`);
+      const fichasData = await fichasResp.json();
+      if (!fichasData?.ok) throw new Error(fichasData?.error || "Erro ao carregar fichas técnicas.");
+
+      const fichasByCusto: Record<string, { custoUnitario: number }> = {};
+      (fichasData.produtos || []).forEach((p: any) => {
+        fichasByCusto[String(p.nome || "").toLowerCase().trim()] = {
+          custoUnitario: Number(p.custoTotal || 0),
+        };
+      });
+
+      // 2. Vendas do Dashboard
+      const dashUrl =
+        `${SYNC_ENDPOINT}?action=dashboard_base_rows` +
+        `&start=${encodeURIComponent(startRaw)}` +
+        `&end=${encodeURIComponent(endRaw)}` +
+        `&grupo=Tudo&descricao=Tudo&weekday=Tudo&__ts=${Date.now()}`;
+      const dashResp = await fetch(dashUrl, { cache: "no-store" });
+      const dashData = await dashResp.json();
+      if (!dashData?.ok) throw new Error(dashData?.error || "Erro ao carregar dados do Dashboard.");
+
+      // Agrega por descricao
+      const agg: Record<string, { descricao: string; qtdVendida: number; receitaTotal: number }> = {};
+      (dashData.rows || []).forEach((r: any) => {
+        const key = String(r.descricao || "").toLowerCase().trim();
+        if (!key) return;
+        if (!agg[key]) agg[key] = { descricao: String(r.descricao || ""), qtdVendida: 0, receitaTotal: 0 };
+        agg[key].qtdVendida += Number(r.qtd || 0);
+        agg[key].receitaTotal += Number(r.vl_total || 0);
+      });
+
+      let totCusto = 0;
+      let totReceita = 0;
+
+      const rowsCalc = Object.values(agg).map((item: any) => {
+        const key = item.descricao.toLowerCase().trim();
+        const ficha = fichasByCusto[key];
+        const custoUnitario = ficha ? ficha.custoUnitario : null;
+        const custoTotal = custoUnitario !== null ? item.qtdVendida * custoUnitario : null;
+        const cmvPct = custoTotal !== null && item.receitaTotal > 0
+          ? (custoTotal / item.receitaTotal) * 100 : null;
+
+        if (custoTotal !== null) totCusto += custoTotal;
+        totReceita += item.receitaTotal;
+
+        return { produto: item.descricao, qtdVendida: item.qtdVendida, custoUnitario, custoTotal, receitaTotal: item.receitaTotal, cmvPct, temFicha: !!ficha };
+      }).sort((a: any, b: any) => (b.receitaTotal || 0) - (a.receitaTotal || 0));
+
+      setRows(rowsCalc);
+      setTotalCusto(totCusto);
+      setTotalReceita(totReceita);
+      setCmvGeral(totReceita > 0 ? (totCusto / totReceita) * 100 : 0);
+    } catch (err: any) {
+      console.error(err);
+      alert(`Erro: ${String(err)}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!SYNC_ENDPOINT) return <div className="text-sm text-red-600">Endpoint não configurado.</div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="border rounded-xl p-4 bg-white space-y-4">
+        <div>
+          <h3 className="font-semibold text-base">Relatório de CMV</h3>
+          <p className="text-xs text-gray-500 mt-1">
+            Cruza as vendas do Dashboard com as Fichas Técnicas para calcular o Custo de Mercadoria Vendida por produto.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Data inicial</label>
+            <input type="date" className="input w-full" value={startRaw} onChange={e => setStartRaw(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Data final</label>
+            <input type="date" className="input w-full" value={endRaw} onChange={e => setEndRaw(e.target.value)} />
+          </div>
+          <button className="btn btn-primary" onClick={load} disabled={loading}>
+            {loading ? "Calculando..." : "Calcular CMV"}
+          </button>
+        </div>
+
+        {rows.length > 0 && (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="border rounded-xl p-4 text-center bg-white">
+                <div className="text-xs text-gray-500 mb-1">Receita total</div>
+                <div className="text-xl font-semibold text-green-600">{fmtMoney(totalReceita)}</div>
+              </div>
+              <div className="border rounded-xl p-4 text-center bg-white">
+                <div className="text-xs text-gray-500 mb-1">Custo total (c/ ficha)</div>
+                <div className="text-xl font-semibold text-red-600">{fmtMoney(totalCusto)}</div>
+              </div>
+              <div className={`border-2 rounded-xl p-4 text-center ${cmvGeral <= 35 ? "border-green-400 bg-green-50" : cmvGeral <= 45 ? "border-yellow-400 bg-yellow-50" : "border-red-400 bg-red-50"}`}>
+                <div className="text-xs text-gray-500 mb-1">CMV geral</div>
+                <div className={`text-2xl font-bold ${cmvGeral <= 35 ? "text-green-700" : cmvGeral <= 45 ? "text-yellow-700" : "text-red-700"}`}>
+                  {fmtPct(cmvGeral)}
+                </div>
+                <div className="text-xs text-gray-400 mt-1">
+                  {cmvGeral <= 35 ? "✓ Excelente (≤35%)" : cmvGeral <= 45 ? "⚠ Atenção (35–45%)" : "✗ Alto (>45%)"}
+                </div>
+              </div>
+            </div>
+
+            <div className="overflow-auto">
+              <table className="min-w-full border text-sm">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="border px-3 py-2 text-left">Produto</th>
+                    <th className="border px-3 py-2 text-right">Qtd vendida</th>
+                    <th className="border px-3 py-2 text-right">Custo unitário</th>
+                    <th className="border px-3 py-2 text-right">Custo total</th>
+                    <th className="border px-3 py-2 text-right">Receita</th>
+                    <th className="border px-3 py-2 text-right">CMV %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r: any, idx: number) => (
+                    <tr key={idx} className={!r.temFicha ? "text-gray-400" : idx % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                      <td className="border px-3 py-2">
+                        {r.produto}
+                        {!r.temFicha && <span className="text-xs text-amber-500 ml-1">(sem ficha)</span>}
+                      </td>
+                      <td className="border px-3 py-2 text-right">{r.qtdVendida}</td>
+                      <td className="border px-3 py-2 text-right">{fmtMoney(r.custoUnitario)}</td>
+                      <td className="border px-3 py-2 text-right">{fmtMoney(r.custoTotal)}</td>
+                      <td className="border px-3 py-2 text-right">{fmtMoney(r.receitaTotal)}</td>
+                      <td className={`border px-3 py-2 text-right font-medium ${cmvColor(r.cmvPct)}`}>
+                        {fmtPct(r.cmvPct)}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="bg-gray-100 font-semibold">
+                    <td className="border px-3 py-2" colSpan={3}>Total</td>
+                    <td className="border px-3 py-2 text-right">{fmtMoney(totalCusto)}</td>
+                    <td className="border px-3 py-2 text-right">{fmtMoney(totalReceita)}</td>
+                    <td className={`border px-3 py-2 text-right ${cmvColor(cmvGeral)}`}>{fmtPct(cmvGeral)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {rows.some((r: any) => !r.temFicha) && (
+              <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                ⚠ Produtos em cinza não têm ficha técnica. Cadastre na aba "Ficha Técnica" para incluí-los no cálculo.
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
