@@ -4635,7 +4635,7 @@ function CMVTab() {
       .catch(() => {});
     fetch(`${SYNC_ENDPOINT}?action=dashboard_base_meta&_ts=${Date.now()}`)
       .then(r => r.json())
-      .then(j => { if (j.ok && j.grupos) setGrupos(j.grupos); })
+      .then(j => { if (j.ok && j.groups) setGrupos(j.groups); })
       .catch(() => {});
   }, []);
 
