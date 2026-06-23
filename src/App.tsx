@@ -4598,6 +4598,8 @@ function CMVTab() {
   const [totalCusto, setTotalCusto] = useState(0);
   const [totalReceita, setTotalReceita] = useState(0);
   const [cmvGeral, setCmvGeral] = useState(0);
+  const [grupos, setGrupos] = useState<string[]>([]);
+  const [grupoSel, setGrupoSel] = useState("Tudo");
 
   // ── CMV Real ──
   const [loadingReal, setLoadingReal] = useState(false);
@@ -4624,12 +4626,16 @@ function CMVTab() {
     return `${d}/${m}/${y}`;
   };
 
-  // Carrega datas de inventário disponíveis ao montar
+  // Carrega datas de inventário e grupos disponíveis ao montar
   useEffect(() => {
     if (!SYNC_ENDPOINT) return;
     fetch(`${SYNC_ENDPOINT}?action=inventario_datas&_ts=${Date.now()}`)
       .then(r => r.json())
       .then(j => { if (j.ok) setDatasInventario(j.datas || []); })
+      .catch(() => {});
+    fetch(`${SYNC_ENDPOINT}?action=dashboard_base_meta&_ts=${Date.now()}`)
+      .then(r => r.json())
+      .then(j => { if (j.ok && j.grupos) setGrupos(j.grupos); })
       .catch(() => {});
   }, []);
 
@@ -4650,7 +4656,7 @@ function CMVTab() {
       const dashUrl = `${SYNC_ENDPOINT}?action=dashboard_base_rows` +
         `&start=${encodeURIComponent(toDDMMYYYY(startRaw))}` +
         `&end=${encodeURIComponent(toDDMMYYYY(endRaw))}` +
-        `&grupo=Tudo&descricao=Tudo&weekday=Tudo&_ts=${Date.now()}`;
+        `&grupo=${encodeURIComponent(grupoSel)}&descricao=Tudo&weekday=Tudo&_ts=${Date.now()}`;
       const dashData = await (await fetch(dashUrl)).json();
       if (!dashData?.ok) throw new Error(dashData?.error || "Erro no Dashboard.");
 
@@ -4740,6 +4746,13 @@ function CMVTab() {
           </p>
         </div>
         {dateInputs}
+        <div className="space-y-1">
+          <label className="text-sm text-gray-600">Categoria</label>
+          <select className="input w-full sm:w-64" value={grupoSel} onChange={e => setGrupoSel(e.target.value)}>
+            <option value="Tudo">Todos os produtos</option>
+            {grupos.map(g => <option key={g} value={g}>{g}</option>)}
+          </select>
+        </div>
         <button className="btn btn-primary w-full sm:w-auto" onClick={loadTeorico} disabled={loadingTeo}>
           {loadingTeo ? "Calculando..." : "Calcular CMV Teórico"}
         </button>
