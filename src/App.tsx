@@ -180,7 +180,7 @@ export default function App() {
   const [mode, setMode] = useState<Mode>("admin");
 
   const [activeTab, setActiveTab] = useState<
-  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv"
+  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv" | "insumos"
   >("disponibilidade");
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
@@ -324,7 +324,7 @@ export default function App() {
   };
 
   // Aba efetiva: se a aba ativa não tem permissão, usa a primeira permitida
-  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv"];
+  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv","insumos"];
   const abaEfetiva: typeof activeTab = podeVer(activeTab) ? activeTab : (todasAbas.find(t => podeVer(t)) ?? "disponibilidade");
 
   if (mode === "admin" && !adminLogado) {
@@ -367,6 +367,7 @@ export default function App() {
       <div className="sidebar-category">
         <div className="sidebar-category-label">Inventário</div>
         {navItem("estoque", "Compras de Estoque", <ShoppingCart className="w-4 h-4" />)}
+        {navItem("insumos", "Insumos", <Package className="w-4 h-4" />, true)}
         {navItem("fichaTecnica", "Ficha Técnica", <Package className="w-4 h-4" />, true)}
       </div>
       {!isColab && (
@@ -467,6 +468,11 @@ export default function App() {
           {!isColab && abaEfetiva === "cmv" && (
             <Card title="CMV" icon={<BarChart3 className="w-5 h-5" />}>
               <CMVTab />
+            </Card>
+          )}
+          {!isColab && abaEfetiva === "insumos" && (
+            <Card title="Insumos" icon={<Package className="w-5 h-5" />}>
+              <InsumosTab />
             </Card>
           )}
           {!isColab && abaEfetiva === "fichaTecnica" && (
@@ -4022,7 +4028,13 @@ function ColaboradoresTab() {
   );
 }
 
-// ======== FICHA TÉCNICA ========
+// ======== TIPOS COMPARTILHADOS ========
+type Insumo = {
+  insumo: string;
+  unidade: string;
+  custoPorUnidade: number;
+};
+
 type FichaIngrediente = {
   ingrediente: string;
   quantidade: number;
@@ -4043,6 +4055,7 @@ type FichaProduto = {
 
 function FichaTecnicaTab() {
   const [produtos, setProdutos] = useState<FichaProduto[]>([]);
+  const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedProduto, setSelectedProduto] = useState<string | null>(null);
 
@@ -4053,10 +4066,8 @@ function FichaTecnicaTab() {
 
   // form novo ingrediente
   const [showNewIngrediente, setShowNewIngrediente] = useState(false);
-  const [novoIngrediente, setNovoIngrediente] = useState("");
+  const [novoInsumoSel, setNovoInsumoSel] = useState("");
   const [novoQtd, setNovoQtd] = useState("");
-  const [novoUnidade, setNovoUnidade] = useState("");
-  const [novoCusto, setNovoCusto] = useState("");
   const [saving, setSaving] = useState(false);
 
   // edição de preço de venda
@@ -4067,17 +4078,18 @@ function FichaTecnicaTab() {
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
   const fmtPct = (n: number) => `${Number(n || 0).toFixed(1)}%`;
 
-  const loadProdutos = async () => {
+  const loadTudo = async () => {
     if (!SYNC_ENDPOINT) return;
     setLoading(true);
     try {
-      const resp = await fetch(`${SYNC_ENDPOINT}?action=fichas_lista&_ts=${Date.now()}`);
-      const data = await resp.json();
-      if (data?.ok && Array.isArray(data.produtos)) {
-        setProdutos(data.produtos as FichaProduto[]);
-      } else if (!data?.ok) {
-        console.error(data?.error);
-      }
+      const [fichasResp, insumosResp] = await Promise.all([
+        fetch(`${SYNC_ENDPOINT}?action=fichas_lista&_ts=${Date.now()}`),
+        fetch(`${SYNC_ENDPOINT}?action=insumos_lista&_ts=${Date.now()}`),
+      ]);
+      const fichasData = await fichasResp.json();
+      const insumosData = await insumosResp.json();
+      if (fichasData?.ok && Array.isArray(fichasData.produtos)) setProdutos(fichasData.produtos as FichaProduto[]);
+      if (insumosData?.ok && Array.isArray(insumosData.insumos)) setInsumos(insumosData.insumos as Insumo[]);
     } catch (err) {
       console.error(err);
     } finally {
@@ -4085,30 +4097,37 @@ function FichaTecnicaTab() {
     }
   };
 
-  useEffect(() => { loadProdutos(); }, []);
+  const loadProdutos = async () => {
+    if (!SYNC_ENDPOINT) return;
+    try {
+      const resp = await fetch(`${SYNC_ENDPOINT}?action=fichas_lista&_ts=${Date.now()}`);
+      const data = await resp.json();
+      if (data?.ok && Array.isArray(data.produtos)) setProdutos(data.produtos as FichaProduto[]);
+    } catch (err) { console.error(err); }
+  };
+
+  useEffect(() => { loadTudo(); }, []);
 
   const produto = selectedProduto ? produtos.find(p => p.nome === selectedProduto) : null;
+  const insumoSelecionado = insumos.find(i => i.insumo === novoInsumoSel);
 
   const resetIngredienteForm = () => {
-    setNovoIngrediente(""); setNovoQtd(""); setNovoUnidade(""); setNovoCusto("");
+    setNovoInsumoSel(""); setNovoQtd("");
     setShowNewIngrediente(false);
   };
 
   const handleSaveIngrediente = async () => {
     if (saving || !selectedProduto) return;
-    if (!novoIngrediente.trim()) { alert("Informe o nome do ingrediente."); return; }
+    if (!novoInsumoSel) { alert("Selecione um insumo do catálogo."); return; }
     if (!novoQtd) { alert("Informe a quantidade."); return; }
-    if (!novoCusto) { alert("Informe o custo por unidade."); return; }
 
     const precoAtual = novoPrecoVenda || String(produto?.precoVenda || 0);
     const payload = {
       action: "save_ficha_item",
       produto: selectedProduto,
       precoVenda: precoAtual,
-      ingrediente: novoIngrediente.trim(),
+      insumo: novoInsumoSel,
       quantidade: novoQtd,
-      unidade: novoUnidade,
-      custoPorUnidade: novoCusto,
     };
 
     setSaving(true);
@@ -4130,7 +4149,7 @@ function FichaTecnicaTab() {
   const handleSavePreco = async () => {
     if (!selectedProduto || !produto) return;
     if (produto.ingredientes.length === 0) {
-      alert("Adicione ao menos um ingrediente antes de atualizar o preço de venda.");
+      alert("Adicione ao menos um insumo antes de atualizar o preço de venda.");
       setEditingPreco(false); return;
     }
     const ing = produto.ingredientes[0];
@@ -4138,10 +4157,8 @@ function FichaTecnicaTab() {
       action: "save_ficha_item",
       produto: selectedProduto,
       precoVenda: editPrecoVal,
-      ingrediente: ing.ingrediente,
+      insumo: ing.ingrediente,
       quantidade: ing.quantidade,
-      unidade: ing.unidade,
-      custoPorUnidade: ing.custoPorUnidade,
     };
     try {
       await fetch(SYNC_ENDPOINT, {
@@ -4160,7 +4177,7 @@ function FichaTecnicaTab() {
       await fetch(SYNC_ENDPOINT, {
         method: "POST", mode: "no-cors",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ action: "delete_ficha_item", produto: prodNome, ingrediente: ingNome }),
+        body: JSON.stringify({ action: "delete_ficha_item", produto: prodNome, insumo: ingNome }),
       });
       await loadProdutos();
     } catch (err: any) { alert(`Erro: ${String(err)}`); }
@@ -4295,7 +4312,7 @@ function FichaTecnicaTab() {
                       <table className="min-w-full border text-sm">
                         <thead className="bg-gray-100">
                           <tr>
-                            <th className="border px-3 py-2 text-left">Ingrediente</th>
+                            <th className="border px-3 py-2 text-left">Insumo</th>
                             <th className="border px-3 py-2 text-right">Qtd</th>
                             <th className="border px-3 py-2 text-left">Unidade</th>
                             <th className="border px-3 py-2 text-right">Custo/un</th>
@@ -4328,44 +4345,55 @@ function FichaTecnicaTab() {
                       </table>
                     </div>
                   ) : (
-                    <div className="text-sm text-gray-500">Nenhum ingrediente cadastrado ainda.</div>
+                    <div className="text-sm text-gray-500">Nenhum insumo cadastrado ainda.</div>
                   )}
 
                   {showNewIngrediente ? (
                     <div className="border rounded-xl p-3 bg-gray-50 space-y-3">
-                      <div className="font-medium text-sm">Novo ingrediente</div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        <div className="col-span-2 sm:col-span-1 space-y-1">
-                          <label className="text-xs text-gray-600">Ingrediente</label>
-                          <input type="text" className="input w-full" value={novoIngrediente}
-                            onChange={e => setNovoIngrediente(e.target.value)} placeholder="Ex.: Farinha" />
+                      <div className="font-medium text-sm">Adicionar insumo</div>
+                      {insumos.length === 0 ? (
+                        <div className="text-sm text-amber-600">Cadastre insumos na aba "Insumos" antes de montar a ficha.</div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div className="space-y-1">
+                            <label className="text-xs text-gray-600">Insumo</label>
+                            <select className="input w-full" value={novoInsumoSel} onChange={e => setNovoInsumoSel(e.target.value)}>
+                              <option value="">Selecione...</option>
+                              {insumos.map(ins => (
+                                <option key={ins.insumo} value={ins.insumo}>{ins.insumo}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs text-gray-600">Quantidade</label>
+                            <input type="number" step="0.001" className="input w-full" value={novoQtd}
+                              onChange={e => setNovoQtd(e.target.value)} placeholder="0" />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs text-gray-600">Custo estimado</label>
+                            <div className="input w-full bg-gray-100 text-gray-600 flex items-center text-sm">
+                              {insumoSelecionado && novoQtd
+                                ? fmtMoney(parseFloat(novoQtd) * insumoSelecionado.custoPorUnidade)
+                                : "—"}
+                            </div>
+                          </div>
                         </div>
-                        <div className="space-y-1">
-                          <label className="text-xs text-gray-600">Quantidade</label>
-                          <input type="number" step="0.001" className="input w-full" value={novoQtd}
-                            onChange={e => setNovoQtd(e.target.value)} placeholder="0" />
+                      )}
+                      {insumoSelecionado && (
+                        <div className="text-xs text-gray-500">
+                          {insumoSelecionado.unidade} · {fmtMoney(insumoSelecionado.custoPorUnidade)}/un (do catálogo)
                         </div>
-                        <div className="space-y-1">
-                          <label className="text-xs text-gray-600">Unidade</label>
-                          <input type="text" className="input w-full" value={novoUnidade}
-                            onChange={e => setNovoUnidade(e.target.value)} placeholder="kg, g, ml..." />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs text-gray-600">Custo/un (R$)</label>
-                          <input type="number" step="0.001" className="input w-full" value={novoCusto}
-                            onChange={e => setNovoCusto(e.target.value)} placeholder="0,00" />
-                        </div>
-                      </div>
+                      )}
                       <div className="flex gap-2">
-                        <button className="btn btn-primary text-sm" onClick={handleSaveIngrediente} disabled={saving}>
-                          {saving ? "Salvando..." : "Salvar ingrediente"}
+                        <button className="btn btn-primary text-sm" onClick={handleSaveIngrediente} disabled={saving || insumos.length === 0}>
+                          {saving ? "Salvando..." : "Salvar"}
                         </button>
                         <button className="btn btn-ghost text-sm" onClick={resetIngredienteForm}>Cancelar</button>
                       </div>
                     </div>
                   ) : (
                     <button className="btn btn-ghost text-sm" onClick={() => setShowNewIngrediente(true)}>
-                      + Adicionar ingrediente
+                      + Adicionar insumo
                     </button>
                   )}
                 </div>
@@ -4374,6 +4402,180 @@ function FichaTecnicaTab() {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ======== INSUMOS ========
+function InsumosTab() {
+  type Insumo = { insumo: string; unidade: string; custoPorUnidade: number };
+
+  const [insumos, setInsumos] = useState<Insumo[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // form novo insumo
+  const [showForm, setShowForm] = useState(false);
+  const [editNome, setEditNome] = useState<string | null>(null); // null = novo
+  const [formNome, setFormNome] = useState("");
+  const [formUnidade, setFormUnidade] = useState("");
+  const [formCusto, setFormCusto] = useState("");
+
+  const fmtMoney = (n: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
+
+  const loadInsumos = async () => {
+    if (!SYNC_ENDPOINT) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${SYNC_ENDPOINT}?action=insumos_lista&_ts=${Date.now()}`);
+      const json = await res.json();
+      if (json.ok) setInsumos(json.insumos || []);
+      else setError(json.error || "Erro ao carregar insumos.");
+    } catch (e) {
+      setError("Falha na conexão.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadInsumos(); }, []);
+
+  const resetForm = () => {
+    setShowForm(false);
+    setEditNome(null);
+    setFormNome("");
+    setFormUnidade("");
+    setFormCusto("");
+  };
+
+  const openNew = () => {
+    resetForm();
+    setShowForm(true);
+  };
+
+  const openEdit = (ins: Insumo) => {
+    setEditNome(ins.insumo);
+    setFormNome(ins.insumo);
+    setFormUnidade(ins.unidade);
+    setFormCusto(String(ins.custoPorUnidade));
+    setShowForm(true);
+  };
+
+  const handleSave = async () => {
+    if (!formNome.trim()) { alert("Nome do insumo obrigatório."); return; }
+    const custo = parseFloat(formCusto.replace(",", "."));
+    setSaving(true);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST", mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "save_insumo",
+          insumo: formNome.trim(),
+          unidade: formUnidade.trim(),
+          custoPorUnidade: isNaN(custo) ? 0 : custo,
+        }),
+      });
+      resetForm();
+      setTimeout(() => loadInsumos(), 2000);
+    } catch {
+      alert("Erro ao salvar.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (nome: string) => {
+    if (!confirm(`Excluir insumo "${nome}"?`)) return;
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST", mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_insumo", insumo: nome }),
+      });
+      setTimeout(() => loadInsumos(), 2000);
+    } catch {
+      alert("Erro ao excluir.");
+    }
+  };
+
+  return (
+    <div className="p-4 space-y-4 max-w-3xl">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-bold">Catálogo de Insumos</h2>
+        <button className="btn btn-primary" onClick={openNew}>+ Novo insumo</button>
+      </div>
+
+      {error && <div className="text-red-500 text-sm">{error}</div>}
+
+      {showForm && (
+        <div className="border rounded-xl p-4 bg-gray-50 space-y-3">
+          <div className="font-medium text-sm">{editNome ? `Editar: ${editNome}` : "Novo insumo"}</div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Nome</label>
+              <input className="input w-full" value={formNome} onChange={e => setFormNome(e.target.value)}
+                placeholder="Ex.: Farinha de trigo" disabled={!!editNome} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Unidade</label>
+              <input className="input w-full" value={formUnidade} onChange={e => setFormUnidade(e.target.value)}
+                placeholder="kg, g, ml, un..." />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Custo por unidade (R$)</label>
+              <input type="number" step="0.001" className="input w-full" value={formCusto}
+                onChange={e => setFormCusto(e.target.value)} placeholder="0,00" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button className="btn btn-primary text-sm" onClick={handleSave} disabled={saving}>
+              {saving ? "Salvando..." : "Salvar"}
+            </button>
+            <button className="btn btn-ghost text-sm" onClick={resetForm}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-sm text-gray-500">Carregando...</div>
+      ) : insumos.length === 0 ? (
+        <div className="text-sm text-gray-500">Nenhum insumo cadastrado ainda. Clique em "Novo insumo" para começar.</div>
+      ) : (
+        <div className="overflow-auto">
+          <table className="min-w-full border text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="border px-3 py-2 text-left">Nome</th>
+                <th className="border px-3 py-2 text-left">Unidade</th>
+                <th className="border px-3 py-2 text-right">Custo/un</th>
+                <th className="border px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {insumos.map(ins => (
+                <tr key={ins.insumo}>
+                  <td className="border px-3 py-2">{ins.insumo}</td>
+                  <td className="border px-3 py-2">{ins.unidade || "—"}</td>
+                  <td className="border px-3 py-2 text-right">{fmtMoney(ins.custoPorUnidade)}</td>
+                  <td className="border px-3 py-2 text-center">
+                    <div className="flex gap-2 justify-center">
+                      <button className="text-xs text-blue-500 hover:underline" onClick={() => openEdit(ins)}>
+                        Editar preço
+                      </button>
+                      <button className="text-xs text-red-500 hover:underline" onClick={() => handleDelete(ins.insumo)}>
+                        Excluir
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
