@@ -2680,7 +2680,7 @@ function CaixaTab() {
   async function loadCategorias() {
     if (!SYNC_ENDPOINT) return;
     try {
-      const resp = await fetch(`${SYNC_ENDPOINT}?action=caixa_categorias`);
+      const resp = await fetch(`${SYNC_ENDPOINT}?action=caixa_categorias&_ts=${Date.now()}`);
       const data = await resp.json();
       if (data?.ok && Array.isArray(data.categorias)) {
         setCategorias(data.categorias as string[]);
@@ -2697,7 +2697,7 @@ function CaixaTab() {
     try {
       const startParam = filterStart ? encodeURIComponent(formatDateForPayload(filterStart)) : "";
       const endParam   = filterEnd   ? encodeURIComponent(formatDateForPayload(filterEnd))   : "";
-      const url = `${SYNC_ENDPOINT}?action=caixa_lista&start=${startParam}&end=${endParam}`;
+      const url = `${SYNC_ENDPOINT}?action=caixa_lista&start=${startParam}&end=${endParam}&_ts=${Date.now()}`;
       const resp = await fetch(url);
       const data = await resp.json();
       if (data?.ok) {
@@ -4071,7 +4071,7 @@ function FichaTecnicaTab() {
     if (!SYNC_ENDPOINT) return;
     setLoading(true);
     try {
-      const resp = await fetch(`${SYNC_ENDPOINT}?action=fichas_lista`);
+      const resp = await fetch(`${SYNC_ENDPOINT}?action=fichas_lista&_ts=${Date.now()}`);
       const data = await resp.json();
       if (data?.ok && Array.isArray(data.produtos)) {
         setProdutos(data.produtos as FichaProduto[]);
