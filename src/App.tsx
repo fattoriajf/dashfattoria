@@ -180,7 +180,7 @@ export default function App() {
   const [mode, setMode] = useState<Mode>("admin");
 
   const [activeTab, setActiveTab] = useState<
-  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv" | "insumos"
+  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv" | "insumos" | "compras"
   >("disponibilidade");
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
@@ -324,7 +324,7 @@ export default function App() {
   };
 
   // Aba efetiva: se a aba ativa não tem permissão, usa a primeira permitida
-  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv","insumos"];
+  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv","insumos","compras"];
   const abaEfetiva: typeof activeTab = podeVer(activeTab) ? activeTab : (todasAbas.find(t => podeVer(t)) ?? "disponibilidade");
 
   if (mode === "admin" && !adminLogado) {
@@ -368,6 +368,7 @@ export default function App() {
         <div className="sidebar-category-label">Inventário</div>
         {navItem("estoque", "Compras de Estoque", <ShoppingCart className="w-4 h-4" />)}
         {navItem("insumos", "Insumos", <Package className="w-4 h-4" />, true)}
+        {navItem("compras", "Registro de Compras", <ShoppingCart className="w-4 h-4" />, true)}
         {navItem("fichaTecnica", "Ficha Técnica", <Package className="w-4 h-4" />, true)}
       </div>
       {!isColab && (
@@ -473,6 +474,11 @@ export default function App() {
           {!isColab && abaEfetiva === "insumos" && (
             <Card title="Insumos" icon={<Package className="w-5 h-5" />}>
               <InsumosTab />
+            </Card>
+          )}
+          {!isColab && abaEfetiva === "compras" && (
+            <Card title="Registro de Compras" icon={<ShoppingCart className="w-5 h-5" />}>
+              <ComprasTab />
             </Card>
           )}
           {!isColab && abaEfetiva === "fichaTecnica" && (
@@ -4582,19 +4588,28 @@ function InsumosTab() {
 
 // ======== CMV ========
 function CMVTab() {
+  // ── shared date state ──
   const [startRaw, setStartRaw] = useState("");
   const [endRaw, setEndRaw] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [rows, setRows] = useState<any[]>([]);
+
+  // ── CMV Teórico ──
+  const [loadingTeo, setLoadingTeo] = useState(false);
+  const [rowsTeo, setRowsTeo] = useState<any[]>([]);
   const [totalCusto, setTotalCusto] = useState(0);
   const [totalReceita, setTotalReceita] = useState(0);
   const [cmvGeral, setCmvGeral] = useState(0);
+
+  // ── CMV Real ──
+  const [loadingReal, setLoadingReal] = useState(false);
+  const [cmvRealData, setCmvRealData] = useState<any>(null);
+  const [datasInventario, setDatasInventario] = useState<string[]>([]);
+  const [dataEiSel, setDataEiSel] = useState("");
+  const [dataEfSel, setDataEfSel] = useState("");
 
   const fmtMoney = (n: number | null) =>
     n === null ? "—" : new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
   const fmtPct = (n: number | null) =>
     n === null ? "—" : `${Number(n || 0).toFixed(1)}%`;
-
   const cmvColor = (v: number | null) => {
     if (v === null) return "";
     if (v <= 35) return "text-green-600";
@@ -4602,36 +4617,44 @@ function CMVTab() {
     return "text-red-600";
   };
 
-  const load = async () => {
+  // Converte YYYY-MM-DD (input date) para DD/MM/YYYY
+  const toDDMMYYYY = (raw: string) => {
+    if (!raw) return "";
+    const [y, m, d] = raw.split("-");
+    return `${d}/${m}/${y}`;
+  };
+
+  // Carrega datas de inventário disponíveis ao montar
+  useEffect(() => {
+    if (!SYNC_ENDPOINT) return;
+    fetch(`${SYNC_ENDPOINT}?action=inventario_datas&_ts=${Date.now()}`)
+      .then(r => r.json())
+      .then(j => { if (j.ok) setDatasInventario(j.datas || []); })
+      .catch(() => {});
+  }, []);
+
+  // ── Calcular CMV Teórico ──
+  const loadTeorico = async () => {
     if (!startRaw || !endRaw) { alert("Selecione data inicial e final."); return; }
     if (!SYNC_ENDPOINT) return;
-
-    setLoading(true);
+    setLoadingTeo(true);
     try {
-      // 1. Fichas técnicas
-      const fichasResp = await fetch(`${SYNC_ENDPOINT}?action=fichas_lista`);
+      const fichasResp = await fetch(`${SYNC_ENDPOINT}?action=fichas_lista&_ts=${Date.now()}`);
       const fichasData = await fichasResp.json();
-      if (!fichasData?.ok) throw new Error(fichasData?.error || "Erro ao carregar fichas técnicas.");
-
-      const fichasByCusto: Record<string, { custoUnitario: number }> = {};
+      if (!fichasData?.ok) throw new Error(fichasData?.error || "Erro nas fichas técnicas.");
+      const fichasByCusto: Record<string, number> = {};
       (fichasData.produtos || []).forEach((p: any) => {
-        fichasByCusto[String(p.nome || "").toLowerCase().trim()] = {
-          custoUnitario: Number(p.custoTotal || 0),
-        };
+        fichasByCusto[String(p.nome || "").toLowerCase().trim()] = Number(p.custoTotal || 0);
       });
 
-      // 2. Vendas do Dashboard
-      const dashUrl =
-        `${SYNC_ENDPOINT}?action=dashboard_base_rows` +
-        `&start=${encodeURIComponent(startRaw)}` +
-        `&end=${encodeURIComponent(endRaw)}` +
-        `&grupo=Tudo&descricao=Tudo&weekday=Tudo&__ts=${Date.now()}`;
-      const dashResp = await fetch(dashUrl, { cache: "no-store" });
-      const dashData = await dashResp.json();
-      if (!dashData?.ok) throw new Error(dashData?.error || "Erro ao carregar dados do Dashboard.");
+      const dashUrl = `${SYNC_ENDPOINT}?action=dashboard_base_rows` +
+        `&start=${encodeURIComponent(toDDMMYYYY(startRaw))}` +
+        `&end=${encodeURIComponent(toDDMMYYYY(endRaw))}` +
+        `&grupo=Tudo&descricao=Tudo&weekday=Tudo&_ts=${Date.now()}`;
+      const dashData = await (await fetch(dashUrl)).json();
+      if (!dashData?.ok) throw new Error(dashData?.error || "Erro no Dashboard.");
 
-      // Agrega por descricao
-      const agg: Record<string, { descricao: string; qtdVendida: number; receitaTotal: number }> = {};
+      const agg: Record<string, any> = {};
       (dashData.rows || []).forEach((r: any) => {
         const key = String(r.descricao || "").toLowerCase().trim();
         if (!key) return;
@@ -4640,62 +4663,88 @@ function CMVTab() {
         agg[key].receitaTotal += Number(r.vl_total || 0);
       });
 
-      let totCusto = 0;
-      let totReceita = 0;
-
+      let totCusto = 0, totReceita = 0;
       const rowsCalc = Object.values(agg).map((item: any) => {
-        const key = item.descricao.toLowerCase().trim();
-        const ficha = fichasByCusto[key];
-        const custoUnitario = ficha ? ficha.custoUnitario : null;
+        const ficha = fichasByCusto[item.descricao.toLowerCase().trim()];
+        const custoUnitario = ficha !== undefined ? ficha : null;
         const custoTotal = custoUnitario !== null ? item.qtdVendida * custoUnitario : null;
-        const cmvPct = custoTotal !== null && item.receitaTotal > 0
-          ? (custoTotal / item.receitaTotal) * 100 : null;
-
+        const cmvPct = custoTotal !== null && item.receitaTotal > 0 ? (custoTotal / item.receitaTotal) * 100 : null;
         if (custoTotal !== null) totCusto += custoTotal;
         totReceita += item.receitaTotal;
-
-        return { produto: item.descricao, qtdVendida: item.qtdVendida, custoUnitario, custoTotal, receitaTotal: item.receitaTotal, cmvPct, temFicha: !!ficha };
+        return { produto: item.descricao, qtdVendida: item.qtdVendida, custoUnitario, custoTotal, receitaTotal: item.receitaTotal, cmvPct, temFicha: ficha !== undefined };
       }).sort((a: any, b: any) => (b.receitaTotal || 0) - (a.receitaTotal || 0));
 
-      setRows(rowsCalc);
+      setRowsTeo(rowsCalc);
       setTotalCusto(totCusto);
       setTotalReceita(totReceita);
       setCmvGeral(totReceita > 0 ? (totCusto / totReceita) * 100 : 0);
     } catch (err: any) {
-      console.error(err);
       alert(`Erro: ${String(err)}`);
     } finally {
-      setLoading(false);
+      setLoadingTeo(false);
+    }
+  };
+
+  // ── Calcular CMV Real ──
+  const loadReal = async () => {
+    if (!startRaw || !endRaw) { alert("Selecione data inicial e final."); return; }
+    if (!SYNC_ENDPOINT) return;
+    setLoadingReal(true);
+    setCmvRealData(null);
+    try {
+      const params = new URLSearchParams({
+        action: "cmv_real_data",
+        start: toDDMMYYYY(startRaw),
+        end: toDDMMYYYY(endRaw),
+        _ts: String(Date.now()),
+      });
+      if (dataEiSel) params.set("data_ei", dataEiSel);
+      if (dataEfSel) params.set("data_ef", dataEfSel);
+      if (totalReceita > 0) params.set("vendas_total", String(totalReceita));
+      const res = await fetch(`${SYNC_ENDPOINT}?${params.toString()}`);
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Erro ao calcular CMV Real.");
+      setCmvRealData(json);
+      if (json.datasDisponiveisInventario?.length) setDatasInventario(json.datasDisponiveisInventario);
+    } catch (err: any) {
+      alert(`Erro: ${String(err)}`);
+    } finally {
+      setLoadingReal(false);
     }
   };
 
   if (!SYNC_ENDPOINT) return <div className="text-sm text-red-600">Endpoint não configurado.</div>;
 
+  const dateInputs = (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="space-y-1">
+        <label className="text-sm text-gray-600">Data inicial</label>
+        <input type="date" className="input w-full" value={startRaw} onChange={e => setStartRaw(e.target.value)} />
+      </div>
+      <div className="space-y-1">
+        <label className="text-sm text-gray-600">Data final</label>
+        <input type="date" className="input w-full" value={endRaw} onChange={e => setEndRaw(e.target.value)} />
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-6">
+
+      {/* ── CMV TEÓRICO ── */}
       <div className="border rounded-xl p-4 bg-white space-y-4">
         <div>
-          <h3 className="font-semibold text-base">Relatório de CMV</h3>
+          <h3 className="font-semibold text-base">CMV Teórico</h3>
           <p className="text-xs text-gray-500 mt-1">
-            Cruza as vendas do Dashboard com as Fichas Técnicas para calcular o Custo de Mercadoria Vendida por produto.
+            Calculado a partir das vendas × fichas técnicas. Mostra o custo esperado com base na receita do período.
           </p>
         </div>
+        {dateInputs}
+        <button className="btn btn-primary w-full sm:w-auto" onClick={loadTeorico} disabled={loadingTeo}>
+          {loadingTeo ? "Calculando..." : "Calcular CMV Teórico"}
+        </button>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-          <div className="space-y-1">
-            <label className="text-sm text-gray-600">Data inicial</label>
-            <input type="date" className="input w-full" value={startRaw} onChange={e => setStartRaw(e.target.value)} />
-          </div>
-          <div className="space-y-1">
-            <label className="text-sm text-gray-600">Data final</label>
-            <input type="date" className="input w-full" value={endRaw} onChange={e => setEndRaw(e.target.value)} />
-          </div>
-          <button className="btn btn-primary" onClick={load} disabled={loading}>
-            {loading ? "Calculando..." : "Calcular CMV"}
-          </button>
-        </div>
-
-        {rows.length > 0 && (
+        {rowsTeo.length > 0 && (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="border rounded-xl p-4 text-center bg-white">
@@ -4703,11 +4752,11 @@ function CMVTab() {
                 <div className="text-xl font-semibold text-green-600">{fmtMoney(totalReceita)}</div>
               </div>
               <div className="border rounded-xl p-4 text-center bg-white">
-                <div className="text-xs text-gray-500 mb-1">Custo total (c/ ficha)</div>
+                <div className="text-xs text-gray-500 mb-1">Custo teórico</div>
                 <div className="text-xl font-semibold text-red-600">{fmtMoney(totalCusto)}</div>
               </div>
               <div className={`border-2 rounded-xl p-4 text-center ${cmvGeral <= 35 ? "border-green-400 bg-green-50" : cmvGeral <= 45 ? "border-yellow-400 bg-yellow-50" : "border-red-400 bg-red-50"}`}>
-                <div className="text-xs text-gray-500 mb-1">CMV geral</div>
+                <div className="text-xs text-gray-500 mb-1">CMV Teórico %</div>
                 <div className={`text-2xl font-bold ${cmvGeral <= 35 ? "text-green-700" : cmvGeral <= 45 ? "text-yellow-700" : "text-red-700"}`}>
                   {fmtPct(cmvGeral)}
                 </div>
@@ -4723,14 +4772,14 @@ function CMVTab() {
                   <tr>
                     <th className="border px-3 py-2 text-left">Produto</th>
                     <th className="border px-3 py-2 text-right">Qtd vendida</th>
-                    <th className="border px-3 py-2 text-right">Custo unitário</th>
+                    <th className="border px-3 py-2 text-right">Custo unit.</th>
                     <th className="border px-3 py-2 text-right">Custo total</th>
                     <th className="border px-3 py-2 text-right">Receita</th>
                     <th className="border px-3 py-2 text-right">CMV %</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r: any, idx: number) => (
+                  {rowsTeo.map((r: any, idx: number) => (
                     <tr key={idx} className={!r.temFicha ? "text-gray-400" : idx % 2 === 0 ? "bg-white" : "bg-gray-50"}>
                       <td className="border px-3 py-2">
                         {r.produto}
@@ -4740,9 +4789,7 @@ function CMVTab() {
                       <td className="border px-3 py-2 text-right">{fmtMoney(r.custoUnitario)}</td>
                       <td className="border px-3 py-2 text-right">{fmtMoney(r.custoTotal)}</td>
                       <td className="border px-3 py-2 text-right">{fmtMoney(r.receitaTotal)}</td>
-                      <td className={`border px-3 py-2 text-right font-medium ${cmvColor(r.cmvPct)}`}>
-                        {fmtPct(r.cmvPct)}
-                      </td>
+                      <td className={`border px-3 py-2 text-right font-medium ${cmvColor(r.cmvPct)}`}>{fmtPct(r.cmvPct)}</td>
                     </tr>
                   ))}
                   <tr className="bg-gray-100 font-semibold">
@@ -4754,15 +4801,392 @@ function CMVTab() {
                 </tbody>
               </table>
             </div>
-
-            {rows.some((r: any) => !r.temFicha) && (
+            {rowsTeo.some((r: any) => !r.temFicha) && (
               <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                ⚠ Produtos em cinza não têm ficha técnica. Cadastre na aba "Ficha Técnica" para incluí-los no cálculo.
+                ⚠ Produtos em cinza não têm ficha técnica. Cadastre na aba "Ficha Técnica" para incluí-los.
               </div>
             )}
           </>
         )}
       </div>
+
+      {/* ── CMV REAL ── */}
+      <div className="border rounded-xl p-4 bg-white space-y-4">
+        <div>
+          <h3 className="font-semibold text-base">CMV Real</h3>
+          <p className="text-xs text-gray-500 mt-1">
+            Fórmula: <span className="font-mono">Estoque Inicial + Compras do período − Estoque Final</span>.
+            Usa os inventários da pasta "Registros de Estoque" e os lançamentos de Compras.
+          </p>
+        </div>
+
+        {/* seleção de datas de inventário */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-xs text-gray-600">Inventário para Estoque Inicial</label>
+            <select className="input w-full" value={dataEiSel} onChange={e => setDataEiSel(e.target.value)}>
+              <option value="">Automático (mais próximo do início)</option>
+              {datasInventario.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-gray-600">Inventário para Estoque Final</label>
+            <select className="input w-full" value={dataEfSel} onChange={e => setDataEfSel(e.target.value)}>
+              <option value="">Automático (mais próximo do fim)</option>
+              {datasInventario.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div className="text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+          💡 Selecione primeiro o período acima e clique "Calcular CMV Teórico" para ter a receita disponível para o cálculo de %.
+          Depois clique "Calcular CMV Real".
+        </div>
+
+        <button className="btn btn-primary w-full sm:w-auto" onClick={loadReal} disabled={loadingReal || !startRaw || !endRaw}>
+          {loadingReal ? "Calculando..." : "Calcular CMV Real"}
+        </button>
+
+        {cmvRealData && (() => {
+          const d = cmvRealData;
+          const ei = d.estoqueInicial;
+          const ef = d.estoqueFinal;
+          const cmvPct = totalReceita > 0 ? (d.cmvReal / totalReceita) * 100 : null;
+          return (
+            <div className="space-y-4">
+              {/* Cards resumo */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="border rounded-xl p-3 text-center bg-gray-50">
+                  <div className="text-xs text-gray-500 mb-1">Estoque Inicial</div>
+                  <div className="text-xs text-gray-400">{ei.data || "—"}</div>
+                  <div className="text-lg font-semibold">{fmtMoney(ei.valorTotal)}</div>
+                </div>
+                <div className="border rounded-xl p-3 text-center bg-gray-50">
+                  <div className="text-xs text-gray-500 mb-1">+ Compras</div>
+                  <div className="text-xs text-gray-400">{d.periodo.start} → {d.periodo.end}</div>
+                  <div className="text-lg font-semibold text-blue-600">{fmtMoney(d.compras.total)}</div>
+                </div>
+                <div className="border rounded-xl p-3 text-center bg-gray-50">
+                  <div className="text-xs text-gray-500 mb-1">− Estoque Final</div>
+                  <div className="text-xs text-gray-400">{ef.data || "—"}</div>
+                  <div className="text-lg font-semibold">{fmtMoney(ef.valorTotal)}</div>
+                </div>
+                <div className={`border-2 rounded-xl p-3 text-center ${cmvPct !== null && cmvPct <= 35 ? "border-green-400 bg-green-50" : cmvPct !== null && cmvPct <= 45 ? "border-yellow-400 bg-yellow-50" : "border-red-400 bg-red-50"}`}>
+                  <div className="text-xs text-gray-500 mb-1">CMV Real</div>
+                  <div className="text-lg font-bold">{fmtMoney(d.cmvReal)}</div>
+                  {cmvPct !== null && (
+                    <div className={`text-sm font-semibold ${cmvColor(cmvPct)}`}>{fmtPct(cmvPct)}</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Comparativo Teórico vs Real */}
+              {rowsTeo.length > 0 && (
+                <div className="border rounded-xl p-3 bg-white">
+                  <div className="text-sm font-medium mb-2">Comparativo</div>
+                  <div className="grid grid-cols-2 gap-3 text-center text-sm">
+                    <div>
+                      <div className="text-xs text-gray-500">CMV Teórico</div>
+                      <div className="font-semibold">{fmtMoney(totalCusto)}</div>
+                      <div className={`text-sm font-bold ${cmvColor(cmvGeral)}`}>{fmtPct(cmvGeral)}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">CMV Real</div>
+                      <div className="font-semibold">{fmtMoney(d.cmvReal)}</div>
+                      {cmvPct !== null && <div className={`text-sm font-bold ${cmvColor(cmvPct)}`}>{fmtPct(cmvPct)}</div>}
+                    </div>
+                  </div>
+                  {cmvPct !== null && Math.abs(cmvPct - cmvGeral) > 5 && (
+                    <div className="mt-2 text-xs text-amber-600">
+                      ⚠ Diferença de {Math.abs(cmvPct - cmvGeral).toFixed(1)}pp entre teórico e real — pode indicar desperdício, perdas ou compras não lançadas.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Compras do período */}
+              {d.compras.rows.length > 0 && (
+                <details className="border rounded-xl">
+                  <summary className="px-4 py-3 cursor-pointer text-sm font-medium">
+                    Compras do período ({d.compras.rows.length} lançamentos — {fmtMoney(d.compras.total)})
+                  </summary>
+                  <div className="overflow-auto px-2 pb-3">
+                    <table className="min-w-full border text-sm mt-2">
+                      <thead className="bg-gray-100">
+                        <tr>
+                          <th className="border px-3 py-1 text-left">Data</th>
+                          <th className="border px-3 py-1 text-left">Insumo</th>
+                          <th className="border px-3 py-1 text-right">Qtd</th>
+                          <th className="border px-3 py-1 text-right">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {d.compras.rows.map((r: any, i: number) => (
+                          <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                            <td className="border px-3 py-1">{r.data}</td>
+                            <td className="border px-3 py-1">{r.insumo}</td>
+                            <td className="border px-3 py-1 text-right">{r.quantidade}</td>
+                            <td className="border px-3 py-1 text-right">{fmtMoney(r.custoTotal)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              )}
+
+              {/* Alertas de itens sem custo no catálogo */}
+              {(ei.semCusto?.length > 0 || ef.semCusto?.length > 0) && (
+                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1">
+                  <div className="font-medium">⚠ Itens do inventário sem custo no Cadastro de Insumos (contabilizados como R$ 0):</div>
+                  <div>{[...new Set([...(ei.semCusto || []), ...(ef.semCusto || [])])].join(", ")}</div>
+                  <div>Cadastre esses itens na aba "Insumos" com o custo por unidade para um cálculo preciso.</div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+      </div>
+    </div>
+  );
+}
+
+// ======== COMPRAS ========
+function ComprasTab() {
+  type Insumo = { insumo: string; unidade: string; custoPorUnidade: number };
+
+  const [insumos, setInsumos] = useState<Insumo[]>([]);
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+
+  // filtros
+  const today = new Date();
+  const firstOfMonth = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-01`;
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+  const [filterStart, setFilterStart] = useState(firstOfMonth);
+  const [filterEnd, setFilterEnd] = useState(todayStr);
+
+  // form
+  const [formData, setFormData] = useState(todayStr);
+  const [formInsumo, setFormInsumo] = useState("");
+  const [formQtd, setFormQtd] = useState("");
+  const [formCustoUn, setFormCustoUn] = useState("");
+  const [formCustoTotal, setFormCustoTotal] = useState("");
+  const [formObs, setFormObs] = useState("");
+
+  const fmtMoney = (n: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
+
+  const toDDMMYYYY = (raw: string) => {
+    if (!raw) return "";
+    const [y, m, d] = raw.split("-");
+    return `${d}/${m}/${y}`;
+  };
+
+  const loadData = async () => {
+    if (!SYNC_ENDPOINT) return;
+    setLoading(true);
+    try {
+      const [insRes, compRes] = await Promise.all([
+        fetch(`${SYNC_ENDPOINT}?action=insumos_lista&_ts=${Date.now()}`).then(r => r.json()),
+        fetch(`${SYNC_ENDPOINT}?action=compras_lista&start=${encodeURIComponent(toDDMMYYYY(filterStart))}&end=${encodeURIComponent(toDDMMYYYY(filterEnd))}&_ts=${Date.now()}`).then(r => r.json()),
+      ]);
+      if (insRes.ok)  setInsumos(insRes.insumos || []);
+      if (compRes.ok) setRows(compRes.rows || []);
+    } catch { /* silencioso */ }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { loadData(); }, [filterStart, filterEnd]);
+
+  // Quando usuário muda insumo, pré-preenche custo unitário do catálogo
+  const handleInsumoChange = (nome: string) => {
+    setFormInsumo(nome);
+    const ins = insumos.find(i => i.insumo === nome);
+    if (ins && ins.custoPorUnidade > 0) {
+      setFormCustoUn(String(ins.custoPorUnidade));
+      const qtd = parseFloat(formQtd);
+      if (!isNaN(qtd) && qtd > 0) setFormCustoTotal(String((qtd * ins.custoPorUnidade).toFixed(2)));
+    }
+  };
+
+  const handleQtdChange = (v: string) => {
+    setFormQtd(v);
+    const qtd = parseFloat(v);
+    const un = parseFloat(formCustoUn);
+    if (!isNaN(qtd) && !isNaN(un)) setFormCustoTotal(String((qtd * un).toFixed(2)));
+  };
+
+  const handleCustoUnChange = (v: string) => {
+    setFormCustoUn(v);
+    const qtd = parseFloat(formQtd);
+    const un = parseFloat(v);
+    if (!isNaN(qtd) && !isNaN(un)) setFormCustoTotal(String((qtd * un).toFixed(2)));
+  };
+
+  const resetForm = () => {
+    setFormData(todayStr); setFormInsumo(""); setFormQtd("");
+    setFormCustoUn(""); setFormCustoTotal(""); setFormObs("");
+    setShowForm(false);
+  };
+
+  const handleSave = async () => {
+    if (!formInsumo) { alert("Selecione um insumo."); return; }
+    if (!formQtd)    { alert("Informe a quantidade."); return; }
+    setSaving(true);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST", mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "save_compra",
+          date: toDDMMYYYY(formData),
+          insumo: formInsumo,
+          quantidade: parseFloat(formQtd),
+          custoUnitario: parseFloat(formCustoUn) || 0,
+          custoTotal: parseFloat(formCustoTotal) || 0,
+          observacao: formObs,
+        }),
+      });
+      resetForm();
+      setTimeout(() => loadData(), 2000);
+    } catch { alert("Erro ao salvar."); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (ts: string) => {
+    if (!confirm("Excluir este lançamento?")) return;
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST", mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_compra", timestamp: ts }),
+      });
+      setTimeout(() => loadData(), 2000);
+    } catch { alert("Erro ao excluir."); }
+  };
+
+  const totalPeriodo = rows.reduce((s: number, r: any) => s + (r.custoTotal || 0), 0);
+
+  return (
+    <div className="p-4 space-y-4 max-w-4xl">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h2 className="text-xl font-bold">Registro de Compras</h2>
+        <button className="btn btn-primary" onClick={() => setShowForm(true)}>+ Nova compra</button>
+      </div>
+
+      {/* Filtro de período */}
+      <div className="flex gap-3 flex-wrap items-end">
+        <div className="space-y-1">
+          <label className="text-xs text-gray-600">De</label>
+          <input type="date" className="input" value={filterStart} onChange={e => setFilterStart(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-gray-600">Até</label>
+          <input type="date" className="input" value={filterEnd} onChange={e => setFilterEnd(e.target.value)} />
+        </div>
+        <button className="btn btn-ghost text-sm" onClick={loadData}>Filtrar</button>
+        {rows.length > 0 && (
+          <div className="text-sm text-gray-600 ml-auto">
+            Total: <span className="font-semibold text-blue-600">{fmtMoney(totalPeriodo)}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Formulário */}
+      {showForm && (
+        <div className="border rounded-xl p-4 bg-gray-50 space-y-3">
+          <div className="font-medium text-sm">Nova compra</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Data</label>
+              <input type="date" className="input w-full" value={formData} onChange={e => setFormData(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Insumo</label>
+              {insumos.length > 0 ? (
+                <select className="input w-full" value={formInsumo} onChange={e => handleInsumoChange(e.target.value)}>
+                  <option value="">Selecione...</option>
+                  {insumos.map(ins => <option key={ins.insumo} value={ins.insumo}>{ins.insumo}</option>)}
+                </select>
+              ) : (
+                <input className="input w-full" value={formInsumo} onChange={e => setFormInsumo(e.target.value)} placeholder="Nome do insumo" />
+              )}
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">
+                Quantidade {insumos.find(i => i.insumo === formInsumo)?.unidade ? `(${insumos.find(i => i.insumo === formInsumo)?.unidade})` : ""}
+              </label>
+              <input type="number" step="0.001" className="input w-full" value={formQtd} onChange={e => handleQtdChange(e.target.value)} placeholder="0" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Custo unitário (R$)</label>
+              <input type="number" step="0.001" className="input w-full" value={formCustoUn} onChange={e => handleCustoUnChange(e.target.value)} placeholder="0,00" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Custo total (R$)</label>
+              <input type="number" step="0.01" className="input w-full" value={formCustoTotal} onChange={e => setFormCustoTotal(e.target.value)} placeholder="0,00" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Observação</label>
+              <input className="input w-full" value={formObs} onChange={e => setFormObs(e.target.value)} placeholder="Opcional" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button className="btn btn-primary text-sm" onClick={handleSave} disabled={saving}>
+              {saving ? "Salvando..." : "Salvar"}
+            </button>
+            <button className="btn btn-ghost text-sm" onClick={resetForm}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* Tabela */}
+      {loading ? (
+        <div className="text-sm text-gray-500">Carregando...</div>
+      ) : rows.length === 0 ? (
+        <div className="text-sm text-gray-500">Nenhuma compra no período selecionado.</div>
+      ) : (
+        <div className="overflow-auto">
+          <table className="min-w-full border text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="border px-3 py-2 text-left">Data</th>
+                <th className="border px-3 py-2 text-left">Insumo</th>
+                <th className="border px-3 py-2 text-right">Qtd</th>
+                <th className="border px-3 py-2 text-right">Custo unit.</th>
+                <th className="border px-3 py-2 text-right">Total</th>
+                <th className="border px-3 py-2 text-left">Obs.</th>
+                <th className="border px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r: any, i: number) => (
+                <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                  <td className="border px-3 py-2">{r.data}</td>
+                  <td className="border px-3 py-2">{r.insumo}</td>
+                  <td className="border px-3 py-2 text-right">{r.quantidade}</td>
+                  <td className="border px-3 py-2 text-right">{r.custoUnitario > 0 ? fmtMoney(r.custoUnitario) : "—"}</td>
+                  <td className="border px-3 py-2 text-right font-medium">{fmtMoney(r.custoTotal)}</td>
+                  <td className="border px-3 py-2 text-gray-500">{r.observacao || "—"}</td>
+                  <td className="border px-3 py-2 text-center">
+                    <button className="text-xs text-red-500 hover:underline" onClick={() => handleDelete(r.timestamp)}>
+                      Excluir
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              <tr className="bg-gray-100 font-semibold">
+                <td className="border px-3 py-2" colSpan={4}>Total do período</td>
+                <td className="border px-3 py-2 text-right">{fmtMoney(totalPeriodo)}</td>
+                <td className="border px-3 py-2" colSpan={2}></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
