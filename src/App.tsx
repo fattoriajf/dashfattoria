@@ -2826,7 +2826,7 @@ function CaixaTab() {
         alert("Lançamento registrado.");
         setValor("");
         setObservacao("");
-        loadData();
+        setTimeout(() => loadData(), 2000);
         return;
       }
       if (!resp.ok) {
@@ -2837,7 +2837,7 @@ function CaixaTab() {
       alert("Lançamento registrado.");
       setValor("");
       setObservacao("");
-      loadData();
+      setTimeout(() => loadData(), 2000);
     } catch (err: any) {
       alert(`Erro: ${String(err)}`);
     } finally {
