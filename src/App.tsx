@@ -14,7 +14,7 @@ import {
 
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet, Menu, X, Package } from "lucide-react";
+import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet, Menu, X, Package, TrendingUp } from "lucide-react";
 import {
 Calendar as Cal,
   RefreshCw,
@@ -180,7 +180,7 @@ export default function App() {
   const [mode, setMode] = useState<Mode>("admin");
 
   const [activeTab, setActiveTab] = useState<
-  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv" | "insumos" | "compras"
+  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv" | "insumos" | "compras" | "markup"
   >("disponibilidade");
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
@@ -324,7 +324,7 @@ export default function App() {
   };
 
   // Aba efetiva: se a aba ativa não tem permissão, usa a primeira permitida
-  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv","insumos","compras"];
+  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv","insumos","compras","markup"];
   const abaEfetiva: typeof activeTab = podeVer(activeTab) ? activeTab : (todasAbas.find(t => podeVer(t)) ?? "disponibilidade");
 
   if (mode === "admin" && !adminLogado) {
@@ -378,6 +378,7 @@ export default function App() {
           {navItem("adiantamentos", "Adiantamentos", <Banknote className="w-4 h-4" />, true)}
           {navItem("caixa", "Caixa", <Wallet className="w-4 h-4" />, true)}
           {navItem("cmv", "CMV", <BarChart3 className="w-4 h-4" />, true)}
+          {navItem("markup", "Markup", <TrendingUp className="w-4 h-4" />, true)}
         </div>
       )}
       {!isColab && (
@@ -479,6 +480,11 @@ export default function App() {
           {!isColab && abaEfetiva === "compras" && (
             <Card title="Registro de Compras" icon={<ShoppingCart className="w-5 h-5" />}>
               <ComprasTab />
+            </Card>
+          )}
+          {!isColab && abaEfetiva === "markup" && (
+            <Card title="Markup" icon={<TrendingUp className="w-5 h-5" />}>
+              <MarkupTab />
             </Card>
           )}
           {!isColab && abaEfetiva === "fichaTecnica" && (
@@ -2392,6 +2398,330 @@ function DashboardTab() {
   );
 }
 
+
+// ======== MARKUP ========
+
+function MarkupTab() {
+  const fmtMoney = (n: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
+  const fmtPct = (n: number) => `${Number(n || 0).toFixed(2)}%`;
+
+  // ── config geral ──
+  const [fatMin, setFatMin] = useState("0");
+  const [impostoPct, setImpostoPct] = useState("0");
+  const [margemPct, setMargemPct] = useState("0");
+  const [savingConfig, setSavingConfig] = useState(false);
+
+  // ── despesas ──
+  const [despesas, setDespesas] = useState<{ id: string; tipo: string; descricao: string; valor: number }[]>([]);
+  const [loadingDespesas, setLoadingDespesas] = useState(true);
+
+  // nova despesa
+  const [novaTipo, setNovaTipo] = useState<"fixa" | "variavel">("fixa");
+  const [novaDesc, setNovaDesc] = useState("");
+  const [novaValor, setNovaValor] = useState("");
+  const [addingDespesa, setAddingDespesa] = useState(false);
+
+  // edição inline de despesa
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDesc, setEditDesc] = useState("");
+  const [editValor, setEditValor] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  // produtos da ficha técnica
+  const [produtos, setProdutos] = useState<{ nome: string; custo: number }[]>([]);
+
+  const loadConfig = async () => {
+    if (!SYNC_ENDPOINT) return;
+    setLoadingDespesas(true);
+    try {
+      const res = await fetch(`${SYNC_ENDPOINT}?action=markup_config&_ts=${Date.now()}`);
+      const json = await res.json();
+      if (json.ok) {
+        setFatMin(String(json.faturamento_minimo ?? 0));
+        setImpostoPct(String(json.impostos_pct ?? 0));
+        setMargemPct(String(json.margem_lucro_pct ?? 0));
+        setDespesas(json.despesas || []);
+      }
+    } catch {}
+    finally { setLoadingDespesas(false); }
+  };
+
+  const loadProdutos = async () => {
+    if (!SYNC_ENDPOINT) return;
+    try {
+      const res = await fetch(`${SYNC_ENDPOINT}?action=fichas_lista&_ts=${Date.now()}`);
+      const json = await res.json();
+      if (json.ok && Array.isArray(json.fichas)) {
+        setProdutos(json.fichas.map((f: any) => ({ nome: f.nome, custo: f.custoTotal ?? 0 })));
+      }
+    } catch {}
+  };
+
+  useEffect(() => { loadConfig(); loadProdutos(); }, []);
+
+  // ── cálculo do índice ──
+  const fat = parseFloat(fatMin) || 0;
+  const fixas    = despesas.filter(d => d.tipo === "fixa").reduce((s, d) => s + d.valor, 0);
+  const variaveis = despesas.filter(d => d.tipo === "variavel").reduce((s, d) => s + d.valor, 0);
+  const pctFixas    = fat > 0 ? (fixas / fat) * 100 : 0;
+  const pctVariaveis = fat > 0 ? (variaveis / fat) * 100 : 0;
+  const impostoN = parseFloat(impostoPct) || 0;
+  const margemN  = parseFloat(margemPct) || 0;
+  const somaPct  = impostoN + pctFixas + pctVariaveis + margemN;
+  const indice   = somaPct < 100 ? 100 / (100 - somaPct) : 0;
+
+  const handleSaveConfig = async () => {
+    if (!SYNC_ENDPOINT) return;
+    setSavingConfig(true);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST", mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "save_markup_config",
+          faturamento_minimo: parseFloat(fatMin) || 0,
+          impostos_pct: parseFloat(impostoPct) || 0,
+          margem_lucro_pct: parseFloat(margemPct) || 0,
+        }),
+      });
+      alert("Configuração salva!");
+    } catch { alert("Erro ao salvar."); }
+    finally { setSavingConfig(false); }
+  };
+
+  const handleAddDespesa = async () => {
+    if (!novaDesc.trim()) { alert("Informe a descrição."); return; }
+    if (!SYNC_ENDPOINT) return;
+    setAddingDespesa(true);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST", mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save_despesa", tipo: novaTipo, descricao: novaDesc.trim(), valor: parseFloat(novaValor) || 0 }),
+      });
+      setNovaDesc(""); setNovaValor("");
+      setTimeout(() => loadConfig(), 2000);
+    } catch { alert("Erro ao adicionar."); }
+    finally { setAddingDespesa(false); }
+  };
+
+  const handleDeleteDespesa = async (id: string) => {
+    if (!confirm("Excluir esta despesa?")) return;
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST", mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_despesa", id }),
+      });
+      setTimeout(() => loadConfig(), 2000);
+    } catch { alert("Erro ao excluir."); }
+  };
+
+  const openEdit = (d: any) => { setEditingId(d.id); setEditDesc(d.descricao); setEditValor(String(d.valor)); };
+
+  const handleSaveEdit = async () => {
+    if (!editingId) return;
+    setSavingEdit(true);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST", mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update_despesa", id: editingId, descricao: editDesc, valor: parseFloat(editValor) || 0 }),
+      });
+      setEditingId(null);
+      setTimeout(() => loadConfig(), 2000);
+    } catch { alert("Erro ao salvar."); }
+    finally { setSavingEdit(false); }
+  };
+
+  const fixasList    = despesas.filter(d => d.tipo === "fixa");
+  const variaveisList = despesas.filter(d => d.tipo === "variavel");
+
+  const DespesaTable = ({ lista, titulo }: { lista: typeof despesas; titulo: string }) => (
+    <div className="space-y-2">
+      <h4 className="font-medium text-sm text-gray-700">{titulo}</h4>
+      {lista.length === 0 ? (
+        <p className="text-xs text-gray-400">Nenhuma despesa cadastrada.</p>
+      ) : (
+        <table className="min-w-full border text-sm">
+          <thead className="bg-gray-100">
+            <tr>
+              <th className="border px-3 py-1 text-left">Descrição</th>
+              <th className="border px-3 py-1 text-right">Valor (R$)</th>
+              <th className="border px-3 py-1 text-right">% s/ fat.</th>
+              <th className="border px-3 py-1"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {lista.map((d, i) => (
+              editingId === d.id ? (
+                <tr key={d.id} className="bg-blue-50">
+                  <td className="border px-3 py-1">
+                    <input className="input w-full text-sm" value={editDesc} onChange={e => setEditDesc(e.target.value)} />
+                  </td>
+                  <td className="border px-3 py-1">
+                    <input type="number" step="0.01" className="input w-28 text-sm" value={editValor} onChange={e => setEditValor(e.target.value)} />
+                  </td>
+                  <td className="border px-3 py-1 text-right text-gray-400">—</td>
+                  <td className="border px-3 py-1 text-center">
+                    <div className="flex gap-2 justify-center">
+                      <button className="text-xs text-green-600 hover:underline" onClick={handleSaveEdit} disabled={savingEdit}>{savingEdit ? "..." : "Salvar"}</button>
+                      <button className="text-xs text-gray-500 hover:underline" onClick={() => setEditingId(null)}>Cancelar</button>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={d.id} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                  <td className="border px-3 py-1">{d.descricao}</td>
+                  <td className="border px-3 py-1 text-right">{fmtMoney(d.valor)}</td>
+                  <td className="border px-3 py-1 text-right">{fat > 0 ? fmtPct((d.valor / fat) * 100) : "—"}</td>
+                  <td className="border px-3 py-1 text-center">
+                    <div className="flex gap-2 justify-center">
+                      <button className="text-xs text-blue-500 hover:underline" onClick={() => openEdit(d)}>Editar</button>
+                      <button className="text-xs text-red-500 hover:underline" onClick={() => handleDeleteDespesa(d.id)}>Excluir</button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            ))}
+            <tr className="bg-gray-100 font-semibold text-sm">
+              <td className="border px-3 py-1">Total</td>
+              <td className="border px-3 py-1 text-right">{fmtMoney(lista.reduce((s, d) => s + d.valor, 0))}</td>
+              <td className="border px-3 py-1 text-right">{fat > 0 ? fmtPct((lista.reduce((s,d) => s+d.valor,0)/fat)*100) : "—"}</td>
+              <td className="border px-3 py-1"></td>
+            </tr>
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+
+      {/* ── Configuração base ── */}
+      <div className="border rounded-xl p-4 bg-white space-y-4">
+        <h3 className="font-semibold text-base">Configuração base</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Faturamento mínimo desejado (R$)</label>
+            <input type="number" step="0.01" className="input w-full" value={fatMin} onChange={e => setFatMin(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Impostos (%)</label>
+            <input type="number" step="0.01" className="input w-full" value={impostoPct} onChange={e => setImpostoPct(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Margem de lucro (%)</label>
+            <input type="number" step="0.01" className="input w-full" value={margemPct} onChange={e => setMargemPct(e.target.value)} />
+          </div>
+        </div>
+        <button className="btn btn-primary" onClick={handleSaveConfig} disabled={savingConfig}>
+          {savingConfig ? "Salvando..." : "Salvar configuração"}
+        </button>
+      </div>
+
+      {/* ── Índice de markup ── */}
+      <div className="border rounded-xl p-4 bg-white">
+        <h3 className="font-semibold text-base mb-3">Índice de markup</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
+          {[
+            { label: "Impostos", value: fmtPct(impostoN) },
+            { label: "Desp. Fixas", value: fmtPct(pctFixas) },
+            { label: "Desp. Variáveis", value: fmtPct(pctVariaveis) },
+            { label: "Margem", value: fmtPct(margemN) },
+            { label: "Total deduções", value: fmtPct(somaPct) },
+          ].map(({ label, value }) => (
+            <div key={label} className="bg-gray-50 rounded-lg p-3">
+              <div className="text-xs text-gray-500">{label}</div>
+              <div className="font-semibold text-gray-800">{value}</div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 flex items-center gap-4">
+          <div className="bg-orange-50 border border-orange-200 rounded-xl px-6 py-4 text-center">
+            <div className="text-xs text-orange-600 mb-1">Índice de Markup</div>
+            <div className="text-3xl font-bold text-orange-700">{indice > 0 ? indice.toFixed(4) : "—"}</div>
+          </div>
+          {somaPct >= 100 && (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              ⚠ A soma das deduções ({fmtPct(somaPct)}) é ≥ 100%. Revise os percentuais.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Despesas ── */}
+      <div className="border rounded-xl p-4 bg-white space-y-5">
+        <h3 className="font-semibold text-base">Despesas</h3>
+
+        {/* form nova despesa */}
+        <div className="flex flex-wrap gap-3 items-end bg-gray-50 rounded-lg p-3">
+          <div className="space-y-1">
+            <label className="text-xs text-gray-600">Tipo</label>
+            <select className="input text-sm" value={novaTipo} onChange={e => setNovaTipo(e.target.value as any)}>
+              <option value="fixa">Fixa</option>
+              <option value="variavel">Variável</option>
+            </select>
+          </div>
+          <div className="space-y-1 flex-1 min-w-40">
+            <label className="text-xs text-gray-600">Descrição</label>
+            <input className="input w-full text-sm" placeholder="Ex: Aluguel, Software..." value={novaDesc} onChange={e => setNovaDesc(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-gray-600">Valor (R$)</label>
+            <input type="number" step="0.01" className="input text-sm w-32" value={novaValor} onChange={e => setNovaValor(e.target.value)} />
+          </div>
+          <button className="btn btn-primary text-sm" onClick={handleAddDespesa} disabled={addingDespesa}>
+            {addingDespesa ? "..." : "+ Adicionar"}
+          </button>
+        </div>
+
+        {loadingDespesas ? (
+          <div className="text-sm text-gray-500">Carregando...</div>
+        ) : (
+          <div className="space-y-5">
+            <DespesaTable lista={fixasList} titulo="Despesas Fixas" />
+            <DespesaTable lista={variaveisList} titulo="Despesas Variáveis" />
+          </div>
+        )}
+      </div>
+
+      {/* ── Preços sugeridos ── */}
+      <div className="border rounded-xl p-4 bg-white space-y-3">
+        <h3 className="font-semibold text-base">Preços sugeridos por produto</h3>
+        {produtos.length === 0 ? (
+          <p className="text-sm text-gray-500">Nenhum produto com ficha técnica cadastrado.</p>
+        ) : (
+          <table className="min-w-full border text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="border px-3 py-2 text-left">Produto</th>
+                <th className="border px-3 py-2 text-right">Custo</th>
+                <th className="border px-3 py-2 text-right">Índice</th>
+                <th className="border px-3 py-2 text-right">Preço sugerido</th>
+              </tr>
+            </thead>
+            <tbody>
+              {produtos.map((p, i) => (
+                <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                  <td className="border px-3 py-2">{p.nome}</td>
+                  <td className="border px-3 py-2 text-right">{fmtMoney(p.custo)}</td>
+                  <td className="border px-3 py-2 text-right">{indice > 0 ? indice.toFixed(4) : "—"}</td>
+                  <td className="border px-3 py-2 text-right font-semibold">
+                    {indice > 0 ? fmtMoney(p.custo * indice) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+    </div>
+  );
+}
 
 // ======== COMISSÃO E PAGAMENTO ========
 
