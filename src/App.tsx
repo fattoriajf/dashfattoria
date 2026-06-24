@@ -2395,238 +2395,293 @@ function DashboardTab() {
 
 // ======== COMISSÃO E PAGAMENTO ========
 
-
 function CommissionTab() {
-  const [savingCommission, setSavingCommission] = useState(false);
-  const [generatingReports, setGeneratingReports] = useState(false);
-  const [dateRaw, setDateRaw] = useState<string>("");
-  const [turno, setTurno] = useState<string>("Noite");
-  const [valor, setValor] = useState<string>("");
-  const [faturamento, setFaturamento] = useState<string>("");
+  const fmtMoney = (n: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
 
-  const [startRaw, setStartRaw] = useState<string>("");
-  const [endRaw, setEndRaw] = useState<string>("");
-
-  const formatDateForPayload = (raw: string) => {
+  const toDDMMYYYY = (raw: string) => {
     if (!raw) return "";
     const [y, m, d] = raw.split("-");
     if (!y || !m || !d) return "";
     return `${d}/${m}/${y}`;
   };
 
-  const handleSaveCommission = async () => {
-    if (savingCommission) return;
+  // ── form novo registro ──
+  const [dateRaw, setDateRaw] = useState("");
+  const [turno, setTurno] = useState("Noite");
+  const [valor, setValor] = useState("");
+  const [faturamento, setFaturamento] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [duplicateWarning, setDuplicateWarning] = useState("");
 
-    if (!dateRaw) {
-      alert("Selecione a data.");
-      return;
-    }
-    if (!valor) {
-      alert("Informe o valor da comissão.");
-      return;
-    }
-    if (!faturamento) {
-      alert("Informe o faturamento.");
-      return;
-    }
+  // ── histórico ──
+  const today = new Date();
+  const firstOfMonth = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-01`;
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+  const [filterStart, setFilterStart] = useState(firstOfMonth);
+  const [filterEnd, setFilterEnd] = useState(todayStr);
+  const [comissoes, setComissoes] = useState<any[]>([]);
+  const [loadingList, setLoadingList] = useState(false);
 
-    const dateStr = formatDateForPayload(dateRaw);
-    if (!dateStr) {
-      alert("Data inválida.");
-      return;
+  // ── edição inline ──
+  const [editingDate, setEditingDate] = useState<string | null>(null);
+  const [editValor, setEditValor] = useState("");
+  const [editFat, setEditFat] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  // ── relatório de pagamentos ──
+  const [startRaw, setStartRaw] = useState("");
+  const [endRaw, setEndRaw] = useState("");
+  const [generatingReports, setGeneratingReports] = useState(false);
+
+  const loadComissoes = async () => {
+    if (!SYNC_ENDPOINT) return;
+    setLoadingList(true);
+    try {
+      const res = await fetch(
+        `${SYNC_ENDPOINT}?action=comissoes_lista&start=${encodeURIComponent(toDDMMYYYY(filterStart))}&end=${encodeURIComponent(toDDMMYYYY(filterEnd))}&_ts=${Date.now()}`
+      );
+      const json = await res.json();
+      if (json.ok) setComissoes(json.rows || []);
+    } catch {}
+    finally { setLoadingList(false); }
+  };
+
+  useEffect(() => { loadComissoes(); }, [filterStart, filterEnd]);
+
+  // Verifica duplicata ao mudar a data
+  const handleDateChange = (v: string) => {
+    setDateRaw(v);
+    const dd = toDDMMYYYY(v);
+    if (dd && comissoes.some(c => c.data === dd)) {
+      setDuplicateWarning(`Já existe um registro para ${dd}. Edite o registro existente na lista abaixo.`);
+    } else {
+      setDuplicateWarning("");
     }
+  };
 
-    if (!SYNC_ENDPOINT) {
-      alert("Nenhum endpoint de sincronização configurado.");
-      return;
-    }
-
-    const payload = {
-      action: "comissao",
-      date: dateStr,
-      turno,
-      valor,
-      faturamento,
-    };
-
-    setSavingCommission(true);
+  const handleSave = async () => {
+    if (!dateRaw) { alert("Selecione a data."); return; }
+    if (!valor)   { alert("Informe o valor da comissão."); return; }
+    if (!faturamento) { alert("Informe o faturamento."); return; }
+    const dateStr = toDDMMYYYY(dateRaw);
+    if (duplicateWarning) { alert(duplicateWarning); return; }
+    if (!SYNC_ENDPOINT) return;
+    setSaving(true);
     try {
       const resp = await fetch(SYNC_ENDPOINT, {
         method: "POST",
         mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(payload),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "comissao", date: dateStr, turno, valor, faturamento }),
       });
-      // @ts-ignore
-      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
-        alert("Comissão registrada.");
-        return;
-      }
-      if (!resp.ok) {
-        const txt = await resp.text().catch(() => "");
-        alert(`Falha ao registrar comissão (HTTP ${resp.status}). ${txt.slice(0, 180)}`);
-        return;
-      }
-      alert("Comissão registrado.");
+      // com no-cors não lemos a resposta — assumimos sucesso e recarregamos
+      setDateRaw(""); setValor(""); setFaturamento(""); setDuplicateWarning("");
+      setTimeout(() => loadComissoes(), 2000);
     } catch (err: any) {
-      alert(`Não foi possível registrar a comissão. Erro: ${String(err)}`);
+      alert(`Erro: ${String(err)}`);
     } finally {
-      setSavingCommission(false);
+      setSaving(false);
     }
   };
-  const [isSavingCommission, setIsSavingCommission] = useState(false);
 
+  const handleDelete = async (date: string) => {
+    if (!confirm(`Excluir comissão de ${date}?`)) return;
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST", mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_comissao", date }),
+      });
+      setTimeout(() => loadComissoes(), 2000);
+    } catch { alert("Erro ao excluir."); }
+  };
+
+  const openEdit = (c: any) => {
+    setEditingDate(c.data);
+    setEditValor(String(c.valor));
+    setEditFat(String(c.faturamento));
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingDate) return;
+    setSavingEdit(true);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST", mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update_comissao",
+          date: editingDate,
+          valor: parseFloat(editValor),
+          faturamento: parseFloat(editFat),
+        }),
+      });
+      setEditingDate(null);
+      setTimeout(() => loadComissoes(), 2000);
+    } catch { alert("Erro ao salvar."); }
+    finally { setSavingEdit(false); }
+  };
 
   const handlePaymentsReport = async () => {
     if (generatingReports) return;
-
-    if (!startRaw || !endRaw) {
-      alert("Selecione data inicial e final.");
-      return;
-    }
-    const startStr = formatDateForPayload(startRaw);
-    const endStr = formatDateForPayload(endRaw);
-    if (!startStr || !endStr) {
-      alert("Datas inválidas.");
-      return;
-    }
-
-    if (!SYNC_ENDPOINT) {
-      alert("Nenhum endpoint de sincronização configurado.");
-      return;
-    }
-
-    const payload = {
-      action: "payments_report",
-      startDate: startStr,
-      endDate: endStr,
-    };
-
+    if (!startRaw || !endRaw) { alert("Selecione data inicial e final."); return; }
+    if (!SYNC_ENDPOINT) return;
     setGeneratingReports(true);
     try {
-      const resp = await fetch(SYNC_ENDPOINT, {
-        method: "POST",
-        mode: "no-cors",
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST", mode: "no-cors",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ action: "payments_report", startDate: toDDMMYYYY(startRaw), endDate: toDDMMYYYY(endRaw) }),
       });
-      // @ts-ignore
-      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
-        alert("Relatórios de pagamentos gerados (solicitação enviada ao servidor).");
-        return;
-      }
-      if (!resp.ok) {
-        const txt = await resp.text().catch(() => "");
-        alert(
-          `Falha ao gerar relatórios (HTTP ${resp.status}). ${txt.slice(
-            0,
-            180
-          )}`
-        );
-        return;
-      }
-      alert("Relatórios de pagamentos gerados.");
+      alert("Relatórios de pagamentos gerados (solicitação enviada ao servidor).");
     } catch (err: any) {
-      alert(`Não foi possível gerar os relatórios. Erro: ${String(err)}`);
+      alert(`Erro: ${String(err)}`);
     } finally {
       setGeneratingReports(false);
     }
   };
-  const handleSaveCommissionClick = async () => {
-    setIsSavingCommission(true);
-    try {
-      await Promise.resolve(handleSaveCommission());
-    } finally {
-      setIsSavingCommission(false);
-    }
-  };
 
+  const totalValor = comissoes.reduce((s, c) => s + c.valor, 0);
+  const totalFat   = comissoes.reduce((s, c) => s + c.faturamento, 0);
 
   return (
     <div className="space-y-6">
-      {/* Seção Comissão do dia */}
+
+      {/* ── Registrar comissão ── */}
       <div className="border rounded-xl p-4 bg-white space-y-4">
-        <h3 className="font-semibold text-base">Comissão do dia</h3>
+        <h3 className="font-semibold text-base">Registrar comissão do dia</h3>
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
           <div className="space-y-1">
             <label className="text-sm text-gray-600">Data</label>
-            <input
-              type="date"
-              className="input w-full"
-              value={dateRaw}
-              onChange={(e) => setDateRaw(e.target.value)}
-            />
+            <input type="date" className="input w-full" value={dateRaw} onChange={e => handleDateChange(e.target.value)} />
           </div>
           <div className="space-y-1">
             <label className="text-sm text-gray-600">Turno</label>
-            <select
-              className="input w-full"
-              value={turno}
-              onChange={(e) => setTurno(e.target.value)}
-            >
+            <select className="input w-full" value={turno} onChange={e => setTurno(e.target.value)}>
               <option value="Noite">Noite</option>
             </select>
           </div>
           <div className="space-y-1">
             <label className="text-sm text-gray-600">Valor da comissão (R$)</label>
-            <input
-              type="number"
-              step="0.01"
-              className="input w-full"
-              value={valor}
-              onChange={(e) => setValor(e.target.value)}
-            />
+            <input type="number" step="0.01" className="input w-full" value={valor} onChange={e => setValor(e.target.value)} />
           </div>
           <div className="space-y-1">
             <label className="text-sm text-gray-600">Faturamento (R$)</label>
-            <input
-              type="number"
-              step="0.01"
-              className="input w-full"
-              value={faturamento}
-              onChange={(e) => setFaturamento(e.target.value)}
-            />
+            <input type="number" step="0.01" className="input w-full" value={faturamento} onChange={e => setFaturamento(e.target.value)} />
           </div>
         </div>
-
-        <button
-          onClick={handleSaveCommissionClick}
-          className="btn btn-primary"
-          disabled={isSavingCommission}
-        >
-          {isSavingCommission ? "Processando..." : "Registrar comissão do dia"}
+        {duplicateWarning && (
+          <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            ⚠ {duplicateWarning}
+          </div>
+        )}
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving || !!duplicateWarning}>
+          {saving ? "Registrando..." : "Registrar comissão"}
         </button>
       </div>
 
-      {/* Seção Pagamentos */}
+      {/* ── Histórico de comissões ── */}
+      <div className="border rounded-xl p-4 bg-white space-y-4">
+        <h3 className="font-semibold text-base">Histórico de comissões</h3>
+        <div className="flex gap-3 flex-wrap items-end">
+          <div className="space-y-1">
+            <label className="text-xs text-gray-600">De</label>
+            <input type="date" className="input" value={filterStart} onChange={e => setFilterStart(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-gray-600">Até</label>
+            <input type="date" className="input" value={filterEnd} onChange={e => setFilterEnd(e.target.value)} />
+          </div>
+          <button className="btn btn-ghost text-sm" onClick={loadComissoes}>Filtrar</button>
+        </div>
+
+        {loadingList ? (
+          <div className="text-sm text-gray-500">Carregando...</div>
+        ) : comissoes.length === 0 ? (
+          <div className="text-sm text-gray-500">Nenhum registro no período.</div>
+        ) : (
+          <div className="overflow-auto">
+            <table className="min-w-full border text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="border px-3 py-2 text-left">Data</th>
+                  <th className="border px-3 py-2 text-left">Turno</th>
+                  <th className="border px-3 py-2 text-right">Comissão</th>
+                  <th className="border px-3 py-2 text-right">Faturamento</th>
+                  <th className="border px-3 py-2 text-right">% Com.</th>
+                  <th className="border px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {comissoes.map((c, i) => (
+                  editingDate === c.data ? (
+                    <tr key={i} className="bg-blue-50">
+                      <td className="border px-3 py-2">{c.data}</td>
+                      <td className="border px-3 py-2">{c.turno}</td>
+                      <td className="border px-3 py-2">
+                        <input type="number" step="0.01" className="input w-28" value={editValor} onChange={e => setEditValor(e.target.value)} />
+                      </td>
+                      <td className="border px-3 py-2">
+                        <input type="number" step="0.01" className="input w-28" value={editFat} onChange={e => setEditFat(e.target.value)} />
+                      </td>
+                      <td className="border px-3 py-2 text-right text-gray-400">—</td>
+                      <td className="border px-3 py-2 text-center">
+                        <div className="flex gap-2 justify-center">
+                          <button className="text-xs text-green-600 hover:underline" onClick={handleSaveEdit} disabled={savingEdit}>
+                            {savingEdit ? "..." : "Salvar"}
+                          </button>
+                          <button className="text-xs text-gray-500 hover:underline" onClick={() => setEditingDate(null)}>Cancelar</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                      <td className="border px-3 py-2">{c.data}</td>
+                      <td className="border px-3 py-2">{c.turno}</td>
+                      <td className="border px-3 py-2 text-right">{fmtMoney(c.valor)}</td>
+                      <td className="border px-3 py-2 text-right">{fmtMoney(c.faturamento)}</td>
+                      <td className="border px-3 py-2 text-right">
+                        {c.faturamento > 0 ? `${((c.valor / c.faturamento) * 100).toFixed(1)}%` : "—"}
+                      </td>
+                      <td className="border px-3 py-2 text-center">
+                        <div className="flex gap-2 justify-center">
+                          <button className="text-xs text-blue-500 hover:underline" onClick={() => openEdit(c)}>Editar</button>
+                          <button className="text-xs text-red-500 hover:underline" onClick={() => handleDelete(c.data)}>Excluir</button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                ))}
+                <tr className="bg-gray-100 font-semibold">
+                  <td className="border px-3 py-2" colSpan={2}>Total</td>
+                  <td className="border px-3 py-2 text-right">{fmtMoney(totalValor)}</td>
+                  <td className="border px-3 py-2 text-right">{fmtMoney(totalFat)}</td>
+                  <td className="border px-3 py-2 text-right">
+                    {totalFat > 0 ? `${((totalValor / totalFat) * 100).toFixed(1)}%` : "—"}
+                  </td>
+                  <td className="border px-3 py-2"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── Pagamentos ── */}
       <div className="border rounded-xl p-4 bg-white space-y-4">
         <h3 className="font-semibold text-base">Pagamentos</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1">
             <label className="text-sm text-gray-600">Data inicial</label>
-            <input
-              type="date"
-              className="input w-full"
-              value={startRaw}
-              onChange={(e) => setStartRaw(e.target.value)}
-            />
+            <input type="date" className="input w-full" value={startRaw} onChange={e => setStartRaw(e.target.value)} />
           </div>
           <div className="space-y-1">
             <label className="text-sm text-gray-600">Data final</label>
-            <input
-              type="date"
-              className="input w-full"
-              value={endRaw}
-              onChange={(e) => setEndRaw(e.target.value)}
-            />
+            <input type="date" className="input w-full" value={endRaw} onChange={e => setEndRaw(e.target.value)} />
           </div>
         </div>
-
-        <button
-          onClick={handlePaymentsReport}
-          disabled={generatingReports}
-          className={`btn btn-primary ${generatingReports ? "opacity-70 cursor-not-allowed" : ""}`}
-        >
+        <button onClick={handlePaymentsReport} disabled={generatingReports} className="btn btn-primary">
           {generatingReports ? "Processando..." : "Gerar relatórios de Pagamentos"}
         </button>
       </div>
