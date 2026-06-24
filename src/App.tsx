@@ -2409,6 +2409,7 @@ function MarkupTab() {
   // ── config geral ──
   const [fatMin, setFatMin] = useState("0");
   const [impostoPct, setImpostoPct] = useState("0");
+  const [cartaoPct, setCartaoPct] = useState("0");
   const [margemPct, setMargemPct] = useState("0");
   const [savingConfig, setSavingConfig] = useState(false);
 
@@ -2440,6 +2441,7 @@ function MarkupTab() {
       if (json.ok) {
         setFatMin(String(json.faturamento_minimo ?? 0));
         setImpostoPct(String(json.impostos_pct ?? 0));
+        setCartaoPct(String(json.cartao_pct ?? 0));
         setMargemPct(String(json.margem_lucro_pct ?? 0));
         setDespesas(json.despesas || []);
       }
@@ -2452,8 +2454,8 @@ function MarkupTab() {
     try {
       const res = await fetch(`${SYNC_ENDPOINT}?action=fichas_lista&_ts=${Date.now()}`);
       const json = await res.json();
-      if (json.ok && Array.isArray(json.fichas)) {
-        setProdutos(json.fichas.map((f: any) => ({ nome: f.nome, custo: f.custoTotal ?? 0 })));
+      if (json.ok && Array.isArray(json.produtos)) {
+        setProdutos(json.produtos.map((f: any) => ({ nome: f.nome, custo: f.custoTotal ?? 0 })));
       }
     } catch {}
   };
@@ -2467,8 +2469,9 @@ function MarkupTab() {
   const pctFixas    = fat > 0 ? (fixas / fat) * 100 : 0;
   const pctVariaveis = fat > 0 ? (variaveis / fat) * 100 : 0;
   const impostoN = parseFloat(impostoPct) || 0;
+  const cartaoN  = parseFloat(cartaoPct) || 0;
   const margemN  = parseFloat(margemPct) || 0;
-  const somaPct  = impostoN + pctFixas + pctVariaveis + margemN;
+  const somaPct  = impostoN + cartaoN + pctFixas + pctVariaveis + margemN;
   const indice   = somaPct < 100 ? 100 / (100 - somaPct) : 0;
 
   const handleSaveConfig = async () => {
@@ -2482,6 +2485,7 @@ function MarkupTab() {
           action: "save_markup_config",
           faturamento_minimo: parseFloat(fatMin) || 0,
           impostos_pct: parseFloat(impostoPct) || 0,
+          cartao_pct: parseFloat(cartaoPct) || 0,
           margem_lucro_pct: parseFloat(margemPct) || 0,
         }),
       });
@@ -2603,7 +2607,7 @@ function MarkupTab() {
       {/* ── Configuração base ── */}
       <div className="border rounded-xl p-4 bg-white space-y-4">
         <h3 className="font-semibold text-base">Configuração base</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="space-y-1">
             <label className="text-sm text-gray-600">Faturamento mínimo desejado (R$)</label>
             <input type="number" step="0.01" className="input w-full" value={fatMin} onChange={e => setFatMin(e.target.value)} />
@@ -2611,6 +2615,10 @@ function MarkupTab() {
           <div className="space-y-1">
             <label className="text-sm text-gray-600">Impostos (%)</label>
             <input type="number" step="0.01" className="input w-full" value={impostoPct} onChange={e => setImpostoPct(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Taxa de cartão (%)</label>
+            <input type="number" step="0.01" className="input w-full" value={cartaoPct} onChange={e => setCartaoPct(e.target.value)} />
           </div>
           <div className="space-y-1">
             <label className="text-sm text-gray-600">Margem de lucro (%)</label>
@@ -2628,6 +2636,7 @@ function MarkupTab() {
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
           {[
             { label: "Impostos", value: fmtPct(impostoN) },
+            { label: "Taxa cartão", value: fmtPct(cartaoN) },
             { label: "Desp. Fixas", value: fmtPct(pctFixas) },
             { label: "Desp. Variáveis", value: fmtPct(pctVariaveis) },
             { label: "Margem", value: fmtPct(margemN) },
