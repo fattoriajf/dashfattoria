@@ -14,7 +14,7 @@ import {
 
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet, Menu, X, Package, TrendingUp } from "lucide-react";
+import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet, Menu, X, Package, TrendingUp, Tag } from "lucide-react";
 import {
 Calendar as Cal,
   RefreshCw,
@@ -180,7 +180,7 @@ export default function App() {
   const [mode, setMode] = useState<Mode>("admin");
 
   const [activeTab, setActiveTab] = useState<
-  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv" | "insumos" | "compras" | "markup"
+  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv" | "insumos" | "compras" | "markup" | "etiquetas"
   >("disponibilidade");
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
@@ -324,7 +324,7 @@ export default function App() {
   };
 
   // Aba efetiva: se a aba ativa não tem permissão, usa a primeira permitida
-  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv","insumos","compras","markup"];
+  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv","insumos","compras","markup","etiquetas"];
   const abaEfetiva: typeof activeTab = podeVer(activeTab) ? activeTab : (todasAbas.find(t => podeVer(t)) ?? "disponibilidade");
 
   if (mode === "admin" && !adminLogado) {
@@ -369,6 +369,7 @@ export default function App() {
         {navItem("estoque", "Compras de Estoque", <ShoppingCart className="w-4 h-4" />)}
         {navItem("insumos", "Insumos", <Package className="w-4 h-4" />, true)}
         {navItem("compras", "Registro de Compras", <ShoppingCart className="w-4 h-4" />, true)}
+        {navItem("etiquetas", "Etiquetas", <Tag className="w-4 h-4" />, true)}
         {navItem("fichaTecnica", "Ficha Técnica", <Package className="w-4 h-4" />, true)}
       </div>
       {!isColab && (
@@ -485,6 +486,11 @@ export default function App() {
           {!isColab && abaEfetiva === "markup" && (
             <Card title="Markup" icon={<TrendingUp className="w-5 h-5" />}>
               <MarkupTab />
+            </Card>
+          )}
+          {abaEfetiva === "etiquetas" && (
+            <Card title="Etiquetas" icon={<Tag className="w-5 h-5" />}>
+              <EtiquetasTab />
             </Card>
           )}
           {!isColab && abaEfetiva === "fichaTecnica" && (
@@ -2398,6 +2404,563 @@ function DashboardTab() {
   );
 }
 
+
+// ======== ETIQUETAS ========
+
+function EtiquetasTab() {
+  const BRAND = { primary: '#233253', green: '#009249', red: '#cf2a39' };
+
+  const [subAba, setSubAba] = useState<'gerar'|'categorias'|'empresa'>('gerar');
+
+  // ── dados carregados ──
+  const [insumos, setInsumos] = useState<any[]>([]);
+  const [categorias, setCategorias] = useState<any[]>([]);
+  const [empresa, setEmpresa] = useState({ nome: '', cnpj: '', endereco: '' });
+  const [loading, setLoading] = useState(true);
+
+  // ── form gerar etiqueta ──
+  const [insumoSel, setInsumoSel] = useState('');
+  const [conservacao, setConservacao] = useState<'resfriado'|'congelado'>('resfriado');
+  const [responsavel, setResponsavel] = useState('');
+  const [peso, setPeso] = useState('');
+  const [manipData, setManipData] = useState(() => {
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;
+  });
+  const [manipHora, setManipHora] = useState(() => {
+    const n = new Date();
+    return `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`;
+  });
+  const [qtdEtiquetas, setQtdEtiquetas] = useState(1);
+
+  // ── form categorias ──
+  const [catNome, setCatNome] = useState('');
+  const [catRef, setCatRef] = useState(3);
+  const [catCong, setCatCong] = useState(30);
+  const [catAnvisa, setCatAnvisa] = useState('');
+  const [savingCat, setSavingCat] = useState(false);
+  const [editingCatId, setEditingCatId] = useState<string|null>(null);
+  const [editCatNome, setEditCatNome] = useState('');
+  const [editCatRef, setEditCatRef] = useState(0);
+  const [editCatCong, setEditCatCong] = useState(0);
+  const [editCatAnvisa, setEditCatAnvisa] = useState('');
+
+  // ── form empresa ──
+  const [empNome, setEmpNome] = useState('');
+  const [empCnpj, setEmpCnpj] = useState('');
+  const [empEnd, setEmpEnd] = useState('');
+  const [savingEmp, setSavingEmp] = useState(false);
+
+  // ── edição de insumo (categoria/marca/sif) ──
+  const [editingInsumo, setEditingInsumo] = useState<string|null>(null);
+  const [editInsCat, setEditInsCat] = useState('');
+  const [editInsMarca, setEditInsMarca] = useState('');
+  const [editInsSif, setEditInsSif] = useState('');
+  const [savingIns, setSavingIns] = useState(false);
+
+  const loadAll = async () => {
+    if (!SYNC_ENDPOINT) return;
+    setLoading(true);
+    try {
+      const [ri, rc, re] = await Promise.all([
+        fetch(`${SYNC_ENDPOINT}?action=insumos_etiqueta&_ts=${Date.now()}`).then(r=>r.json()),
+        fetch(`${SYNC_ENDPOINT}?action=categorias_validade&_ts=${Date.now()}`).then(r=>r.json()),
+        fetch(`${SYNC_ENDPOINT}?action=empresa_config&_ts=${Date.now()}`).then(r=>r.json()),
+      ]);
+      if (ri.ok) setInsumos(ri.insumos || []);
+      if (rc.ok) setCategorias(rc.categorias || []);
+      if (re.ok) {
+        setEmpresa(re);
+        setEmpNome(re.nome || '');
+        setEmpCnpj(re.cnpj || '');
+        setEmpEnd(re.endereco || '');
+      }
+    } catch {}
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { loadAll(); }, []);
+
+  // ── derivados ──
+  const insumoAtual = insumos.find(i => i.nome === insumoSel);
+  const categoriaAtual = categorias.find(c => c.nome === insumoAtual?.categoria_validade);
+
+  const calcValidade = () => {
+    if (!manipData || !manipHora) return null;
+    const [y,m,d] = manipData.split('-').map(Number);
+    const [h,min] = manipHora.split(':').map(Number);
+    const dt = new Date(y, m-1, d, h, min);
+    const dias = conservacao === 'resfriado'
+      ? (categoriaAtual?.prazo_resfriado_dias ?? 3)
+      : (categoriaAtual?.prazo_congelado_dias ?? 30);
+    dt.setDate(dt.getDate() + dias);
+    return dt;
+  };
+
+  const fmtDT = (dt: Date | null) => {
+    if (!dt) return '—';
+    const d = String(dt.getDate()).padStart(2,'0');
+    const m = String(dt.getMonth()+1).padStart(2,'0');
+    const y = dt.getFullYear();
+    const h = String(dt.getHours()).padStart(2,'0');
+    const min = String(dt.getMinutes()).padStart(2,'0');
+    return `${d}/${m}/${y} · ${h}:${min}`;
+  };
+
+  const fmtManip = () => {
+    if (!manipData || !manipHora) return '—';
+    const [y,m,d] = manipData.split('-');
+    return `${d}/${m}/${y} · ${manipHora}`;
+  };
+
+  const validadeDT = calcValidade();
+
+  // ── Impressão ──
+  const handlePrint = () => {
+    if (!insumoSel) { alert('Selecione um insumo.'); return; }
+    if (!responsavel.trim()) { alert('Informe o responsável.'); return; }
+
+    const etiquetaHTML = (idx: number) => `
+      <div style="
+        width:226px; height:226px;
+        background:#fff;
+        border:1.5px solid #233253;
+        border-radius:6px;
+        display:flex; flex-direction:column;
+        font-family:Arial,sans-serif;
+        overflow:hidden;
+        page-break-inside:avoid;
+        margin: ${idx > 0 ? '8px' : '0'} auto 0;
+      ">
+        <div style="background:#233253;color:#fff;text-align:center;padding:5px 6px 4px;font-size:13px;font-weight:bold;letter-spacing:0.3px;line-height:1.2;">
+          ${insumoSel.toUpperCase()}
+        </div>
+        <div style="flex:1;padding:6px 8px 4px;display:flex;flex-direction:column;gap:3px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:0.5px solid #e0e4ed;padding-bottom:3px;">
+            <span style="font-size:9px;color:#666;text-transform:uppercase;letter-spacing:0.4px;">Marca/Fornecedor</span>
+            <span style="font-size:10px;font-weight:bold;color:#233253;">
+              ${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}
+            </span>
+          </div>
+          <div style="display:flex;justify-content:center;padding:2px 0 3px;border-bottom:0.5px solid #e0e4ed;">
+            <span style="font-size:9px;font-weight:bold;
+              background:${conservacao==='resfriado'?'#e6f5ef':'#e8f0fb'};
+              color:${conservacao==='resfriado'?'#005f30':'#1a3a7a'};
+              border-radius:3px;padding:2px 8px;letter-spacing:0.5px;text-transform:uppercase;
+              border:0.5px solid ${conservacao==='resfriado'?'#009249':'#233253'};">
+              ❄ ${conservacao === 'resfriado' ? 'Resfriado' : 'Congelado'}
+            </span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0;">
+            <span style="font-size:9px;color:#666;text-transform:uppercase;letter-spacing:0.4px;">Manipulação</span>
+            <span style="font-size:10px;font-weight:bold;color:#233253;">${fmtManip()}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;background:#fdf0f1;border-radius:3px;padding:3px 5px;border:0.5px solid #cf2a39;">
+            <span style="font-size:9px;color:#8a1b24;text-transform:uppercase;letter-spacing:0.4px;font-weight:bold;">Validade</span>
+            <span style="font-size:11px;font-weight:bold;color:#cf2a39;">${fmtDT(validadeDT)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0;border-top:0.5px solid #e0e4ed;margin-top:2px;">
+            <div style="display:flex;flex-direction:column;">
+              <span style="font-size:8px;color:#666;text-transform:uppercase;letter-spacing:0.4px;">Responsável</span>
+              <span style="font-size:10px;font-weight:bold;color:#233253;">${responsavel}</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;">
+              <span style="font-size:8px;color:#666;text-transform:uppercase;letter-spacing:0.4px;">Peso</span>
+              <span style="font-size:10px;font-weight:bold;color:#233253;">${peso || '—'}</span>
+            </div>
+          </div>
+        </div>
+        <div style="background:#233253;padding:0;">
+          <div style="display:flex;height:3px;">
+            <div style="flex:1;background:#009249;"></div>
+            <div style="flex:1;background:#fff;"></div>
+            <div style="flex:1;background:#cf2a39;"></div>
+          </div>
+          <div style="padding:4px 6px 5px;text-align:center;">
+            <div style="color:#fff;font-size:10px;font-weight:bold;letter-spacing:1.5px;">${empresa.nome || 'FATTORIA'}</div>
+            <div style="color:#7a8aa0;font-size:6.5px;margin-top:1px;">${empresa.cnpj ? 'CNPJ ' + empresa.cnpj + ' · ' : ''}${empresa.endereco || ''}</div>
+          </div>
+        </div>
+      </div>`;
+
+    const etiquetas = Array.from({length: qtdEtiquetas}, (_,i) => etiquetaHTML(i)).join('');
+
+    const win = window.open('', '_blank', 'width=400,height=600');
+    if (!win) { alert('Permita pop-ups para imprimir.'); return; }
+    win.document.write(`<!DOCTYPE html><html><head><title>Etiqueta</title>
+      <style>
+        @page { size: 60mm 60mm; margin: 0; }
+        body { margin: 0; padding: 0; background: #fff; }
+        @media print { body { margin: 0; padding: 0; } }
+      </style>
+    </head><body>${etiquetas}</body></html>`);
+    win.document.close();
+    win.focus();
+    setTimeout(() => { win.print(); }, 500);
+  };
+
+  // ── salvar empresa ──
+  const handleSaveEmpresa = async () => {
+    setSavingEmp(true);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method:'POST', mode:'no-cors',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action:'save_empresa_config', nome:empNome, cnpj:empCnpj, endereco:empEnd }),
+      });
+      setEmpresa({ nome:empNome, cnpj:empCnpj, endereco:empEnd });
+      alert('Configuração salva!');
+    } catch { alert('Erro ao salvar.'); }
+    finally { setSavingEmp(false); }
+  };
+
+  // ── salvar categoria ──
+  const handleSaveCat = async () => {
+    if (!catNome.trim()) { alert('Informe o nome da categoria.'); return; }
+    setSavingCat(true);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method:'POST', mode:'no-cors',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action:'save_categoria', nome:catNome, prazo_resfriado_dias:catRef, prazo_congelado_dias:catCong, referencia:catAnvisa }),
+      });
+      setCatNome(''); setCatRef(3); setCatCong(30); setCatAnvisa('');
+      setTimeout(() => loadAll(), 2000);
+    } catch { alert('Erro ao salvar.'); }
+    finally { setSavingCat(false); }
+  };
+
+  const handleDeleteCat = async (id: string) => {
+    if (!confirm('Excluir esta categoria?')) return;
+    await fetch(SYNC_ENDPOINT, { method:'POST', mode:'no-cors', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'delete_categoria', id }) });
+    setTimeout(() => loadAll(), 2000);
+  };
+
+  const handleSaveEditCat = async () => {
+    if (!editingCatId) return;
+    await fetch(SYNC_ENDPOINT, {
+      method:'POST', mode:'no-cors',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'update_categoria', id:editingCatId, nome:editCatNome, prazo_resfriado_dias:editCatRef, prazo_congelado_dias:editCatCong, referencia:editCatAnvisa }),
+    });
+    setEditingCatId(null);
+    setTimeout(() => loadAll(), 2000);
+  };
+
+  // ── salvar insumo etiqueta ──
+  const handleSaveInsEtiqueta = async () => {
+    if (!editingInsumo) return;
+    setSavingIns(true);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method:'POST', mode:'no-cors',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action:'update_insumo_etiqueta', nome:editingInsumo, categoria_validade:editInsCat, marca_fornecedor:editInsMarca, sif:editInsSif }),
+      });
+      setEditingInsumo(null);
+      setTimeout(() => loadAll(), 2000);
+    } catch { alert('Erro ao salvar.'); }
+    finally { setSavingIns(false); }
+  };
+
+  if (loading) return <div className="text-sm text-gray-500 p-4">Carregando...</div>;
+
+  return (
+    <div className="space-y-4">
+      {/* sub-abas */}
+      <div className="flex gap-2 border-b pb-2">
+        {(['gerar','categorias','empresa'] as const).map(a => (
+          <button key={a} onClick={() => setSubAba(a)}
+            className={`text-sm px-3 py-1 rounded-md ${subAba===a ? 'bg-[#233253] text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
+            {a === 'gerar' ? 'Gerar Etiqueta' : a === 'categorias' ? 'Categorias de Validade' : 'Config. Empresa'}
+          </button>
+        ))}
+      </div>
+
+      {/* ── GERAR ETIQUETA ── */}
+      {subAba === 'gerar' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* formulário */}
+          <div className="space-y-4">
+            <div className="border rounded-xl p-4 bg-white space-y-3">
+              <h3 className="font-semibold text-sm text-gray-700">Dados do produto</h3>
+
+              <div className="space-y-1">
+                <label className="text-xs text-gray-600">Insumo</label>
+                <select className="input w-full" value={insumoSel} onChange={e => setInsumoSel(e.target.value)}>
+                  <option value="">Selecione...</option>
+                  {insumos.map(i => <option key={i.nome} value={i.nome}>{i.nome}</option>)}
+                </select>
+              </div>
+
+              {insumoAtual && (
+                <div className="bg-gray-50 rounded-lg p-2 text-xs space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Marca/Fornecedor:</span>
+                    <span className="font-medium">{insumoAtual.marca_fornecedor || '—'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">SIF:</span>
+                    <span className="font-medium">{insumoAtual.sif || '—'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Categoria:</span>
+                    <span className="font-medium">{insumoAtual.categoria_validade || '—'}</span>
+                  </div>
+                  {!insumoAtual.categoria_validade && (
+                    <button className="text-xs text-blue-500 hover:underline mt-1" onClick={() => { setEditingInsumo(insumoAtual.nome); setEditInsCat(''); setEditInsMarca(insumoAtual.marca_fornecedor||''); setEditInsSif(insumoAtual.sif||''); }}>
+                      + Configurar categoria/marca/SIF
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {editingInsumo && (
+                <div className="border border-blue-200 rounded-lg p-3 bg-blue-50 space-y-2">
+                  <p className="text-xs font-medium text-blue-700">Configurar: {editingInsumo}</p>
+                  <div className="space-y-1">
+                    <label className="text-xs text-gray-600">Categoria de validade</label>
+                    <select className="input w-full text-sm" value={editInsCat} onChange={e => setEditInsCat(e.target.value)}>
+                      <option value="">Selecione...</option>
+                      {categorias.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-gray-600">Marca/Fornecedor</label>
+                    <input className="input w-full text-sm" value={editInsMarca} onChange={e => setEditInsMarca(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-gray-600">SIF (se aplicável)</label>
+                    <input className="input w-full text-sm" placeholder="Ex: 0042" value={editInsSif} onChange={e => setEditInsSif(e.target.value)} />
+                  </div>
+                  <div className="flex gap-2">
+                    <button className="btn btn-primary text-xs" onClick={handleSaveInsEtiqueta} disabled={savingIns}>{savingIns ? '...' : 'Salvar'}</button>
+                    <button className="btn btn-ghost text-xs" onClick={() => setEditingInsumo(null)}>Cancelar</button>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs text-gray-600">Conservação</label>
+                  <select className="input w-full" value={conservacao} onChange={e => setConservacao(e.target.value as any)}>
+                    <option value="resfriado">Resfriado</option>
+                    <option value="congelado">Congelado</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-gray-600">Peso/Qtd</label>
+                  <input className="input w-full" placeholder="Ex: 500g" value={peso} onChange={e => setPeso(e.target.value)} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs text-gray-600">Data de manipulação</label>
+                  <input type="date" className="input w-full" value={manipData} onChange={e => setManipData(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-gray-600">Hora</label>
+                  <input type="time" className="input w-full" value={manipHora} onChange={e => setManipHora(e.target.value)} />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs text-gray-600">Responsável</label>
+                <input className="input w-full" placeholder="Nome do colaborador" value={responsavel} onChange={e => setResponsavel(e.target.value)} />
+              </div>
+
+              {categoriaAtual && (
+                <div className="text-xs text-gray-500 bg-gray-50 rounded p-2">
+                  Prazo ANVISA ({categoriaAtual.nome}): <strong>{conservacao === 'resfriado' ? categoriaAtual.prazo_resfriado_dias : categoriaAtual.prazo_congelado_dias} dias</strong> {conservacao} · {categoriaAtual.referencia}
+                </div>
+              )}
+
+              <div className="flex gap-3 items-center pt-1">
+                <div className="space-y-1">
+                  <label className="text-xs text-gray-600">Qtd de etiquetas</label>
+                  <input type="number" min={1} max={20} className="input w-20" value={qtdEtiquetas} onChange={e => setQtdEtiquetas(Math.max(1, parseInt(e.target.value)||1))} />
+                </div>
+                <button className="btn btn-primary flex-1 mt-4" onClick={handlePrint} style={{background: BRAND.primary}}>
+                  🖨 Imprimir {qtdEtiquetas > 1 ? `${qtdEtiquetas} etiquetas` : 'etiqueta'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* preview */}
+          <div className="flex flex-col items-center gap-2">
+            <p className="text-xs text-gray-500">Prévia da etiqueta</p>
+            <div style={{
+              width: 227, height: 227,
+              background: '#fff',
+              border: `1.5px solid ${BRAND.primary}`,
+              borderRadius: 6,
+              display: 'flex', flexDirection: 'column',
+              fontFamily: 'Arial, sans-serif',
+              overflow: 'hidden',
+              boxShadow: '0 2px 12px rgba(35,50,83,0.18)',
+            }}>
+              <div style={{ background: BRAND.primary, color: '#fff', textAlign: 'center', padding: '5px 6px 4px', fontSize: 13, fontWeight: 500, letterSpacing: 0.3, lineHeight: 1.2 }}>
+                {insumoSel ? insumoSel.toUpperCase() : 'NOME DO INSUMO'}
+              </div>
+              <div style={{ flex: 1, padding: '6px 8px 4px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '0.5px solid #e0e4ed', paddingBottom: 3 }}>
+                  <span style={{ fontSize: 9, color: '#666', textTransform: 'uppercase', letterSpacing: 0.4 }}>Marca/Fornecedor</span>
+                  <span style={{ fontSize: 10, fontWeight: 500, color: BRAND.primary }}>
+                    {insumoAtual?.marca_fornecedor || '—'}{insumoAtual?.sif ? ` · SIF ${insumoAtual.sif}` : ''}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '2px 0 3px', borderBottom: '0.5px solid #e0e4ed' }}>
+                  <span style={{
+                    fontSize: 9, fontWeight: 500,
+                    background: conservacao === 'resfriado' ? '#e6f5ef' : '#e8f0fb',
+                    color: conservacao === 'resfriado' ? '#005f30' : '#1a3a7a',
+                    borderRadius: 3, padding: '2px 8px', letterSpacing: 0.5, textTransform: 'uppercase',
+                    border: `0.5px solid ${conservacao === 'resfriado' ? BRAND.green : BRAND.primary}`,
+                  }}>
+                    ❄ {conservacao === 'resfriado' ? 'Resfriado' : 'Congelado'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '2px 0' }}>
+                  <span style={{ fontSize: 9, color: '#666', textTransform: 'uppercase', letterSpacing: 0.4 }}>Manipulação</span>
+                  <span style={{ fontSize: 10, fontWeight: 500, color: BRAND.primary }}>{fmtManip()}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', background: '#fdf0f1', borderRadius: 3, padding: '3px 5px', border: `0.5px solid ${BRAND.red}` }}>
+                  <span style={{ fontSize: 9, color: '#8a1b24', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 500 }}>Validade</span>
+                  <span style={{ fontSize: 11, fontWeight: 500, color: BRAND.red }}>{fmtDT(validadeDT)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '2px 0', borderTop: '0.5px solid #e0e4ed', marginTop: 2 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontSize: 8, color: '#666', textTransform: 'uppercase', letterSpacing: 0.4 }}>Responsável</span>
+                    <span style={{ fontSize: 10, fontWeight: 500, color: BRAND.primary }}>{responsavel || '—'}</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                    <span style={{ fontSize: 8, color: '#666', textTransform: 'uppercase', letterSpacing: 0.4 }}>Peso</span>
+                    <span style={{ fontSize: 10, fontWeight: 500, color: BRAND.primary }}>{peso || '—'}</span>
+                  </div>
+                </div>
+              </div>
+              <div style={{ background: BRAND.primary, padding: 0 }}>
+                <div style={{ display: 'flex', height: 3 }}>
+                  <div style={{ flex: 1, background: BRAND.green }}></div>
+                  <div style={{ flex: 1, background: '#fff' }}></div>
+                  <div style={{ flex: 1, background: BRAND.red }}></div>
+                </div>
+                <div style={{ padding: '4px 6px 5px', textAlign: 'center' }}>
+                  <div style={{ color: '#fff', fontSize: 10, fontWeight: 500, letterSpacing: 1.5 }}>{empresa.nome || 'FATTORIA'}</div>
+                  <div style={{ color: '#7a8aa0', fontSize: 6.5, marginTop: 1 }}>
+                    {empresa.cnpj ? `CNPJ ${empresa.cnpj} · ` : ''}{empresa.endereco || ''}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── CATEGORIAS DE VALIDADE ── */}
+      {subAba === 'categorias' && (
+        <div className="space-y-4">
+          <div className="border rounded-xl p-4 bg-white space-y-3">
+            <h3 className="font-semibold text-sm text-gray-700">Nova categoria</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+              <div className="space-y-1 sm:col-span-2">
+                <label className="text-xs text-gray-600">Nome da categoria</label>
+                <input className="input w-full" placeholder="Ex: Laticínios manipulados" value={catNome} onChange={e => setCatNome(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-gray-600">Prazo resfriado (dias)</label>
+                <input type="number" className="input w-full" value={catRef} onChange={e => setCatRef(parseInt(e.target.value)||0)} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-gray-600">Prazo congelado (dias)</label>
+                <input type="number" className="input w-full" value={catCong} onChange={e => setCatCong(parseInt(e.target.value)||0)} />
+              </div>
+            </div>
+            <div className="flex gap-3 items-end">
+              <div className="space-y-1 flex-1">
+                <label className="text-xs text-gray-600">Referência ANVISA</label>
+                <input className="input w-full" placeholder="Ex: CVS 5/2013" value={catAnvisa} onChange={e => setCatAnvisa(e.target.value)} />
+              </div>
+              <button className="btn btn-primary text-sm" onClick={handleSaveCat} disabled={savingCat}>{savingCat ? '...' : '+ Adicionar'}</button>
+            </div>
+          </div>
+
+          <div className="border rounded-xl p-4 bg-white">
+            <h3 className="font-semibold text-sm text-gray-700 mb-3">Categorias cadastradas</h3>
+            <div className="overflow-auto">
+              <table className="min-w-full border text-sm">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="border px-3 py-2 text-left">Categoria</th>
+                    <th className="border px-3 py-2 text-center">Resfriado (dias)</th>
+                    <th className="border px-3 py-2 text-center">Congelado (dias)</th>
+                    <th className="border px-3 py-2 text-left">Referência</th>
+                    <th className="border px-3 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categorias.map((c, i) => (
+                    editingCatId === c.id ? (
+                      <tr key={c.id} className="bg-blue-50">
+                        <td className="border px-2 py-1"><input className="input w-full text-sm" value={editCatNome} onChange={e => setEditCatNome(e.target.value)} /></td>
+                        <td className="border px-2 py-1"><input type="number" className="input w-20 text-sm" value={editCatRef} onChange={e => setEditCatRef(parseInt(e.target.value)||0)} /></td>
+                        <td className="border px-2 py-1"><input type="number" className="input w-20 text-sm" value={editCatCong} onChange={e => setEditCatCong(parseInt(e.target.value)||0)} /></td>
+                        <td className="border px-2 py-1"><input className="input w-full text-sm" value={editCatAnvisa} onChange={e => setEditCatAnvisa(e.target.value)} /></td>
+                        <td className="border px-2 py-1 text-center">
+                          <div className="flex gap-1 justify-center">
+                            <button className="text-xs text-green-600 hover:underline" onClick={handleSaveEditCat}>Salvar</button>
+                            <button className="text-xs text-gray-500 hover:underline" onClick={() => setEditingCatId(null)}>Cancelar</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr key={c.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                        <td className="border px-3 py-2">{c.nome}</td>
+                        <td className="border px-3 py-2 text-center">{c.prazo_resfriado_dias}</td>
+                        <td className="border px-3 py-2 text-center">{c.prazo_congelado_dias > 0 ? c.prazo_congelado_dias : '—'}</td>
+                        <td className="border px-3 py-2 text-xs text-gray-500">{c.referencia}</td>
+                        <td className="border px-3 py-2 text-center">
+                          <div className="flex gap-2 justify-center">
+                            <button className="text-xs text-blue-500 hover:underline" onClick={() => { setEditingCatId(c.id); setEditCatNome(c.nome); setEditCatRef(c.prazo_resfriado_dias); setEditCatCong(c.prazo_congelado_dias); setEditCatAnvisa(c.referencia); }}>Editar</button>
+                            <button className="text-xs text-red-500 hover:underline" onClick={() => handleDeleteCat(c.id)}>Excluir</button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── CONFIG EMPRESA ── */}
+      {subAba === 'empresa' && (
+        <div className="border rounded-xl p-4 bg-white space-y-4 max-w-lg">
+          <h3 className="font-semibold text-sm text-gray-700">Dados da empresa (rodapé da etiqueta)</h3>
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Nome da empresa</label>
+            <input className="input w-full" placeholder="Ex: Fattoria Pizza Napoletana" value={empNome} onChange={e => setEmpNome(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">CNPJ</label>
+            <input className="input w-full" placeholder="Ex: 12.345.678/0001-99" value={empCnpj} onChange={e => setEmpCnpj(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Endereço</label>
+            <input className="input w-full" placeholder="Ex: Rua das Flores, 123 — Centro, SP" value={empEnd} onChange={e => setEmpEnd(e.target.value)} />
+          </div>
+          <button className="btn btn-primary" onClick={handleSaveEmpresa} disabled={savingEmp} style={{background: BRAND.primary}}>
+            {savingEmp ? 'Salvando...' : 'Salvar configuração'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ======== MARKUP ========
 
