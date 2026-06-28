@@ -14,7 +14,7 @@ import {
 
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet, Menu, X, Package, TrendingUp, Tag } from "lucide-react";
+import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet, Menu, X, Package, TrendingUp, Tag, BarChart2 } from "lucide-react";
 import {
 Calendar as Cal,
   RefreshCw,
@@ -180,7 +180,7 @@ export default function App() {
   const [mode, setMode] = useState<Mode>("admin");
 
   const [activeTab, setActiveTab] = useState<
-  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv" | "insumos" | "compras" | "markup" | "etiquetas"
+  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv" | "insumos" | "compras" | "markup" | "etiquetas" | "dre"
   >("disponibilidade");
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
@@ -324,7 +324,7 @@ export default function App() {
   };
 
   // Aba efetiva: se a aba ativa não tem permissão, usa a primeira permitida
-  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv","insumos","compras","markup","etiquetas"];
+  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv","insumos","compras","markup","etiquetas","dre"];
   const abaEfetiva: typeof activeTab = podeVer(activeTab) ? activeTab : (todasAbas.find(t => podeVer(t)) ?? "disponibilidade");
 
   if (mode === "admin" && !adminLogado) {
@@ -380,6 +380,7 @@ export default function App() {
           {navItem("caixa", "Caixa", <Wallet className="w-4 h-4" />, true)}
           {navItem("cmv", "CMV", <BarChart3 className="w-4 h-4" />, true)}
           {navItem("markup", "Markup", <TrendingUp className="w-4 h-4" />, true)}
+          {navItem("dre", "DRE", <BarChart2 className="w-4 h-4" />, true)}
         </div>
       )}
       {!isColab && (
@@ -486,6 +487,11 @@ export default function App() {
           {!isColab && abaEfetiva === "markup" && (
             <Card title="Markup" icon={<TrendingUp className="w-5 h-5" />}>
               <MarkupTab />
+            </Card>
+          )}
+          {!isColab && abaEfetiva === "dre" && (
+            <Card title="DRE — Fluxo de Caixa Avançado" icon={<BarChart2 className="w-5 h-5" />}>
+              <DRETab />
             </Card>
           )}
           {abaEfetiva === "etiquetas" && (
@@ -2404,6 +2410,603 @@ function DashboardTab() {
   );
 }
 
+
+// ======== DRE — FLUXO DE CAIXA AVANÇADO ========
+
+const DRE_CONTAS = [
+  // 3 — RECEITA/FATURAMENTO
+  { c:'3.1.1',  n:'Receita em dinheiro',               g:'3', sg:'3.1' },
+  { c:'3.1.2',  n:'Receitas cartões de débito',        g:'3', sg:'3.1' },
+  { c:'3.1.3',  n:'Receitas cartões de crédito',       g:'3', sg:'3.1' },
+  { c:'3.1.6',  n:'Receitas Pix',                      g:'3', sg:'3.1' },
+  { c:'3.2.99', n:'Taxa de serviço de 10%',            g:'3', sg:'3.2' },
+  // 4 — CUSTOS VARIÁVEIS
+  { c:'4.1.1',  n:'Simples nacional',                  g:'4', sg:'4.1' },
+  { c:'4.1.2',  n:'Taxas de cartões',                  g:'4', sg:'4.1' },
+  { c:'4.1.99', n:'Outros custos financeiros',         g:'4', sg:'4.1' },
+  { c:'4.2.2',  n:'Insumos',                           g:'4', sg:'4.2' },
+  { c:'4.2.3',  n:'Bebidas',                           g:'4', sg:'4.2' },
+  { c:'4.2.5',  n:'Vinhos',                            g:'4', sg:'4.2' },
+  { c:'4.2.99', n:'Outros custos com produtos',        g:'4', sg:'4.2' },
+  { c:'4.3.1',  n:'Custos com embalagens',             g:'4', sg:'4.3' },
+  { c:'4.4.1',  n:'Transportadoras',                   g:'4', sg:'4.4' },
+  { c:'4.4.99', n:'Outros custos mão de obra var.',    g:'4', sg:'4.4' },
+  { c:'4.5.1',  n:'Gás',                               g:'4', sg:'4.5' },
+  { c:'4.5.2',  n:'Lenha',                             g:'4', sg:'4.5' },
+  { c:'4.5.99', n:'Outros custos com vendas',          g:'4', sg:'4.5' },
+  // 5 — DESPESAS FIXAS
+  { c:'5.1.1',  n:'Tarifas bancárias',                 g:'5', sg:'5.1' },
+  { c:'5.1.99', n:'Outros custos financeiros',         g:'5', sg:'5.1' },
+  { c:'5.2.1',  n:'Telefone e internet',               g:'5', sg:'5.2' },
+  { c:'5.2.3',  n:'Energia elétrica',                  g:'5', sg:'5.2' },
+  { c:'5.2.4',  n:'Aluguel e condomínio',              g:'5', sg:'5.2' },
+  { c:'5.2.6',  n:'IPTU e taxas públicas',             g:'5', sg:'5.2' },
+  { c:'5.2.7',  n:'Táxi / Uber',                       g:'5', sg:'5.2' },
+  { c:'5.2.11', n:'Contador',                          g:'5', sg:'5.2' },
+  { c:'5.2.12', n:'Mensalidade de softwares',          g:'5', sg:'5.2' },
+  { c:'5.2.13', n:'Alarme monitorado / Segurança',     g:'5', sg:'5.2' },
+  { c:'5.2.99', n:'Outras despesas administrativas',   g:'5', sg:'5.2' },
+  { c:'5.3.1',  n:'Salário de funcionários',           g:'5', sg:'5.3' },
+  { c:'5.3.3',  n:'VT e VR',                           g:'5', sg:'5.3' },
+  { c:'5.3.6',  n:'INSS / Federação / Sindicato / IR', g:'5', sg:'5.3' },
+  { c:'5.3.8',  n:'Exames ocupacionais',               g:'5', sg:'5.3' },
+  { c:'5.3.9',  n:'Pro-Labore',                        g:'5', sg:'5.3' },
+  { c:'5.3.11', n:'Confraternizações / Festas',        g:'5', sg:'5.3' },
+  { c:'5.3.12', n:'Diarista',                          g:'5', sg:'5.3' },
+  { c:'5.3.99', n:'Outras despesas com pessoal',       g:'5', sg:'5.3' },
+  { c:'5.4.1',  n:'Manutenção de máq. e equip.',       g:'5', sg:'5.4' },
+  { c:'5.4.2',  n:'Serviços técnicos em geral',        g:'5', sg:'5.4' },
+  { c:'5.4.3',  n:'Materiais de expediente',           g:'5', sg:'5.4' },
+  { c:'5.4.4',  n:'Mat. de limpeza e manutenção',      g:'5', sg:'5.4' },
+  { c:'5.4.99', n:'Outras desp. com materiais',        g:'5', sg:'5.4' },
+  { c:'5.5.1',  n:'Gasolina / Combustível',            g:'5', sg:'5.5' },
+  { c:'5.5.2',  n:'Manutenção de veículos',            g:'5', sg:'5.5' },
+  { c:'5.5.4',  n:'Estacionamento / Pedágios',         g:'5', sg:'5.5' },
+  { c:'5.5.99', n:'Outras desp. com veículos',         g:'5', sg:'5.5' },
+  // 6 — INVESTIMENTOS
+  { c:'6.1.1',  n:'Papelaria (folder, cartão...)',     g:'6', sg:'6.1' },
+  { c:'6.1.3',  n:'Mídias / Propaganda',               g:'6', sg:'6.1' },
+  { c:'6.1.4',  n:'Realização de eventos',             g:'6', sg:'6.1' },
+  { c:'6.1.5',  n:'Prestadores de serv. marketing',    g:'6', sg:'6.1' },
+  { c:'6.1.99', n:'Outros invest. em marketing',       g:'6', sg:'6.1' },
+  { c:'6.2.1',  n:'Compra de equip. de informática',   g:'6', sg:'6.2' },
+  { c:'6.2.2',  n:'Reformas / Estrutura',              g:'6', sg:'6.2' },
+  { c:'6.2.3',  n:'Mobiliário',                        g:'6', sg:'6.2' },
+  { c:'6.2.4',  n:'Compra de veículos',                g:'6', sg:'6.2' },
+  { c:'6.2.99', n:'Outros invest. bens materiais',     g:'6', sg:'6.2' },
+  { c:'6.3.1',  n:'Consultoria',                       g:'6', sg:'6.3' },
+  { c:'6.3.2',  n:'Treinamentos',                      g:'6', sg:'6.3' },
+  { c:'6.3.99', n:'Outros invest. desenv. empresarial',g:'6', sg:'6.3' },
+  { c:'6.4.99', n:'Outros investimentos',              g:'6', sg:'6.4' },
+  // 7.1 — ENTRADAS NÃO OPERACIONAIS
+  { c:'7.1.1',  n:'Empréstimos obtidos',               g:'7', sg:'7.1' },
+  { c:'7.1.2',  n:'Capitalização dos sócios',          g:'7', sg:'7.1' },
+  { c:'7.1.3',  n:'Venda de equipamentos usados',      g:'7', sg:'7.1' },
+  { c:'7.1.99', n:'Outras entradas não operacionais',  g:'7', sg:'7.1' },
+  // 7.2 — SAÍDAS NÃO OPERACIONAIS
+  { c:'7.2.1',  n:'Pagamento de empréstimos',          g:'7', sg:'7.2' },
+  { c:'7.2.2',  n:'Juros bancários e por atraso',      g:'7', sg:'7.2' },
+  { c:'7.2.3',  n:'Pagamento de dívidas passadas',     g:'7', sg:'7.2' },
+  { c:'7.2.4',  n:'Distribuição de lucros',            g:'7', sg:'7.2' },
+  { c:'7.2.5',  n:'Juros de antecipação recebíveis',   g:'7', sg:'7.2' },
+  { c:'7.2.99', n:'Outras saídas não operacionais',    g:'7', sg:'7.2' },
+] as const;
+
+const DRE_G: Record<string,string> = {
+  '3':'Receita/Faturamento', '4':'Custos Variáveis', '5':'Despesas Fixas',
+  '6':'Investimentos', '7':'Movimentações Não Operacionais',
+};
+const DRE_SG: Record<string,string> = {
+  '3.1':'Receita de vendas', '3.2':'Outras receitas de vendas',
+  '4.1':'Custos tributários/financeiros', '4.2':'Custos com produtos',
+  '4.3':'Embalagens', '4.4':'Custo com frete', '4.5':'Outros custos',
+  '5.1':'Despesas financeiras', '5.2':'Despesas administrativas',
+  '5.3':'Despesas com pessoal', '5.4':'Materiais e equipamentos',
+  '5.5':'Despesas com veículos',
+  '6.1':'Invest. em marketing', '6.2':'Invest. em bens materiais',
+  '6.3':'Invest. em desenv. empresarial', '6.4':'Outros investimentos',
+  '7.1':'Entradas não operacionais', '7.2':'Saídas não operacionais',
+};
+const DRE_G_NEG = new Set(['4','5','6']);
+const DRE_MESES_NM = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const DRE_AZUL = '#233253';
+const DRE_VERM = '#cf2a39';
+
+type DreMonthData = Record<string,{esp:number;real:number}>;
+type DreData = Record<number, DreMonthData>;
+
+function useDre(ano: number) {
+  const [data, setData] = useState<DreData>({});
+  const [loading, setLoading] = useState(false);
+  const load = async () => {
+    if (!SYNC_ENDPOINT) return;
+    setLoading(true);
+    try {
+      const r = await fetch(`${SYNC_ENDPOINT}?action=dre_lancamentos&ano=${ano}&_ts=${Date.now()}`);
+      const j = await r.json();
+      if (j.ok) setData(j.lancamentos || {});
+    } catch {}
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, [ano]);
+  return { data, loading, reload: load };
+}
+
+function dreCalcMes(md: DreMonthData) {
+  const sumSg = (sg: string) =>
+    DRE_CONTAS.filter(x => x.sg === sg).reduce(
+      (a,x) => { const v=md[x.c]||{esp:0,real:0}; return {esp:a.esp+v.esp, real:a.real+v.real}; },
+      {esp:0,real:0}
+    );
+  const sumG = (g: string) =>
+    DRE_CONTAS.filter(x => x.g === g).reduce(
+      (a,x) => { const v=md[x.c]||{esp:0,real:0}; return {esp:a.esp+v.esp, real:a.real+v.real}; },
+      {esp:0,real:0}
+    );
+  const g3=sumG('3'), g4=sumG('4'), g5=sumG('5'), g6=sumG('6');
+  const g71=sumSg('7.1'), g72=sumSg('7.2');
+  const margem    = {esp:g3.esp-g4.esp,        real:g3.real-g4.real};
+  const loai      = {esp:margem.esp-g5.esp,    real:margem.real-g5.real};
+  const lo        = {esp:loai.esp-g6.esp,      real:loai.real-g6.real};
+  const mov       = {esp:g71.esp-g72.esp,      real:g71.real-g72.real};
+  const resultado = {esp:lo.esp+mov.esp,       real:lo.real+mov.real};
+  return {g3,g4,g5,g6,g71,g72,margem,loai,lo,mov,resultado};
+}
+
+function DRETab() {
+  const fmtR = (n:number) =>
+    new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n);
+  const fmtAV = (v:number, rec:number) =>
+    rec ? (v/rec*100).toFixed(1)+'%' : '—';
+
+  const now = new Date();
+  const [ano, setAno] = useState(now.getFullYear());
+  const [mes, setMes] = useState(now.getMonth()+1);
+  const [sub, setSub] = useState<'lancar'|'mensal'|'anual'>('lancar');
+  const {data:lanc, loading, reload} = useDre(ano);
+  const [fv, setFv] = useState<Record<string,{e:string;r:string}>>({});
+  const [saving, setSaving] = useState(false);
+
+  // Popula formulário ao trocar mês ou ao carregar dados
+  useEffect(() => {
+    const md = lanc[mes] || {};
+    const nv: Record<string,{e:string;r:string}> = {};
+    DRE_CONTAS.forEach(ct => {
+      const v = md[ct.c];
+      nv[ct.c] = { e: v && v.esp  ? String(v.esp)  : '',
+                   r: v && v.real ? String(v.real) : '' };
+    });
+    setFv(nv);
+  }, [mes, lanc]);
+
+  const setField = (cod:string, f:'e'|'r', val:string) =>
+    setFv(prev => ({...prev, [cod]:{...(prev[cod]||{e:'',r:''}), [f]:val}}));
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const items = DRE_CONTAS.map(ct => ({
+        codigo:    ct.c,
+        esperado:  parseFloat((fv[ct.c]?.e||'').replace(',','.')) || 0,
+        realizado: parseFloat((fv[ct.c]?.r||'').replace(',','.')) || 0,
+      }));
+      await fetch(SYNC_ENDPOINT!, {
+        method:'POST', mode:'no-cors',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({action:'save_dre_lote', ano, mes, lancamentos:items}),
+      });
+      setTimeout(reload, 2500);
+      alert('Lançamento salvo!');
+    } catch { alert('Erro ao salvar.'); }
+    finally { setSaving(false); }
+  };
+
+  // Subgrupos únicos de um grupo, em ordem de aparição
+  const sgsOf = (g:string) => {
+    const seen = new Set<string>();
+    const res: string[] = [];
+    DRE_CONTAS.filter(ct => ct.g === g).forEach(ct => {
+      if (!seen.has(ct.sg)) { seen.add(ct.sg); res.push(ct.sg); }
+    });
+    return res;
+  };
+
+  const valColor = (v:number) => v < 0 ? DRE_VERM : v === 0 ? '#999' : '#1a1a1a';
+
+  // Totais anuais somando todos os meses
+  const anualCalcKey = (key: keyof ReturnType<typeof dreCalcMes>) =>
+    Array.from({length:12},(_,i)=>i+1).reduce((a,m) => {
+      const c = dreCalcMes(lanc[m]||{});
+      const v = c[key] as {esp:number;real:number};
+      return {esp:a.esp+v.esp, real:a.real+v.real};
+    }, {esp:0,real:0});
+
+  const anualContaTotal = (cod:string) =>
+    Array.from({length:12},(_,i)=>i+1).reduce((a,m) => {
+      const v = (lanc[m]||{})[cod] || {esp:0,real:0};
+      return {esp:a.esp+v.esp, real:a.real+v.real};
+    }, {esp:0,real:0});
+
+  const recByMes: Record<number,number> = {};
+  for (let m=1;m<=12;m++) {
+    recByMes[m] = DRE_CONTAS.filter(ct=>ct.g==='3')
+      .reduce((s,ct) => s+((lanc[m]||{})[ct.c]?.real||0), 0);
+  }
+
+  // ── Styles tabela anual ──
+  const thBase: React.CSSProperties = {background:DRE_AZUL,color:'#fff',padding:'4px 6px',textAlign:'right',fontSize:11,whiteSpace:'nowrap'};
+  const thLeft: React.CSSProperties = {...thBase,textAlign:'left',position:'sticky',left:0,minWidth:220,zIndex:3};
+  const tdNum = (v:number): React.CSSProperties =>
+    ({textAlign:'right',padding:'2px 6px',fontSize:11,color:v===0?'#ccc':valColor(v)});
+  const tdTotR: React.CSSProperties = {background:'#f0f4ff',fontWeight:600,textAlign:'right',padding:'3px 6px',fontSize:11};
+  const tdTotL: React.CSSProperties = {...tdTotR,textAlign:'left',position:'sticky',left:0,paddingLeft:8};
+  const tdRes = (v:number): React.CSSProperties =>
+    ({background:v>=0?DRE_AZUL:DRE_VERM,color:'#fff',fontWeight:700,textAlign:'right',padding:'4px 6px',fontSize:11});
+  const tdResL = (v:number): React.CSSProperties => ({...tdRes(v),textAlign:'left',position:'sticky',left:0,padding:'4px 8px'});
+
+  // Mensal: cálculo do mês selecionado
+  const mdMes = lanc[mes] || {};
+  const calcM = dreCalcMes(mdMes);
+  const recM  = calcM.g3.real;
+
+  const renderResRow = (label:string, esp:number, real:number, rec:number) => {
+    const bg = real>=0 ? DRE_AZUL : DRE_VERM;
+    return (
+      <tr style={{background:bg,color:'#fff',fontWeight:700,fontSize:13}}>
+        <td style={{padding:'6px 8px',whiteSpace:'nowrap'}}>{label}</td>
+        <td style={{textAlign:'right',padding:'6px 8px',opacity:.7}}>{esp?fmtR(esp):'—'}</td>
+        <td style={{textAlign:'right',padding:'6px 8px'}}>{fmtR(real)}</td>
+        <td style={{textAlign:'right',padding:'6px 8px',opacity:.8,fontSize:11}}>{rec?fmtAV(real,rec):'—'}</td>
+      </tr>
+    );
+  };
+
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:0}}>
+      {/* Sub-abas */}
+      <div style={{display:'flex',gap:0,marginBottom:16,borderBottom:`2px solid #e5e7eb`}}>
+        {(['lancar','mensal','anual'] as const).map(s => (
+          <button key={s} onClick={()=>setSub(s)}
+            style={{padding:'8px 20px',border:'none',cursor:'pointer',fontWeight:sub===s?600:400,
+              color:sub===s?DRE_AZUL:'#6b7280',
+              borderBottom:sub===s?`3px solid ${DRE_AZUL}`:'3px solid transparent',
+              background:'transparent',fontSize:14,marginBottom:-2,transition:'all .15s'}}>
+            {s==='lancar'?'Lançar':s==='mensal'?'Visão Mensal':'Visão Anual'}
+          </button>
+        ))}
+        {loading && <span style={{marginLeft:'auto',fontSize:12,color:'#9ca3af',alignSelf:'center',padding:'0 8px'}}>Carregando…</span>}
+      </div>
+
+      {/* ── Seletor compartilhado ── */}
+      <div style={{display:'flex',gap:12,marginBottom:16,alignItems:'center',flexWrap:'wrap'}}>
+        <label style={{fontWeight:600,fontSize:14,color:'#374151'}}>Ano</label>
+        <select value={ano} onChange={e=>setAno(Number(e.target.value))}
+          style={{border:'1px solid #d1d5db',borderRadius:6,padding:'5px 10px',fontSize:14}}>
+          {[2024,2025,2026,2027,2028].map(y=><option key={y}>{y}</option>)}
+        </select>
+        {(sub==='lancar'||sub==='mensal') && <>
+          <label style={{fontWeight:600,fontSize:14,color:'#374151'}}>Mês</label>
+          <select value={mes} onChange={e=>setMes(Number(e.target.value))}
+            style={{border:'1px solid #d1d5db',borderRadius:6,padding:'5px 10px',fontSize:14}}>
+            {DRE_MESES_NM.map((nm,i)=><option key={i+1} value={i+1}>{nm}</option>)}
+          </select>
+        </>}
+        {sub==='lancar' && (
+          <button onClick={handleSave} disabled={saving}
+            style={{marginLeft:'auto',background:DRE_AZUL,color:'#fff',border:'none',
+              borderRadius:8,padding:'8px 22px',fontWeight:600,cursor:'pointer',
+              opacity:saving?.6:1,fontSize:14}}>
+            {saving?'Salvando…':'Salvar mês'}
+          </button>
+        )}
+      </div>
+
+      {/* ══════════════════════════════════════
+          LANÇAR
+      ══════════════════════════════════════ */}
+      {sub==='lancar' && (
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          {(['3','4','5','6','7'] as const).map(g => (
+            <div key={g} style={{borderRadius:8,overflow:'hidden',border:'1px solid #e5e7eb'}}>
+              <div style={{background:DRE_AZUL,color:'#fff',padding:'8px 14px',fontWeight:700,fontSize:13}}>
+                {g} — {DRE_G[g]}
+              </div>
+              {sgsOf(g).map(sg => (
+                <div key={sg}>
+                  <div style={{background:'#eef2fb',padding:'5px 14px',fontWeight:600,
+                    fontSize:11,color:DRE_AZUL,borderTop:'1px solid #e5e7eb'}}>
+                    {sg} — {DRE_SG[sg]}
+                  </div>
+                  {DRE_CONTAS.filter(ct=>ct.sg===sg).map(ct => (
+                    <div key={ct.c} style={{display:'flex',alignItems:'center',padding:'5px 14px',
+                      borderTop:'1px solid #f3f4f6',gap:8,flexWrap:'wrap'}}>
+                      <span style={{flex:1,fontSize:11,color:'#374151',minWidth:180}}>
+                        {ct.c} — {ct.n}
+                      </span>
+                      <div style={{display:'flex',gap:6,alignItems:'center',flexShrink:0}}>
+                        <span style={{fontSize:11,color:'#9ca3af'}}>Esp.</span>
+                        <input type="number" step="0.01" placeholder="0,00"
+                          value={fv[ct.c]?.e||''}
+                          onChange={e=>setField(ct.c,'e',e.target.value)}
+                          style={{width:100,border:'1px solid #d1d5db',borderRadius:6,
+                            padding:'4px 8px',fontSize:12,textAlign:'right'}} />
+                        <span style={{fontSize:11,color:'#9ca3af'}}>Real.</span>
+                        <input type="number" step="0.01" placeholder="0,00"
+                          value={fv[ct.c]?.r||''}
+                          onChange={e=>setField(ct.c,'r',e.target.value)}
+                          style={{width:110,border:`1px solid ${fv[ct.c]?.r?'#86efac':'#d1d5db'}`,
+                            borderRadius:6,padding:'4px 8px',fontSize:12,textAlign:'right',
+                            background:fv[ct.c]?.r?'#f0fff4':undefined}} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ))}
+          <button onClick={handleSave} disabled={saving}
+            style={{background:DRE_AZUL,color:'#fff',border:'none',borderRadius:8,
+              padding:'12px',fontWeight:600,cursor:'pointer',opacity:saving?.6:1,fontSize:14}}>
+            {saving?'Salvando…':'Salvar mês'}
+          </button>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════
+          VISÃO MENSAL
+      ══════════════════════════════════════ */}
+      {sub==='mensal' && (
+        <div style={{overflowX:'auto'}}>
+          <table style={{borderCollapse:'collapse',width:'100%',minWidth:520}}>
+            <thead>
+              <tr style={{background:DRE_AZUL,color:'#fff',fontSize:12}}>
+                <th style={{padding:'7px 10px',textAlign:'left',minWidth:220}}>Conta</th>
+                <th style={{padding:'7px 8px',textAlign:'right',width:130}}>Esperado</th>
+                <th style={{padding:'7px 8px',textAlign:'right',width:130}}>Realizado</th>
+                <th style={{padding:'7px 8px',textAlign:'right',width:60}}>AV%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(['3','4','5','6','7'] as const).map(g => {
+                const isNeg = DRE_G_NEG.has(g);
+                const gTot = g==='3'?calcM.g3:g==='4'?calcM.g4:g==='5'?calcM.g5:g==='6'?calcM.g6
+                  :{esp:calcM.g71.esp+calcM.g72.esp,real:calcM.g71.real+calcM.g72.real};
+                const gDispReal = isNeg ? -gTot.real : gTot.real;
+                return (
+                  <React.Fragment key={g}>
+                    {/* Header grupo */}
+                    <tr style={{background:'#f1f5f9'}}>
+                      <td colSpan={4} style={{padding:'8px 10px 4px',fontWeight:700,
+                        fontSize:13,color:DRE_AZUL,borderTop:'2px solid #e2e8f0'}}>
+                        {g} — {DRE_G[g]}
+                      </td>
+                    </tr>
+                    {/* Subgrupos + contas */}
+                    {sgsOf(g).map(sg => {
+                      const sgContas = DRE_CONTAS.filter(ct=>ct.sg===sg);
+                      const sgT = sgContas.reduce((a,ct)=>{
+                        const v=mdMes[ct.c]||{esp:0,real:0};
+                        return {esp:a.esp+v.esp,real:a.real+v.real};
+                      },{esp:0,real:0});
+                      const sgNeg = isNeg||(g==='7'&&sg==='7.2');
+                      const sgDisp = sgNeg ? -sgT.real : sgT.real;
+                      return (
+                        <React.Fragment key={sg}>
+                          <tr style={{background:'#eef2fb'}}>
+                            <td style={{padding:'4px 10px 3px 20px',fontWeight:600,fontSize:11,color:'#4b5563'}}>
+                              {sg} — {DRE_SG[sg]}
+                            </td>
+                            <td style={{textAlign:'right',padding:'4px 8px',fontSize:11,color:'#9ca3af'}}>
+                              {sgT.esp ? fmtR(sgNeg?-sgT.esp:sgT.esp) : '—'}
+                            </td>
+                            <td style={{textAlign:'right',padding:'4px 8px',fontSize:11,color:valColor(sgDisp)}}>
+                              {sgT.real ? fmtR(sgDisp) : '—'}
+                            </td>
+                            <td style={{textAlign:'right',padding:'4px 8px',fontSize:10,color:'#9ca3af'}}>
+                              {recM&&sgT.real ? fmtAV(Math.abs(sgT.real),recM) : '—'}
+                            </td>
+                          </tr>
+                          {sgContas.map(ct => {
+                            const v = mdMes[ct.c]||{esp:0,real:0};
+                            const disp = sgNeg ? -v.real : v.real;
+                            return (
+                              <tr key={ct.c} style={{borderTop:'1px solid #f9fafb'}}>
+                                <td style={{padding:'2px 10px 2px 32px',fontSize:11,color:'#6b7280'}}>
+                                  {ct.c} — {ct.n}
+                                </td>
+                                <td style={{textAlign:'right',padding:'2px 8px',fontSize:11,color:'#d1d5db'}}>
+                                  {v.esp ? fmtR(sgNeg?-v.esp:v.esp) : '—'}
+                                </td>
+                                <td style={{textAlign:'right',padding:'2px 8px',fontSize:11,
+                                  color:v.real?valColor(disp):'#d1d5db'}}>
+                                  {v.real ? fmtR(disp) : '—'}
+                                </td>
+                                <td style={{textAlign:'right',padding:'2px 8px',fontSize:10,color:'#d1d5db'}}>
+                                  {recM&&v.real ? fmtAV(Math.abs(v.real),recM) : '—'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </React.Fragment>
+                      );
+                    })}
+                    {/* Total do grupo */}
+                    <tr style={{background:'#e2e8f0',fontWeight:600,borderTop:'1px solid #cbd5e1'}}>
+                      <td style={{padding:'5px 10px',fontSize:12,color:'#1e3a5f'}}>
+                        Total {DRE_G[g]}
+                      </td>
+                      <td style={{textAlign:'right',padding:'5px 8px',fontSize:12,color:'#6b7280'}}>
+                        {gTot.esp ? fmtR(isNeg?-gTot.esp:gTot.esp) : '—'}
+                      </td>
+                      <td style={{textAlign:'right',padding:'5px 8px',fontSize:12,color:valColor(gDispReal)}}>
+                        {gTot.real ? fmtR(gDispReal) : '—'}
+                      </td>
+                      <td style={{textAlign:'right',padding:'5px 8px',fontSize:11,color:'#6b7280'}}>
+                        {recM&&gTot.real ? fmtAV(Math.abs(gTot.real),recM) : '—'}
+                      </td>
+                    </tr>
+                    {g==='4' && renderResRow('= Margem de Contribuição',   calcM.margem.esp,    calcM.margem.real,    recM)}
+                    {g==='5' && renderResRow('= Luc. Operacional antes Invest.',calcM.loai.esp, calcM.loai.real,      recM)}
+                    {g==='6' && renderResRow('= Lucro Operacional',         calcM.lo.esp,        calcM.lo.real,        recM)}
+                    {g==='7' && renderResRow('= Resultado Líquido',         calcM.resultado.esp, calcM.resultado.real, recM)}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════
+          VISÃO ANUAL
+      ══════════════════════════════════════ */}
+      {sub==='anual' && (
+        <div style={{overflowX:'auto',maxHeight:'72vh',overflowY:'auto'}}>
+          <table style={{borderCollapse:'collapse',fontSize:11}}>
+            <thead style={{position:'sticky',top:0,zIndex:4}}>
+              <tr>
+                <th style={thLeft}>Conta</th>
+                {DRE_MESES_NM.map((nm,i) => <th key={i} style={thBase}>{nm}</th>)}
+                <th style={{...thBase,background:'#1a2a40'}}>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(['3','4','5','6','7'] as const).map(g => {
+                const isNeg = DRE_G_NEG.has(g);
+                const gKeys: Record<string, keyof ReturnType<typeof dreCalcMes>> = {
+                  '3':'g3','4':'g4','5':'g5','6':'g6'
+                };
+                const calcKey = gKeys[g];
+                return (
+                  <React.Fragment key={g}>
+                    {/* Grupo header */}
+                    <tr style={{background:'#1a2a40'}}>
+                      <td style={{...thLeft,background:'#1a2a40',color:'#94a3b8',fontWeight:700}}>
+                        {g} — {DRE_G[g]}
+                      </td>
+                      {DRE_MESES_NM.map((_,i) => <td key={i} style={{background:'#1a2a40',padding:4}}/>)}
+                      <td style={{background:'#1a2a40',padding:4}}/>
+                    </tr>
+                    {/* Subgrupos */}
+                    {sgsOf(g).map(sg => {
+                      const sgContas = DRE_CONTAS.filter(ct=>ct.sg===sg);
+                      const sgNeg = isNeg||(g==='7'&&sg==='7.2');
+                      const sgAnn = sgContas.reduce((ta,ct) => {
+                        const tot = anualContaTotal(ct.c);
+                        return {esp:ta.esp+tot.esp,real:ta.real+tot.real};
+                      },{esp:0,real:0});
+                      const sgAnnDisp = sgNeg ? -sgAnn.real : sgAnn.real;
+                      return (
+                        <React.Fragment key={sg}>
+                          {/* Subgrupo row */}
+                          <tr style={{background:'#eef2fb'}}>
+                            <td style={{...tdTotL,paddingLeft:16,fontSize:11,color:'#4b5563',fontWeight:600}}>
+                              {sg} — {DRE_SG[sg]}
+                            </td>
+                            {DRE_MESES_NM.map((_,i) => {
+                              const m=i+1;
+                              const v = sgContas.reduce((a,ct)=>a+((lanc[m]||{})[ct.c]?.real||0),0);
+                              const disp = sgNeg ? -v : v;
+                              return <td key={m} style={tdNum(disp)}>{v ? fmtR(disp) : '—'}</td>;
+                            })}
+                            <td style={{...tdTotR,background:'#dde5f5',color:valColor(sgAnnDisp)}}>
+                              {sgAnn.real ? fmtR(sgAnnDisp) : '—'}
+                            </td>
+                          </tr>
+                          {/* Contas folha */}
+                          {sgContas.map(ct => {
+                            const totAnn = anualContaTotal(ct.c);
+                            const totDisp = sgNeg ? -totAnn.real : totAnn.real;
+                            return (
+                              <tr key={ct.c} style={{borderTop:'1px solid #f9fafb'}}>
+                                <td style={{padding:'2px 8px 2px 28px',position:'sticky',left:0,
+                                  background:'#fff',color:'#6b7280',whiteSpace:'nowrap',fontSize:11}}>
+                                  {ct.c} — {ct.n}
+                                </td>
+                                {DRE_MESES_NM.map((_,i) => {
+                                  const m=i+1;
+                                  const v=(lanc[m]||{})[ct.c]?.real||0;
+                                  const disp = sgNeg ? -v : v;
+                                  return <td key={m} style={tdNum(disp)}>{v ? fmtR(disp) : '—'}</td>;
+                                })}
+                                <td style={{...tdTotR,background:'#f8faff',color:valColor(totDisp)}}>
+                                  {totAnn.real ? fmtR(totDisp) : '—'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </React.Fragment>
+                      );
+                    })}
+                    {/* Total do grupo (apenas 3,4,5,6) */}
+                    {calcKey && (() => {
+                      const ta = anualCalcKey(calcKey);
+                      const dispAnn = isNeg ? -ta.real : ta.real;
+                      return (
+                        <tr style={{borderTop:'2px solid #c7d2fe'}}>
+                          <td style={tdTotL}>Total {DRE_G[g]}</td>
+                          {DRE_MESES_NM.map((_,i) => {
+                            const m=i+1;
+                            const c = dreCalcMes(lanc[m]||{});
+                            const mv = (c as any)[calcKey] as {esp:number;real:number};
+                            const d = isNeg ? -mv.real : mv.real;
+                            return <td key={m} style={tdTotR}>{mv.real ? fmtR(d) : '—'}</td>;
+                          })}
+                          <td style={{...tdTotR,background:'#d0d8ef'}}>{ta.real ? fmtR(dispAnn) : '—'}</td>
+                        </tr>
+                      );
+                    })()}
+                    {/* Linhas resultado calculadas */}
+                    {g==='4' && (() => {
+                      const ta = anualCalcKey('margem');
+                      return (
+                        <tr style={{borderTop:'3px solid #233253'}}>
+                          <td style={tdResL(ta.real)}>= Margem de Contribuição</td>
+                          {DRE_MESES_NM.map((_,i)=>{const m=i+1;const v=dreCalcMes(lanc[m]||{}).margem;return <td key={m} style={tdRes(v.real)}>{v.real?fmtR(v.real):'—'}</td>;})}
+                          <td style={tdRes(ta.real)}>{fmtR(ta.real)}</td>
+                        </tr>
+                      );
+                    })()}
+                    {g==='5' && (() => {
+                      const ta = anualCalcKey('loai');
+                      return (
+                        <tr style={{borderTop:'3px solid #233253'}}>
+                          <td style={tdResL(ta.real)}>= LOAI</td>
+                          {DRE_MESES_NM.map((_,i)=>{const m=i+1;const v=dreCalcMes(lanc[m]||{}).loai;return <td key={m} style={tdRes(v.real)}>{v.real?fmtR(v.real):'—'}</td>;})}
+                          <td style={tdRes(ta.real)}>{fmtR(ta.real)}</td>
+                        </tr>
+                      );
+                    })()}
+                    {g==='6' && (() => {
+                      const ta = anualCalcKey('lo');
+                      return (
+                        <tr style={{borderTop:'3px solid #233253'}}>
+                          <td style={tdResL(ta.real)}>= Lucro Operacional</td>
+                          {DRE_MESES_NM.map((_,i)=>{const m=i+1;const v=dreCalcMes(lanc[m]||{}).lo;return <td key={m} style={tdRes(v.real)}>{v.real?fmtR(v.real):'—'}</td>;})}
+                          <td style={tdRes(ta.real)}>{fmtR(ta.real)}</td>
+                        </tr>
+                      );
+                    })()}
+                    {g==='7' && (() => {
+                      const ta = anualCalcKey('resultado');
+                      return (
+                        <tr style={{borderTop:'4px solid #233253'}}>
+                          <td style={{...tdResL(ta.real),fontSize:13,padding:'6px 8px'}}>= Resultado Líquido</td>
+                          {DRE_MESES_NM.map((_,i)=>{const m=i+1;const v=dreCalcMes(lanc[m]||{}).resultado;return <td key={m} style={{...tdRes(v.real),fontSize:12}}>{v.real?fmtR(v.real):'—'}</td>;})}
+                          <td style={{...tdRes(ta.real),fontSize:13,padding:'6px 6px'}}>{fmtR(ta.real)}</td>
+                        </tr>
+                      );
+                    })()}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ======== ETIQUETAS ========
 
