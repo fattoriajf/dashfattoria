@@ -2517,7 +2517,44 @@ type DreData = Record<number, DreMonthData>;
 type DreTransacao = {
   id:string; tipo:'entrada'|'saida'; valor:number;
   data:string; plano_contas:string; realizado:boolean; historico:string;
+  conta_bancaria:string; projeto_id:string;
 };
+type ContaBancaria = {id:string; nome:string; banco:string; tipo:string; saldo_inicial:number};
+type DreTransferencia = {id:string; data:string; conta_origem:string; conta_destino:string; valor:number; historico:string};
+type DrejProjeto = {id:string; nome:string; descricao:string; data:string; status:string};
+
+function useContasBancarias(){
+  const [contas,setContas]=useState<ContaBancaria[]>([]);
+  const reload=async()=>{
+    if(!SYNC_ENDPOINT) return;
+    try{ const r=await fetch(`${SYNC_ENDPOINT}?action=contas_bancarias&_ts=${Date.now()}`);
+      const j=await r.json(); if(j.ok) setContas(j.contas||[]); }catch{}
+  };
+  useEffect(()=>{reload();},[]);
+  return{contas,reload};
+}
+
+function useProjetos(){
+  const [projetos,setProjetos]=useState<DrejProjeto[]>([]);
+  const reload=async()=>{
+    if(!SYNC_ENDPOINT) return;
+    try{ const r=await fetch(`${SYNC_ENDPOINT}?action=projetos&_ts=${Date.now()}`);
+      const j=await r.json(); if(j.ok) setProjetos(j.projetos||[]); }catch{}
+  };
+  useEffect(()=>{reload();},[]);
+  return{projetos,reload};
+}
+
+function useTransferencias(ano:number){
+  const [transferencias,setTransferencias]=useState<DreTransferencia[]>([]);
+  const reload=async()=>{
+    if(!SYNC_ENDPOINT) return;
+    try{ const r=await fetch(`${SYNC_ENDPOINT}?action=transferencias&ano=${ano}&_ts=${Date.now()}`);
+      const j=await r.json(); if(j.ok) setTransferencias(j.transferencias||[]); }catch{}
+  };
+  useEffect(()=>{reload();},[ano]);
+  return{transferencias,reload};
+}
 
 function aggregarTransacoes(ts:DreTransacao[], ano:number): DreData {
   const r:DreData={};
@@ -2588,8 +2625,11 @@ function DRETab() {
   const now = new Date();
   const [ano, setAno] = useState(now.getFullYear());
   const [mes, setMes] = useState(now.getMonth()+1);
-  const [sub, setSub] = useState<'lancar'|'lista'|'mensal'|'anual'>('lancar');
+  const [sub, setSub] = useState<'lancar'|'lista'|'contas'|'projetos'|'mensal'|'anual'>('lancar');
   const {transacoes, loading, reload} = useDreTransacoes(ano);
+  const {contas: contasBancarias, reload: reloadContas} = useContasBancarias();
+  const {projetos, reload: reloadProjetos} = useProjetos();
+  const {transferencias, reload: reloadTransferencias} = useTransferencias(ano);
   const lanc = useMemo(()=>aggregarTransacoes(transacoes,ano),[transacoes,ano]);
   // Fullscreen
   const dreRef = useRef<HTMLDivElement>(null);
@@ -2615,7 +2655,33 @@ function DRETab() {
   const [planoSearch, setPlanoSearch] = useState('');
   const [showPlano, setShowPlano] = useState(false);
   const [formHistorico, setFormHistorico] = useState('');
+  const [formConta, setFormConta] = useState('');
+  const [formProjeto, setFormProjeto] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Form — nova conta bancária
+  const [showNovaConta, setShowNovaConta] = useState(false);
+  const [novaContaNome, setNovaContaNome] = useState('');
+  const [novaContaBanco, setNovaContaBanco] = useState('');
+  const [novaContaTipo, setNovaContaTipo] = useState('corrente');
+  const [novaContaSaldo, setNovaContaSaldo] = useState('');
+  const [savingConta, setSavingConta] = useState(false);
+
+  // Form — transferência entre contas
+  const [trfOrigem, setTrfOrigem] = useState('');
+  const [trfDestino, setTrfDestino] = useState('');
+  const [trfValor, setTrfValor] = useState('');
+  const [trfData, setTrfData] = useState(todayStr());
+  const [trfHistorico, setTrfHistorico] = useState('');
+  const [savingTrf, setSavingTrf] = useState(false);
+
+  // Form — novo projeto
+  const [showNovoProjeto, setShowNovoProjeto] = useState(false);
+  const [projNome, setProjNome] = useState('');
+  const [projDesc, setProjDesc] = useState('');
+  const [projData, setProjData] = useState(todayStr());
+  const [savingProj, setSavingProj] = useState(false);
+  const [selectedProjeto, setSelectedProjeto] = useState<string|null>(null);
 
   // Lista
   const [listaMes, setListaMes] = useState(0);
@@ -2648,6 +2714,7 @@ function DRETab() {
           valor: parseFloat(formValor.replace(',','.')) || 0,
           data: formData, plano_contas: formPlano,
           realizado: String(formRealizado), historico: formHistorico,
+          conta_bancaria: formConta, projeto_id: formProjeto,
         }),
       });
       setFormValor(''); setFormData(todayStr()); setFormRealizado(true);
@@ -2673,6 +2740,118 @@ function DRETab() {
       body: JSON.stringify({action:'update_dre_transacao', id:t.id, realizado:String(!t.realizado)}),
     });
     setTimeout(reload, 2000);
+  };
+
+  // Handlers — Contas Bancárias
+  const handleSaveConta = async () => {
+    if (!novaContaNome) { alert('Informe o nome da conta.'); return; }
+    setSavingConta(true);
+    try {
+      await fetch(SYNC_ENDPOINT!, { method:'POST', mode:'no-cors',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action:'save_conta_bancaria', nome:novaContaNome,
+          banco:novaContaBanco, tipo:novaContaTipo,
+          saldo_inicial: parseFloat(novaContaSaldo.replace(',','.')) || 0 }),
+      });
+      setNovaContaNome(''); setNovaContaBanco(''); setNovaContaSaldo(''); setNovaContaTipo('corrente');
+      setShowNovaConta(false);
+      setTimeout(reloadContas, 2000);
+    } catch { alert('Erro ao salvar.'); }
+    finally { setSavingConta(false); }
+  };
+
+  const handleDeleteConta = async (id:string) => {
+    if (!confirm('Excluir esta conta? Os lançamentos associados não serão apagados.')) return;
+    await fetch(SYNC_ENDPOINT!, { method:'POST', mode:'no-cors',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'delete_conta_bancaria', id }),
+    });
+    setTimeout(reloadContas, 2000);
+  };
+
+  // Handlers — Transferências
+  const handleSaveTransferencia = async () => {
+    if (!trfOrigem||!trfDestino||!trfValor||!trfData) { alert('Preencha todos os campos.'); return; }
+    if (trfOrigem === trfDestino) { alert('Origem e destino devem ser contas diferentes.'); return; }
+    setSavingTrf(true);
+    try {
+      await fetch(SYNC_ENDPOINT!, { method:'POST', mode:'no-cors',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action:'save_transferencia',
+          data:trfData, conta_origem:trfOrigem, conta_destino:trfDestino,
+          valor: parseFloat(trfValor.replace(',','.')) || 0, historico:trfHistorico }),
+      });
+      setTrfOrigem(''); setTrfDestino(''); setTrfValor(''); setTrfData(todayStr()); setTrfHistorico('');
+      setTimeout(reloadTransferencias, 2000);
+    } catch { alert('Erro ao salvar.'); }
+    finally { setSavingTrf(false); }
+  };
+
+  const handleDeleteTransferencia = async (id:string) => {
+    if (!confirm('Excluir esta transferência?')) return;
+    await fetch(SYNC_ENDPOINT!, { method:'POST', mode:'no-cors',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'delete_transferencia', id }),
+    });
+    setTimeout(reloadTransferencias, 2000);
+  };
+
+  // Handlers — Projetos
+  const handleSaveProjeto = async () => {
+    if (!projNome) { alert('Informe o nome do projeto.'); return; }
+    setSavingProj(true);
+    try {
+      await fetch(SYNC_ENDPOINT!, { method:'POST', mode:'no-cors',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action:'save_projeto', nome:projNome,
+          descricao:projDesc, data:projData, status:'ativo' }),
+      });
+      setProjNome(''); setProjDesc(''); setProjData(todayStr());
+      setShowNovoProjeto(false);
+      setTimeout(reloadProjetos, 2000);
+    } catch { alert('Erro ao salvar.'); }
+    finally { setSavingProj(false); }
+  };
+
+  const handleDeleteProjeto = async (id:string) => {
+    if (!confirm('Excluir este projeto?')) return;
+    await fetch(SYNC_ENDPOINT!, { method:'POST', mode:'no-cors',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'delete_projeto', id }),
+    });
+    setTimeout(reloadProjetos, 2000);
+  };
+
+  const handleToggleProjetoStatus = async (p:DrejProjeto) => {
+    await fetch(SYNC_ENDPOINT!, { method:'POST', mode:'no-cors',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'update_projeto', id:p.id, status:p.status==='ativo'?'encerrado':'ativo' }),
+    });
+    setTimeout(reloadProjetos, 2000);
+  };
+
+  // Saldo por conta = saldo_inicial + entradas(realizado) - saidas(realizado) +/- transferencias
+  const saldoConta = (contaId:string) => {
+    const c = contasBancarias.find(x=>x.id===contaId);
+    const si = c?.saldo_inicial || 0;
+    const txBal = transacoes.reduce((s,t) => {
+      if (t.conta_bancaria !== contaId || !t.realizado) return s;
+      return t.tipo === 'entrada' ? s + t.valor : s - t.valor;
+    }, 0);
+    const trfBal = transferencias.reduce((s,tr) => {
+      if (tr.conta_origem === contaId) return s - tr.valor;
+      if (tr.conta_destino === contaId) return s + tr.valor;
+      return s;
+    }, 0);
+    return si + txBal + trfBal;
+  };
+
+  // Totais de projeto
+  const projetoStats = (projetoId:string) => {
+    const ts = transacoes.filter(t=>t.projeto_id===projetoId);
+    const entradas = ts.filter(t=>t.tipo==='entrada').reduce((s,t)=>s+t.valor,0);
+    const saidas   = ts.filter(t=>t.tipo==='saida').reduce((s,t)=>s+t.valor,0);
+    return { entradas, saidas, saldo: entradas - saidas, count: ts.length };
   };
 
   // Lista filtrada e ordenada
@@ -2755,15 +2934,20 @@ function DRETab() {
       {/* ── Toolbar ── */}
       <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12,flexWrap:'wrap'}}>
         {/* Sub-abas */}
-        <div style={{display:'flex',gap:0,borderBottom:`2px solid #e5e7eb`,flex:1}}>
-          {(['lancar','lista','mensal','anual'] as const).map(s => (
-            <button key={s} onClick={()=>setSub(s)}
-              style={{padding:`8px ${isFS?28:18}px`,border:'none',cursor:'pointer',
+        <div style={{display:'flex',gap:0,borderBottom:`2px solid #e5e7eb`,flex:1,flexWrap:'wrap'}}>
+          {([
+            ['lancar','Lançar'],['lista','Lista'],
+            ['contas','🏦 Contas'],['projetos','📁 Projetos'],
+            ['mensal','Visão Mensal'],['anual','Visão Anual'],
+          ] as const).map(([s,label]) => (
+            <button key={s} onClick={()=>setSub(s as any)}
+              style={{padding:`8px ${isFS?22:14}px`,border:'none',cursor:'pointer',
                 fontWeight:sub===s?700:400,
                 color:sub===s?DRE_AZUL:'#6b7280',
                 borderBottom:sub===s?`3px solid ${DRE_AZUL}`:'3px solid transparent',
-                background:'transparent',fontSize:14*fsBig,marginBottom:-2,transition:'all .15s'}}>
-              {s==='lancar'?'Lançar':s==='lista'?'Lista':s==='mensal'?'Visão Mensal':'Visão Anual'}
+                background:'transparent',fontSize:13*fsBig,marginBottom:-2,transition:'all .15s',
+                whiteSpace:'nowrap'}}>
+              {label}
             </button>
           ))}
           {loading && <span style={{marginLeft:'auto',fontSize:12,color:'#9ca3af',alignSelf:'center',padding:'0 8px'}}>Carregando…</span>}
@@ -2913,6 +3097,38 @@ function DRETab() {
                   padding:'9px 12px',fontSize:14}} />
             </div>
 
+            {/* Conta Bancária */}
+            {contasBancarias.length > 0 && (
+              <div>
+                <label style={{display:'block',fontWeight:600,fontSize:13,color:'#374151',marginBottom:4}}>
+                  Conta Bancária <span style={{color:'#9ca3af',fontWeight:400}}>(opcional)</span>
+                </label>
+                <select value={formConta} onChange={e=>setFormConta(e.target.value)}
+                  style={{width:'100%',border:'1px solid #d1d5db',borderRadius:8,padding:'9px 12px',fontSize:14}}>
+                  <option value=''>Sem conta específica</option>
+                  {contasBancarias.map(c=>(
+                    <option key={c.id} value={c.id}>{c.nome}{c.banco?` — ${c.banco}`:''}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Projeto */}
+            {projetos.filter(p=>p.status==='ativo').length > 0 && (
+              <div>
+                <label style={{display:'block',fontWeight:600,fontSize:13,color:'#374151',marginBottom:4}}>
+                  Projeto <span style={{color:'#9ca3af',fontWeight:400}}>(opcional)</span>
+                </label>
+                <select value={formProjeto} onChange={e=>setFormProjeto(e.target.value)}
+                  style={{width:'100%',border:'1px solid #d1d5db',borderRadius:8,padding:'9px 12px',fontSize:14}}>
+                  <option value=''>Sem projeto</option>
+                  {projetos.filter(p=>p.status==='ativo').map(p=>(
+                    <option key={p.id} value={p.id}>{p.nome}{p.data?` (${p.data})`:''}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* Salvar */}
             <button onClick={handleSave} disabled={saving}
               style={{padding:'13px',border:'none',borderRadius:8,fontWeight:700,fontSize:16,
@@ -2948,18 +3164,22 @@ function DRETab() {
                   <th style={{padding:'8px 10px',textAlign:'center'}}>Tipo</th>
                   <th style={{padding:'8px 10px',textAlign:'right'}}>Valor</th>
                   <th style={{padding:'8px 10px',textAlign:'center'}}>Status</th>
+                  <th style={{padding:'8px 10px',textAlign:'left'}}>Banco</th>
+                  <th style={{padding:'8px 10px',textAlign:'left'}}>Projeto</th>
                   <th style={{padding:'8px 10px',textAlign:'left'}}>Histórico</th>
                   <th style={{padding:'8px 10px',textAlign:'center'}}>Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {listaFiltrada.length===0 && (
-                  <tr><td colSpan={7} style={{textAlign:'center',padding:24,color:'#9ca3af',fontSize:14}}>
+                  <tr><td colSpan={9} style={{textAlign:'center',padding:24,color:'#9ca3af',fontSize:14}}>
                     Nenhum lançamento encontrado
                   </td></tr>
                 )}
                 {listaFiltrada.map((t,idx)=>{
                   const ct = DRE_CONTAS.find(c=>c.c===t.plano_contas);
+                  const banco = t.conta_bancaria ? contasBancarias.find(c=>c.id===t.conta_bancaria) : null;
+                  const proj  = t.projeto_id ? projetos.find(p=>p.id===t.projeto_id) : null;
                   return (
                     <tr key={t.id} style={{borderBottom:'1px solid #f3f4f6',background:idx%2?'#fafafa':'#fff'}}>
                       <td style={{padding:'7px 10px',whiteSpace:'nowrap',color:'#374151'}}>{t.data}</td>
@@ -2988,6 +3208,18 @@ function DRETab() {
                           {t.realizado?'Realizado':'Esperado'}
                         </button>
                       </td>
+                      <td style={{padding:'7px 10px',color:'#6b7280',fontSize:12}}>
+                        {banco ? banco.nome : <span style={{color:'#d1d5db'}}>—</span>}
+                      </td>
+                      <td style={{padding:'7px 10px',fontSize:12}}>
+                        {proj ? (
+                          <button onClick={()=>{setSub('projetos');setSelectedProjeto(proj.id);}}
+                            style={{padding:'2px 8px',borderRadius:8,border:'none',cursor:'pointer',
+                              background:'#eff6ff',color:DRE_AZUL,fontSize:11,fontWeight:600}}>
+                            {proj.nome}
+                          </button>
+                        ) : <span style={{color:'#d1d5db'}}>—</span>}
+                      </td>
                       <td style={{padding:'7px 10px',color:'#6b7280',fontSize:12}}>{t.historico||'—'}</td>
                       <td style={{padding:'7px 10px',textAlign:'center'}}>
                         <button onClick={()=>handleDelete(t.id)}
@@ -3002,6 +3234,382 @@ function DRETab() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════
+          CONTAS BANCÁRIAS
+      ══════════════════════════════════════ */}
+      {sub==='contas' && (
+        <div style={{display:'flex',flexDirection:'column',gap:20}}>
+
+          {/* Cards de saldo */}
+          <div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+              <h3 style={{margin:0,fontSize:16,fontWeight:700,color:DRE_AZUL}}>Contas Bancárias</h3>
+              <button onClick={()=>setShowNovaConta(v=>!v)}
+                style={{padding:'7px 16px',background:DRE_AZUL,color:'#fff',border:'none',
+                  borderRadius:7,cursor:'pointer',fontWeight:600,fontSize:13}}>
+                {showNovaConta?'Cancelar':'+ Nova Conta'}
+              </button>
+            </div>
+
+            {/* Form nova conta */}
+            {showNovaConta && (
+              <div style={{border:'1px solid #e5e7eb',borderRadius:10,padding:16,marginBottom:16,background:'#f9fafb'}}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+                  <div>
+                    <label style={{display:'block',fontSize:12,fontWeight:600,color:'#374151',marginBottom:3}}>Nome da conta *</label>
+                    <input value={novaContaNome} onChange={e=>setNovaContaNome(e.target.value)} placeholder="Ex: Bradesco Corrente"
+                      style={{width:'100%',boxSizing:'border-box',border:'1px solid #d1d5db',borderRadius:6,padding:'7px 10px',fontSize:13}} />
+                  </div>
+                  <div>
+                    <label style={{display:'block',fontSize:12,fontWeight:600,color:'#374151',marginBottom:3}}>Banco</label>
+                    <input value={novaContaBanco} onChange={e=>setNovaContaBanco(e.target.value)} placeholder="Ex: Bradesco"
+                      style={{width:'100%',boxSizing:'border-box',border:'1px solid #d1d5db',borderRadius:6,padding:'7px 10px',fontSize:13}} />
+                  </div>
+                  <div>
+                    <label style={{display:'block',fontSize:12,fontWeight:600,color:'#374151',marginBottom:3}}>Tipo</label>
+                    <select value={novaContaTipo} onChange={e=>setNovaContaTipo(e.target.value)}
+                      style={{width:'100%',border:'1px solid #d1d5db',borderRadius:6,padding:'7px 10px',fontSize:13}}>
+                      <option value='corrente'>Conta Corrente</option>
+                      <option value='poupanca'>Poupança</option>
+                      <option value='caixa'>Caixa (dinheiro físico)</option>
+                      <option value='investimento'>Investimento</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{display:'block',fontSize:12,fontWeight:600,color:'#374151',marginBottom:3}}>Saldo inicial (R$)</label>
+                    <input type="number" value={novaContaSaldo} onChange={e=>setNovaContaSaldo(e.target.value)} placeholder="0,00"
+                      style={{width:'100%',boxSizing:'border-box',border:'1px solid #d1d5db',borderRadius:6,padding:'7px 10px',fontSize:13}} />
+                  </div>
+                </div>
+                <button onClick={handleSaveConta} disabled={savingConta}
+                  style={{padding:'8px 20px',background:VERDE,color:'#fff',border:'none',borderRadius:7,
+                    cursor:'pointer',fontWeight:600,fontSize:14,opacity:savingConta?.6:1}}>
+                  {savingConta?'Salvando…':'Salvar Conta'}
+                </button>
+              </div>
+            )}
+
+            {/* Cards */}
+            {contasBancarias.length === 0 && !showNovaConta && (
+              <div style={{textAlign:'center',padding:'32px 16px',color:'#9ca3af',border:'2px dashed #e5e7eb',borderRadius:10}}>
+                Nenhuma conta cadastrada. Clique em <strong>+ Nova Conta</strong> para começar.
+              </div>
+            )}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))',gap:14}}>
+              {contasBancarias.map(c => {
+                const saldo = saldoConta(c.id);
+                const txCount = transacoes.filter(t=>t.conta_bancaria===c.id).length;
+                return (
+                  <div key={c.id} style={{border:'1px solid #e5e7eb',borderRadius:10,padding:16,
+                    background:'#fff',boxShadow:'0 1px 6px rgba(0,0,0,.05)'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:6}}>
+                      <div>
+                        <div style={{fontWeight:700,fontSize:15,color:'#1f2937'}}>{c.nome}</div>
+                        <div style={{fontSize:12,color:'#9ca3af'}}>{c.banco||'—'} · {c.tipo}</div>
+                      </div>
+                      <button onClick={()=>handleDeleteConta(c.id)}
+                        style={{padding:'2px 7px',border:`1px solid ${DRE_VERM}`,borderRadius:5,
+                          background:'transparent',color:DRE_VERM,cursor:'pointer',fontSize:11}}>✕</button>
+                    </div>
+                    <div style={{fontSize:24,fontWeight:700,color:saldo>=0?VERDE:DRE_VERM,margin:'8px 0 4px'}}>
+                      {fmtR(saldo)}
+                    </div>
+                    <div style={{fontSize:11,color:'#9ca3af'}}>
+                      Saldo inicial: {fmtR(c.saldo_inicial)} · {txCount} lançamento{txCount!==1?'s':''}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Transferências */}
+          <div style={{borderTop:'1px solid #e5e7eb',paddingTop:20}}>
+            <h3 style={{margin:'0 0 12px',fontSize:16,fontWeight:700,color:DRE_AZUL}}>Transferência entre Contas</h3>
+            {contasBancarias.length < 2 ? (
+              <p style={{color:'#9ca3af',fontSize:13}}>Cadastre ao menos 2 contas para realizar transferências.</p>
+            ) : (
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,maxWidth:560}}>
+                <div>
+                  <label style={{display:'block',fontSize:12,fontWeight:600,color:'#374151',marginBottom:3}}>De (origem) *</label>
+                  <select value={trfOrigem} onChange={e=>setTrfOrigem(e.target.value)}
+                    style={{width:'100%',border:'1px solid #d1d5db',borderRadius:6,padding:'7px 10px',fontSize:13}}>
+                    <option value=''>Selecione…</option>
+                    {contasBancarias.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{display:'block',fontSize:12,fontWeight:600,color:'#374151',marginBottom:3}}>Para (destino) *</label>
+                  <select value={trfDestino} onChange={e=>setTrfDestino(e.target.value)}
+                    style={{width:'100%',border:'1px solid #d1d5db',borderRadius:6,padding:'7px 10px',fontSize:13}}>
+                    <option value=''>Selecione…</option>
+                    {contasBancarias.filter(c=>c.id!==trfOrigem).map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{display:'block',fontSize:12,fontWeight:600,color:'#374151',marginBottom:3}}>Valor (R$) *</label>
+                  <input type="number" value={trfValor} onChange={e=>setTrfValor(e.target.value)} placeholder="0,00"
+                    style={{width:'100%',boxSizing:'border-box',border:'1px solid #d1d5db',borderRadius:6,padding:'7px 10px',fontSize:13}} />
+                </div>
+                <div>
+                  <label style={{display:'block',fontSize:12,fontWeight:600,color:'#374151',marginBottom:3}}>Data *</label>
+                  <input type="text" value={trfData} onChange={e=>setTrfData(e.target.value)} placeholder="DD/MM/AAAA"
+                    style={{width:'100%',boxSizing:'border-box',border:'1px solid #d1d5db',borderRadius:6,padding:'7px 10px',fontSize:13}} />
+                </div>
+                <div style={{gridColumn:'1/-1'}}>
+                  <label style={{display:'block',fontSize:12,fontWeight:600,color:'#374151',marginBottom:3}}>Histórico</label>
+                  <input value={trfHistorico} onChange={e=>setTrfHistorico(e.target.value)} placeholder="Descrição opcional"
+                    style={{width:'100%',boxSizing:'border-box',border:'1px solid #d1d5db',borderRadius:6,padding:'7px 10px',fontSize:13}} />
+                </div>
+                <div style={{gridColumn:'1/-1'}}>
+                  <button onClick={handleSaveTransferencia} disabled={savingTrf}
+                    style={{padding:'9px 24px',background:DRE_AZUL,color:'#fff',border:'none',borderRadius:7,
+                      cursor:'pointer',fontWeight:600,fontSize:14,opacity:savingTrf?.6:1}}>
+                    {savingTrf?'Transferindo…':'Transferir'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Histórico de transferências */}
+            {transferencias.length > 0 && (
+              <div style={{marginTop:16,overflowX:'auto'}}>
+                <table style={{borderCollapse:'collapse',width:'100%',fontSize:12}}>
+                  <thead>
+                    <tr style={{background:'#f1f5f9',color:'#374151'}}>
+                      <th style={{padding:'6px 10px',textAlign:'left'}}>Data</th>
+                      <th style={{padding:'6px 10px',textAlign:'left'}}>De</th>
+                      <th style={{padding:'6px 10px',textAlign:'left'}}>Para</th>
+                      <th style={{padding:'6px 10px',textAlign:'right'}}>Valor</th>
+                      <th style={{padding:'6px 10px',textAlign:'left'}}>Histórico</th>
+                      <th style={{padding:'6px 10px',textAlign:'center'}}>Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...transferencias].sort((a,b)=>b.data.localeCompare(a.data)).map((tr,i)=>{
+                      const orig = contasBancarias.find(c=>c.id===tr.conta_origem);
+                      const dest = contasBancarias.find(c=>c.id===tr.conta_destino);
+                      return (
+                        <tr key={tr.id} style={{borderBottom:'1px solid #f3f4f6',background:i%2?'#fafafa':'#fff'}}>
+                          <td style={{padding:'6px 10px'}}>{tr.data}</td>
+                          <td style={{padding:'6px 10px'}}>{orig?.nome||tr.conta_origem}</td>
+                          <td style={{padding:'6px 10px'}}>{dest?.nome||tr.conta_destino}</td>
+                          <td style={{padding:'6px 10px',textAlign:'right',fontWeight:600,color:DRE_AZUL}}>{fmtR(tr.valor)}</td>
+                          <td style={{padding:'6px 10px',color:'#6b7280'}}>{tr.historico||'—'}</td>
+                          <td style={{padding:'6px 10px',textAlign:'center'}}>
+                            <button onClick={()=>handleDeleteTransferencia(tr.id)}
+                              style={{padding:'2px 7px',border:`1px solid ${DRE_VERM}`,borderRadius:5,
+                                background:'transparent',color:DRE_VERM,cursor:'pointer',fontSize:11}}>✕</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════
+          PROJETOS
+      ══════════════════════════════════════ */}
+      {sub==='projetos' && (
+        <div>
+          {selectedProjeto ? (
+            /* Detalhe do projeto */
+            (() => {
+              const proj = projetos.find(p=>p.id===selectedProjeto);
+              if (!proj) return null;
+              const ts = [...transacoes.filter(t=>t.projeto_id===selectedProjeto)]
+                .sort((a,b)=>{ const pa=a.data.split('/'),pb=b.data.split('/');
+                  return new Date(+pb[2],+pb[1]-1,+pb[0]).getTime()-new Date(+pa[2],+pa[1]-1,+pa[0]).getTime(); });
+              const stats = projetoStats(proj.id);
+              return (
+                <div>
+                  <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
+                    <button onClick={()=>setSelectedProjeto(null)}
+                      style={{padding:'6px 14px',border:'1px solid #d1d5db',borderRadius:6,
+                        background:'#f9fafb',cursor:'pointer',fontSize:13}}>← Voltar</button>
+                    <h3 style={{margin:0,fontSize:18,fontWeight:700,color:DRE_AZUL}}>{proj.nome}</h3>
+                    <span style={{padding:'3px 10px',borderRadius:10,fontSize:12,fontWeight:600,
+                      background:proj.status==='ativo'?'#dcfce7':'#f3f4f6',
+                      color:proj.status==='ativo'?VERDE:'#6b7280'}}>
+                      {proj.status==='ativo'?'Ativo':'Encerrado'}
+                    </span>
+                  </div>
+                  {proj.descricao && <p style={{margin:'0 0 12px',color:'#6b7280',fontSize:13}}>{proj.descricao}</p>}
+
+                  {/* Resumo */}
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:20}}>
+                    {[
+                      {label:'Total Entradas',valor:stats.entradas,cor:VERDE},
+                      {label:'Total Saídas',valor:stats.saidas,cor:DRE_VERM},
+                      {label:'Saldo',valor:stats.saldo,cor:stats.saldo>=0?VERDE:DRE_VERM},
+                    ].map(({label,valor,cor})=>(
+                      <div key={label} style={{border:'1px solid #e5e7eb',borderRadius:8,padding:14,background:'#fff'}}>
+                        <div style={{fontSize:11,color:'#9ca3af',marginBottom:4}}>{label}</div>
+                        <div style={{fontSize:20,fontWeight:700,color:cor}}>{fmtR(valor)}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Lista de lançamentos */}
+                  {ts.length===0 ? (
+                    <div style={{textAlign:'center',padding:24,color:'#9ca3af'}}>Nenhum lançamento vinculado.</div>
+                  ) : (
+                    <table style={{borderCollapse:'collapse',width:'100%',fontSize:13}}>
+                      <thead>
+                        <tr style={{background:DRE_AZUL,color:'#fff'}}>
+                          <th style={{padding:'7px 10px',textAlign:'left'}}>Data</th>
+                          <th style={{padding:'7px 10px',textAlign:'left'}}>Conta DRE</th>
+                          <th style={{padding:'7px 10px',textAlign:'center'}}>Tipo</th>
+                          <th style={{padding:'7px 10px',textAlign:'right'}}>Valor</th>
+                          <th style={{padding:'7px 10px',textAlign:'center'}}>Status</th>
+                          <th style={{padding:'7px 10px',textAlign:'left'}}>Histórico</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ts.map((t,i)=>{
+                          const ct = DRE_CONTAS.find(c=>c.c===t.plano_contas);
+                          return (
+                            <tr key={t.id} style={{borderBottom:'1px solid #f3f4f6',background:i%2?'#fafafa':'#fff'}}>
+                              <td style={{padding:'6px 10px'}}>{t.data}</td>
+                              <td style={{padding:'6px 10px',fontSize:12}}>
+                                <span style={{color:'#9ca3af'}}>{t.plano_contas} </span>{ct?.n||t.plano_contas}
+                              </td>
+                              <td style={{padding:'6px 10px',textAlign:'center'}}>
+                                <span style={{padding:'2px 8px',borderRadius:10,fontSize:11,fontWeight:600,
+                                  background:t.tipo==='entrada'?'#dcfce7':'#fee2e2',
+                                  color:t.tipo==='entrada'?VERDE:DRE_VERM}}>
+                                  {t.tipo==='entrada'?'↑ Entrada':'↓ Saída'}
+                                </span>
+                              </td>
+                              <td style={{padding:'6px 10px',textAlign:'right',fontWeight:600,
+                                color:t.tipo==='entrada'?VERDE:DRE_VERM}}>{fmtR(t.valor)}</td>
+                              <td style={{padding:'6px 10px',textAlign:'center'}}>
+                                <span style={{padding:'2px 8px',borderRadius:10,fontSize:11,fontWeight:600,
+                                  background:t.realizado?VERDE:'#f3f4f6',
+                                  color:t.realizado?'#fff':'#6b7280'}}>
+                                  {t.realizado?'Realizado':'Esperado'}
+                                </span>
+                              </td>
+                              <td style={{padding:'6px 10px',color:'#6b7280',fontSize:12}}>{t.historico||'—'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              );
+            })()
+          ) : (
+            /* Lista de projetos */
+            <div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+                <h3 style={{margin:0,fontSize:16,fontWeight:700,color:DRE_AZUL}}>Projetos</h3>
+                <button onClick={()=>setShowNovoProjeto(v=>!v)}
+                  style={{padding:'7px 16px',background:DRE_AZUL,color:'#fff',border:'none',
+                    borderRadius:7,cursor:'pointer',fontWeight:600,fontSize:13}}>
+                  {showNovoProjeto?'Cancelar':'+ Novo Projeto'}
+                </button>
+              </div>
+
+              {/* Form novo projeto */}
+              {showNovoProjeto && (
+                <div style={{border:'1px solid #e5e7eb',borderRadius:10,padding:16,marginBottom:16,background:'#f9fafb'}}>
+                  <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10,marginBottom:10}}>
+                    <div>
+                      <label style={{display:'block',fontSize:12,fontWeight:600,color:'#374151',marginBottom:3}}>Nome *</label>
+                      <input value={projNome} onChange={e=>setProjNome(e.target.value)} placeholder="Ex: Evento 30/04"
+                        style={{width:'100%',boxSizing:'border-box',border:'1px solid #d1d5db',borderRadius:6,padding:'7px 10px',fontSize:13}} />
+                    </div>
+                    <div>
+                      <label style={{display:'block',fontSize:12,fontWeight:600,color:'#374151',marginBottom:3}}>Data</label>
+                      <input value={projData} onChange={e=>setProjData(e.target.value)} placeholder="DD/MM/AAAA"
+                        style={{width:'100%',boxSizing:'border-box',border:'1px solid #d1d5db',borderRadius:6,padding:'7px 10px',fontSize:13}} />
+                    </div>
+                    <div style={{gridColumn:'1/-1'}}>
+                      <label style={{display:'block',fontSize:12,fontWeight:600,color:'#374151',marginBottom:3}}>Descrição</label>
+                      <input value={projDesc} onChange={e=>setProjDesc(e.target.value)} placeholder="Detalhes opcionais"
+                        style={{width:'100%',boxSizing:'border-box',border:'1px solid #d1d5db',borderRadius:6,padding:'7px 10px',fontSize:13}} />
+                    </div>
+                  </div>
+                  <button onClick={handleSaveProjeto} disabled={savingProj}
+                    style={{padding:'8px 20px',background:VERDE,color:'#fff',border:'none',borderRadius:7,
+                      cursor:'pointer',fontWeight:600,fontSize:14,opacity:savingProj?.6:1}}>
+                    {savingProj?'Salvando…':'Criar Projeto'}
+                  </button>
+                </div>
+              )}
+
+              {projetos.length === 0 && !showNovoProjeto && (
+                <div style={{textAlign:'center',padding:'32px 16px',color:'#9ca3af',border:'2px dashed #e5e7eb',borderRadius:10}}>
+                  Nenhum projeto cadastrado. Clique em <strong>+ Novo Projeto</strong> para começar.
+                </div>
+              )}
+
+              <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                {projetos.map(p => {
+                  const stats = projetoStats(p.id);
+                  return (
+                    <div key={p.id} style={{border:'1px solid #e5e7eb',borderRadius:10,padding:16,
+                      background:'#fff',cursor:'pointer',transition:'box-shadow .15s'}}
+                      onClick={()=>setSelectedProjeto(p.id)}
+                      onMouseEnter={e=>(e.currentTarget.style.boxShadow='0 2px 12px rgba(0,0,0,.1)')}
+                      onMouseLeave={e=>(e.currentTarget.style.boxShadow='')}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                        <div style={{flex:1}}>
+                          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:3}}>
+                            <span style={{fontWeight:700,fontSize:15,color:'#1f2937'}}>{p.nome}</span>
+                            <span style={{padding:'2px 8px',borderRadius:10,fontSize:11,fontWeight:600,
+                              background:p.status==='ativo'?'#dcfce7':'#f3f4f6',
+                              color:p.status==='ativo'?VERDE:'#6b7280'}}>
+                              {p.status==='ativo'?'Ativo':'Encerrado'}
+                            </span>
+                            {p.data && <span style={{fontSize:12,color:'#9ca3af'}}>{p.data}</span>}
+                          </div>
+                          {p.descricao && <div style={{fontSize:12,color:'#6b7280'}}>{p.descricao}</div>}
+                        </div>
+                        <div style={{display:'flex',gap:16,alignItems:'center',flexShrink:0,marginLeft:16}}>
+                          <div style={{textAlign:'right'}}>
+                            <div style={{fontSize:11,color:'#9ca3af'}}>Saldo</div>
+                            <div style={{fontWeight:700,fontSize:16,color:stats.saldo>=0?VERDE:DRE_VERM}}>{fmtR(stats.saldo)}</div>
+                          </div>
+                          <div style={{textAlign:'right'}}>
+                            <div style={{fontSize:11,color:VERDE}}>↑ {fmtR(stats.entradas)}</div>
+                            <div style={{fontSize:11,color:DRE_VERM}}>↓ {fmtR(stats.saidas)}</div>
+                          </div>
+                          <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                            <button onClick={e=>{e.stopPropagation();handleToggleProjetoStatus(p);}}
+                              style={{padding:'3px 8px',border:'1px solid #d1d5db',borderRadius:5,
+                                background:'#f9fafb',color:'#374151',cursor:'pointer',fontSize:11,whiteSpace:'nowrap'}}>
+                              {p.status==='ativo'?'Encerrar':'Reabrir'}
+                            </button>
+                            <button onClick={e=>{e.stopPropagation();handleDeleteProjeto(p.id);}}
+                              style={{padding:'3px 8px',border:`1px solid ${DRE_VERM}`,borderRadius:5,
+                                background:'transparent',color:DRE_VERM,cursor:'pointer',fontSize:11}}>
+                              Excluir
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      {stats.count > 0 && (
+                        <div style={{marginTop:8,fontSize:11,color:'#9ca3af'}}>
+                          {stats.count} lançamento{stats.count!==1?'s':''} vinculado{stats.count!==1?'s':''} — clique para ver detalhes
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
