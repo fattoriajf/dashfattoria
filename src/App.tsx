@@ -6513,6 +6513,10 @@ function FichaTecnicaTab() {
   const [novoQtd, setNovoQtd] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // edição inline de ingrediente
+  const [editingIng, setEditingIng] = useState<string | null>(null);
+  const [editIngQtd, setEditIngQtd] = useState("");
+
   // edição de preço de venda
   const [editingPreco, setEditingPreco] = useState(false);
   const [editPrecoVal, setEditPrecoVal] = useState("");
@@ -6612,6 +6616,29 @@ function FichaTecnicaTab() {
       setEditingPreco(false);
       await loadProdutos();
     } catch (err: any) { alert(`Erro: ${String(err)}`); }
+  };
+
+  const handleEditIngrediente = async (prodNome: string, ingNome: string) => {
+    if (!editIngQtd || !selectedProduto) return;
+    const p = produtos.find(x => x.nome === prodNome);
+    setSaving(true);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST", mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({
+          action: "save_ficha_item",
+          produto: prodNome,
+          precoVenda: String(p?.precoVenda || 0),
+          insumo: ingNome,
+          quantidade: editIngQtd,
+        }),
+      });
+      setEditingIng(null);
+      setEditIngQtd("");
+      await loadProdutos();
+    } catch (err: any) { alert(`Erro: ${String(err)}`); }
+    finally { setSaving(false); }
   };
 
   const handleDeleteIngrediente = async (prodNome: string, ingNome: string) => {
@@ -6765,17 +6792,56 @@ function FichaTecnicaTab() {
                         </thead>
                         <tbody>
                           {p.ingredientes.map((ing, idx) => (
-                            <tr key={idx}>
+                            <tr key={idx} className={editingIng === ing.ingrediente ? "bg-blue-50" : ""}>
                               <td className="border px-3 py-2">{ing.ingrediente}</td>
-                              <td className="border px-3 py-2 text-right">{ing.quantidade}</td>
+                              <td className="border px-3 py-2 text-right">
+                                {editingIng === ing.ingrediente ? (
+                                  <input
+                                    type="number" step="0.001" autoFocus
+                                    className="input w-20 text-sm text-right"
+                                    value={editIngQtd}
+                                    onChange={e => setEditIngQtd(e.target.value)}
+                                    onKeyDown={e => {
+                                      if (e.key === "Enter") handleEditIngrediente(p.nome, ing.ingrediente);
+                                      if (e.key === "Escape") { setEditingIng(null); setEditIngQtd(""); }
+                                    }}
+                                  />
+                                ) : (
+                                  ing.quantidade
+                                )}
+                              </td>
                               <td className="border px-3 py-2">{ing.unidade || "—"}</td>
                               <td className="border px-3 py-2 text-right">{fmtMoney(ing.custoPorUnidade)}</td>
-                              <td className="border px-3 py-2 text-right">{fmtMoney(ing.custoTotal)}</td>
+                              <td className="border px-3 py-2 text-right">
+                                {editingIng === ing.ingrediente && editIngQtd
+                                  ? fmtMoney(parseFloat(editIngQtd) * ing.custoPorUnidade)
+                                  : fmtMoney(ing.custoTotal)}
+                              </td>
                               <td className="border px-3 py-2 text-center">
-                                <button className="text-xs text-red-500 hover:underline"
-                                  onClick={() => handleDeleteIngrediente(p.nome, ing.ingrediente)}>
-                                  Excluir
-                                </button>
+                                {editingIng === ing.ingrediente ? (
+                                  <div className="flex gap-2 justify-center">
+                                    <button className="text-xs text-blue-600 hover:underline font-medium"
+                                      onClick={() => handleEditIngrediente(p.nome, ing.ingrediente)}
+                                      disabled={saving}>
+                                      {saving ? "..." : "Salvar"}
+                                    </button>
+                                    <button className="text-xs text-gray-400 hover:underline"
+                                      onClick={() => { setEditingIng(null); setEditIngQtd(""); }}>
+                                      Cancelar
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex gap-2 justify-center">
+                                    <button className="text-xs text-blue-500 hover:underline"
+                                      onClick={() => { setEditingIng(ing.ingrediente); setEditIngQtd(String(ing.quantidade)); }}>
+                                      Editar
+                                    </button>
+                                    <button className="text-xs text-red-500 hover:underline"
+                                      onClick={() => handleDeleteIngrediente(p.nome, ing.ingrediente)}>
+                                      Excluir
+                                    </button>
+                                  </div>
+                                )}
                               </td>
                             </tr>
                           ))}
