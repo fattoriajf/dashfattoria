@@ -4013,50 +4013,49 @@ function EtiquetasTab() {
         page-break-inside:avoid;
         margin: ${idx > 0 ? '8px' : '0'} auto 0;
       ">
-        <div style="background:#000;color:#fff;text-align:center;padding:5px 6px 4px;font-size:13px;font-weight:bold;letter-spacing:0.3px;line-height:1.2;">
+        <div style="border-bottom:1.5px solid #000;text-align:center;padding:5px 6px 4px;font-size:13px;font-weight:bold;letter-spacing:0.3px;line-height:1.2;color:#000;">
           ${insumoSel.toUpperCase()}
         </div>
         <div style="flex:1;padding:6px 8px 4px;display:flex;flex-direction:column;gap:3px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:0.5px solid #ccc;padding-bottom:3px;">
-            <span style="font-size:9px;color:#555;text-transform:uppercase;letter-spacing:0.4px;">Marca/Fornecedor</span>
+          <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:0.5px solid #999;padding-bottom:3px;">
+            <span style="font-size:9px;color:#000;text-transform:uppercase;letter-spacing:0.4px;">Marca/Fornecedor</span>
             <span style="font-size:10px;font-weight:bold;color:#000;">
               ${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}
             </span>
           </div>
-          <div style="display:flex;justify-content:center;padding:2px 0 3px;border-bottom:0.5px solid #ccc;">
-            <span style="font-size:9px;font-weight:bold;
-              background:#eee;color:#000;
+          <div style="display:flex;justify-content:center;padding:2px 0 3px;border-bottom:0.5px solid #999;">
+            <span style="font-size:9px;font-weight:bold;color:#000;
               border-radius:3px;padding:2px 8px;letter-spacing:0.5px;text-transform:uppercase;
               border:1px solid #000;">
               ${conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO'}
             </span>
           </div>
           <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0;">
-            <span style="font-size:9px;color:#555;text-transform:uppercase;letter-spacing:0.4px;">Manipulação</span>
+            <span style="font-size:9px;color:#000;text-transform:uppercase;letter-spacing:0.4px;">Manipulação</span>
             <span style="font-size:10px;font-weight:bold;color:#000;">${fmtManip()}</span>
           </div>
-          <div style="display:flex;justify-content:space-between;align-items:baseline;background:#ddd;border-radius:3px;padding:3px 5px;border:1px solid #000;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;border-radius:3px;padding:3px 5px;border:1.5px solid #000;">
             <span style="font-size:9px;color:#000;text-transform:uppercase;letter-spacing:0.4px;font-weight:bold;">Validade</span>
             <span style="font-size:11px;font-weight:bold;color:#000;">${fmtDT(validadeDT)}</span>
           </div>
-          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0;border-top:0.5px solid #ccc;margin-top:2px;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0;border-top:0.5px solid #999;margin-top:2px;">
             <div style="display:flex;flex-direction:column;">
-              <span style="font-size:8px;color:#555;text-transform:uppercase;letter-spacing:0.4px;">Responsável</span>
+              <span style="font-size:8px;color:#000;text-transform:uppercase;letter-spacing:0.4px;">Responsável</span>
               <span style="font-size:10px;font-weight:bold;color:#000;">${responsavel}</span>
             </div>
             ${porcoes ? `<div style="display:flex;flex-direction:column;align-items:center;">
-              <span style="font-size:8px;color:#555;text-transform:uppercase;letter-spacing:0.4px;">Porções</span>
+              <span style="font-size:8px;color:#000;text-transform:uppercase;letter-spacing:0.4px;">Porções</span>
               <span style="font-size:10px;font-weight:bold;color:#000;">${porcoes}</span>
             </div>` : ''}
             <div style="display:flex;flex-direction:column;align-items:flex-end;">
-              <span style="font-size:8px;color:#555;text-transform:uppercase;letter-spacing:0.4px;">Peso</span>
+              <span style="font-size:8px;color:#000;text-transform:uppercase;letter-spacing:0.4px;">Peso</span>
               <span style="font-size:10px;font-weight:bold;color:#000;">${peso || '—'}</span>
             </div>
           </div>
         </div>
-        <div style="background:#000;padding:4px 6px 5px;text-align:center;">
-          <div style="color:#fff;font-size:10px;font-weight:bold;letter-spacing:1.5px;">${empresa.nome || 'FATTORIA'}</div>
-          <div style="color:#aaa;font-size:6.5px;margin-top:1px;">${empresa.cnpj ? 'CNPJ ' + empresa.cnpj + ' · ' : ''}${empresa.endereco || ''}</div>
+        <div style="border-top:1.5px solid #000;padding:4px 6px 5px;text-align:center;">
+          <div style="color:#000;font-size:10px;font-weight:bold;letter-spacing:1.5px;">${empresa.nome || 'FATTORIA'}</div>
+          <div style="color:#000;font-size:6.5px;margin-top:1px;">${empresa.cnpj ? 'CNPJ ' + empresa.cnpj + ' · ' : ''}${empresa.endereco || ''}</div>
         </div>
       </div>`;
 
