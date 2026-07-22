@@ -4061,18 +4061,32 @@ function EtiquetasTab() {
 
     const etiquetas = Array.from({length: qtdEtiquetas}, (_,i) => etiquetaHTML(i)).join('');
 
-    const win = window.open('', '_blank', 'width=400,height=600');
-    if (!win) { alert('Permita pop-ups para imprimir.'); return; }
-    win.document.write(`<!DOCTYPE html><html><head><title>Etiqueta</title>
+    // Remove iframe anterior se existir
+    const old = document.getElementById('etiqueta-print-frame');
+    if (old) old.remove();
+
+    // Cria iframe oculto na mesma janela (necessário para --kiosk-printing funcionar)
+    const iframe = document.createElement('iframe');
+    iframe.id = 'etiqueta-print-frame';
+    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:0;height:0;border:0;';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentDocument || (iframe.contentWindow as any)?.document;
+    if (!doc) { alert('Erro ao preparar impressão.'); return; }
+
+    doc.open();
+    doc.write(`<!DOCTYPE html><html><head><title>Etiqueta</title>
       <style>
         @page { size: 60mm 60mm; margin: 0; }
         body { margin: 0; padding: 0; background: #fff; }
-        @media print { body { margin: 0; padding: 0; } }
       </style>
     </head><body>${etiquetas}</body></html>`);
-    win.document.close();
-    win.focus();
-    setTimeout(() => { win.print(); }, 500);
+    doc.close();
+
+    setTimeout(() => {
+      (iframe.contentWindow as any)?.print();
+      setTimeout(() => iframe.remove(), 1000);
+    }, 300);
   };
 
   // ── salvar empresa ──
