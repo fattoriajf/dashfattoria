@@ -3912,6 +3912,7 @@ function EtiquetasTab() {
     return `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`;
   });
   const [qtdEtiquetas, setQtdEtiquetas] = useState(1);
+  const [porcoes, setPorcoes] = useState('');
 
   // ── form categorias ──
   const [catNome, setCatNome] = useState('');
@@ -4004,7 +4005,7 @@ function EtiquetasTab() {
       <div style="
         width:226px; height:226px;
         background:#fff;
-        border:1.5px solid #233253;
+        border:1.5px solid #000;
         border-radius:6px;
         display:flex; flex-direction:column;
         font-family:Arial,sans-serif;
@@ -4012,54 +4013,50 @@ function EtiquetasTab() {
         page-break-inside:avoid;
         margin: ${idx > 0 ? '8px' : '0'} auto 0;
       ">
-        <div style="background:#233253;color:#fff;text-align:center;padding:5px 6px 4px;font-size:13px;font-weight:bold;letter-spacing:0.3px;line-height:1.2;">
+        <div style="background:#000;color:#fff;text-align:center;padding:5px 6px 4px;font-size:13px;font-weight:bold;letter-spacing:0.3px;line-height:1.2;">
           ${insumoSel.toUpperCase()}
         </div>
         <div style="flex:1;padding:6px 8px 4px;display:flex;flex-direction:column;gap:3px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:0.5px solid #e0e4ed;padding-bottom:3px;">
-            <span style="font-size:9px;color:#666;text-transform:uppercase;letter-spacing:0.4px;">Marca/Fornecedor</span>
-            <span style="font-size:10px;font-weight:bold;color:#233253;">
+          <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:0.5px solid #ccc;padding-bottom:3px;">
+            <span style="font-size:9px;color:#555;text-transform:uppercase;letter-spacing:0.4px;">Marca/Fornecedor</span>
+            <span style="font-size:10px;font-weight:bold;color:#000;">
               ${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}
             </span>
           </div>
-          <div style="display:flex;justify-content:center;padding:2px 0 3px;border-bottom:0.5px solid #e0e4ed;">
+          <div style="display:flex;justify-content:center;padding:2px 0 3px;border-bottom:0.5px solid #ccc;">
             <span style="font-size:9px;font-weight:bold;
-              background:${conservacao==='resfriado'?'#e6f5ef':'#e8f0fb'};
-              color:${conservacao==='resfriado'?'#005f30':'#1a3a7a'};
+              background:#eee;color:#000;
               border-radius:3px;padding:2px 8px;letter-spacing:0.5px;text-transform:uppercase;
-              border:0.5px solid ${conservacao==='resfriado'?'#009249':'#233253'};">
-              ❄ ${conservacao === 'resfriado' ? 'Resfriado' : 'Congelado'}
+              border:1px solid #000;">
+              ${conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO'}
             </span>
           </div>
           <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0;">
-            <span style="font-size:9px;color:#666;text-transform:uppercase;letter-spacing:0.4px;">Manipulação</span>
-            <span style="font-size:10px;font-weight:bold;color:#233253;">${fmtManip()}</span>
+            <span style="font-size:9px;color:#555;text-transform:uppercase;letter-spacing:0.4px;">Manipulação</span>
+            <span style="font-size:10px;font-weight:bold;color:#000;">${fmtManip()}</span>
           </div>
-          <div style="display:flex;justify-content:space-between;align-items:baseline;background:#fdf0f1;border-radius:3px;padding:3px 5px;border:0.5px solid #cf2a39;">
-            <span style="font-size:9px;color:#8a1b24;text-transform:uppercase;letter-spacing:0.4px;font-weight:bold;">Validade</span>
-            <span style="font-size:11px;font-weight:bold;color:#cf2a39;">${fmtDT(validadeDT)}</span>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;background:#ddd;border-radius:3px;padding:3px 5px;border:1px solid #000;">
+            <span style="font-size:9px;color:#000;text-transform:uppercase;letter-spacing:0.4px;font-weight:bold;">Validade</span>
+            <span style="font-size:11px;font-weight:bold;color:#000;">${fmtDT(validadeDT)}</span>
           </div>
-          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0;border-top:0.5px solid #e0e4ed;margin-top:2px;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0;border-top:0.5px solid #ccc;margin-top:2px;">
             <div style="display:flex;flex-direction:column;">
-              <span style="font-size:8px;color:#666;text-transform:uppercase;letter-spacing:0.4px;">Responsável</span>
-              <span style="font-size:10px;font-weight:bold;color:#233253;">${responsavel}</span>
+              <span style="font-size:8px;color:#555;text-transform:uppercase;letter-spacing:0.4px;">Responsável</span>
+              <span style="font-size:10px;font-weight:bold;color:#000;">${responsavel}</span>
             </div>
+            ${porcoes ? `<div style="display:flex;flex-direction:column;align-items:center;">
+              <span style="font-size:8px;color:#555;text-transform:uppercase;letter-spacing:0.4px;">Porções</span>
+              <span style="font-size:10px;font-weight:bold;color:#000;">${porcoes}</span>
+            </div>` : ''}
             <div style="display:flex;flex-direction:column;align-items:flex-end;">
-              <span style="font-size:8px;color:#666;text-transform:uppercase;letter-spacing:0.4px;">Peso</span>
-              <span style="font-size:10px;font-weight:bold;color:#233253;">${peso || '—'}</span>
+              <span style="font-size:8px;color:#555;text-transform:uppercase;letter-spacing:0.4px;">Peso</span>
+              <span style="font-size:10px;font-weight:bold;color:#000;">${peso || '—'}</span>
             </div>
           </div>
         </div>
-        <div style="background:#233253;padding:0;">
-          <div style="display:flex;height:3px;">
-            <div style="flex:1;background:#009249;"></div>
-            <div style="flex:1;background:#fff;"></div>
-            <div style="flex:1;background:#cf2a39;"></div>
-          </div>
-          <div style="padding:4px 6px 5px;text-align:center;">
-            <div style="color:#fff;font-size:10px;font-weight:bold;letter-spacing:1.5px;">${empresa.nome || 'FATTORIA'}</div>
-            <div style="color:#7a8aa0;font-size:6.5px;margin-top:1px;">${empresa.cnpj ? 'CNPJ ' + empresa.cnpj + ' · ' : ''}${empresa.endereco || ''}</div>
-          </div>
+        <div style="background:#000;padding:4px 6px 5px;text-align:center;">
+          <div style="color:#fff;font-size:10px;font-weight:bold;letter-spacing:1.5px;">${empresa.nome || 'FATTORIA'}</div>
+          <div style="color:#aaa;font-size:6.5px;margin-top:1px;">${empresa.cnpj ? 'CNPJ ' + empresa.cnpj + ' · ' : ''}${empresa.endereco || ''}</div>
         </div>
       </div>`;
 
@@ -4220,7 +4217,7 @@ function EtiquetasTab() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-1">
                   <label className="text-xs text-gray-600">Conservação</label>
                   <select className="input w-full" value={conservacao} onChange={e => setConservacao(e.target.value as any)}>
@@ -4231,6 +4228,10 @@ function EtiquetasTab() {
                 <div className="space-y-1">
                   <label className="text-xs text-gray-600">Peso/Qtd</label>
                   <input className="input w-full" placeholder="Ex: 500g" value={peso} onChange={e => setPeso(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-gray-600">Porções</label>
+                  <input type="number" min={1} className="input w-full" placeholder="Ex: 4" value={porcoes} onChange={e => setPorcoes(e.target.value)} />
                 </div>
               </div>
 
@@ -4315,6 +4316,12 @@ function EtiquetasTab() {
                     <span style={{ fontSize: 8, color: '#666', textTransform: 'uppercase', letterSpacing: 0.4 }}>Responsável</span>
                     <span style={{ fontSize: 10, fontWeight: 500, color: BRAND.primary }}>{responsavel || '—'}</span>
                   </div>
+                  {porcoes && (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <span style={{ fontSize: 8, color: '#666', textTransform: 'uppercase', letterSpacing: 0.4 }}>Porções</span>
+                      <span style={{ fontSize: 10, fontWeight: 500, color: BRAND.primary }}>{porcoes}</span>
+                    </div>
+                  )}
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                     <span style={{ fontSize: 8, color: '#666', textTransform: 'uppercase', letterSpacing: 0.4 }}>Peso</span>
                     <span style={{ fontSize: 10, fontWeight: 500, color: BRAND.primary }}>{peso || '—'}</span>
