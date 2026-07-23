@@ -4091,235 +4091,112 @@ function EtiquetasTab() {
         await qz.websocket.connect();
       }
 
-      // ── ZPL: linguagem nativa da impressora térmica ──
-      // Sem upscale, sem HTML, sem canvas — renderizado a 203 DPI diretamente
-      const buildZPL = () => {
-        const D = Math.round(203 / 25.4); // 8 dots/mm
-        const mm = (n: number) => Math.round(n * D);
-        const W = mm(60); const H = mm(60); // 480 × 480 dots
-        const P = mm(2);  // padding 2mm = 16 dots
-        const CW = W - P * 2; // 448 dots de área útil
-        const x0 = P + 4;     // margem interna esquerda
+      // ── TSPL: linguagem nativa Elgin/TSC — renderizado a 203 DPI pelo firmware ──
+      const buildTSPL = () => {
+        const W = 480; const H = 480;  // 60mm × 8 dots/mm
+        const PAD = 16;                 // 2mm margem
+        const R = W - PAD;              // borda direita = 464
+        const B = H - PAD;              // borda inferior = 464
 
-        const marca = `${insumoAtual?.marca_fornecedor || ''}${insumoAtual?.sif ? ' SIF:' + insumoAtual.sif : ''}` || '—';
+        const marca = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' SIF:' + insumoAtual.sif : ''}`;
         const conservBadge = conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO';
+        const nomeInsumo = insumoSel.toUpperCase();
+        const validadeStr = fmtDT(validadeDT);
+        const resp = responsavel || '—';
+        const pesoStr = peso || '—';
+        const nomeEmp = (empresa.nome || 'FATTORIA').toUpperCase();
 
-        // ^FB w,lines,spacing,justify — bloco de texto com alinhamento
-        const fb = (x: number, y: number, w: number, h: number, sz: number, align: string, txt: string) =>
-          `^FO${x},${y}^FB${w},1,0,${align}^A0N,${h},${sz}^FD${txt}^FS`;
-        const line = (x: number, y: number, w: number, t = 2) =>
-          `^FO${x},${y}^GB${w},${t},${t}^FS`;
-        const rect = (x: number, y: number, w: number, h: number, t = 3) =>
-          `^FO${x},${y}^GB${w},${h},${t}^FS`;
+        // Largura em dots por caractere (escala 1×1):
+        // font "1" = 8w×12h  "2" = 8w×16h  "3" = 10w×24h  "4" = 12w×24h
+        const fw: Record<string, number> = { '1': 8, '2': 8, '3': 10, '4': 12 };
+        const fh: Record<string, number> = { '1': 12, '2': 16, '3': 24, '4': 24 };
+        const cx = (text: string, f: string) =>
+          Math.max(PAD + 4, Math.round((W - text.length * fw[f]) / 2));
 
-        let y = P;
-        const z: string[] = [
-          '^XA',
-          `^PW${W}`,
-          `^LL${H}`,
-          '^CI28',       // UTF-8 para acentos
-          '^LH0,0',
-          rect(P, P, CW, CW - 1), // borda externa
+        const t: string[] = [
+          `SIZE 60 mm,60 mm`,
+          `GAP 0 mm,0 mm`,
+          `DIRECTION 0,0`,
+          `REFERENCE 0,0`,
+          `CODEPAGE 1252`,
+          `CLS`,
+          `BOX ${PAD},${PAD},${R},${B},3`,
         ];
 
+        let y = PAD + 6; // y=22
+
         // HEADER — nome do insumo
-        y = P + 6;
-        z.push(fb(x0, y, CW - 8, 38, 30, 'C', insumoSel.toUpperCase()));
-        y += 48;
-        z.push(line(P, y, CW));
-        y += 6;
+        t.push(`TEXT ${cx(nomeInsumo, '4')},${y},"4",0,1,1,"${nomeInsumo}"`);
+        y += fh['4'] + 12; // y=58
+        t.push(`BAR ${PAD},${y},${W - PAD * 2},2`);
+        y += 10; // y=68
 
         // MARCA/FORNECEDOR
-        z.push(fb(x0, y, 90, 22, 18, 'L', 'MARCA:'));
-        z.push(fb(x0, y, CW - 8, 22, 18, 'R', marca));
-        y += 28;
-        z.push(line(x0, y, CW - 8, 1));
-        y += 5;
+        t.push(`TEXT ${PAD + 4},${y},"2",0,1,1,"MARCA: ${marca}"`);
+        y += fh['2'] + 10; // y=94
+        t.push(`BAR ${PAD + 4},${y},${W - PAD * 2 - 8},1`);
+        y += 8; // y=102
 
         // BADGE CONSERVAÇÃO
-        const bW = mm(32); const bH = 28;
+        const bW = Math.max(130, conservBadge.length * fw['3'] + 20);
+        const bH = 32;
         const bX = Math.round((W - bW) / 2);
-        z.push(rect(bX, y, bW, bH, 2));
-        z.push(fb(bX, y + 3, bW, 22, 18, 'C', conservBadge));
-        y += bH + 5;
-        z.push(line(x0, y, CW - 8, 1));
-        y += 5;
+        t.push(`BOX ${bX},${y},${bX + bW},${y + bH},2`);
+        t.push(`TEXT ${cx(conservBadge, '3')},${y + 4},"3",0,1,1,"${conservBadge}"`);
+        y += bH + 8; // y=142
+        t.push(`BAR ${PAD + 4},${y},${W - PAD * 2 - 8},1`);
+        y += 8; // y=150
 
         // MANIPULAÇÃO
-        z.push(fb(x0, y, 90, 22, 18, 'L', 'MANIP.:'));
-        z.push(fb(x0, y, CW - 8, 22, 18, 'R', fmtManip()));
-        y += 28;
+        t.push(`TEXT ${PAD + 4},${y},"2",0,1,1,"MANIP.: ${fmtManip()}"`);
+        y += fh['2'] + 10; // y=176
 
         // VALIDADE — caixa destacada
-        const vH = 36;
-        z.push(rect(P, y, CW, vH, 2));
-        z.push(fb(x0, y + 7, 120, 24, 20, 'L', 'VALIDADE'));
-        z.push(fb(x0, y + 7, CW - 8, 24, 20, 'R', fmtDT(validadeDT)));
-        y += vH + 5;
-        z.push(line(x0, y, CW - 8, 1));
-        y += 5;
+        const vH = 42;
+        t.push(`BOX ${PAD},${y},${R},${y + vH},2`);
+        t.push(`TEXT ${PAD + 6},${y + 9},"3",0,1,1,"VALIDADE"`);
+        const vX = Math.max(PAD + 110, R - 6 - validadeStr.length * fw['3']);
+        t.push(`TEXT ${vX},${y + 9},"3",0,1,1,"${validadeStr}"`);
+        y += vH + 8; // y=226
+        t.push(`BAR ${PAD + 4},${y},${W - PAD * 2 - 8},1`);
+        y += 8; // y=234
 
         // RESPONSÁVEL / PORÇÕES / PESO
-        z.push(fb(x0, y, 130, 20, 16, 'L', 'RESP.:'));
-        z.push(fb(x0, y + 22, 130, 26, 20, 'L', responsavel));
+        t.push(`TEXT ${PAD + 4},${y},"1",0,1,1,"RESP.:"`);
+        t.push(`TEXT ${PAD + 4},${y + fh['1'] + 2},"2",0,1,1,"${resp}"`);
         if (porcoes) {
-          z.push(fb(Math.round(W / 2) - 50, y, 100, 20, 16, 'C', 'PORC.:'));
-          z.push(fb(Math.round(W / 2) - 50, y + 22, 100, 26, 20, 'C', porcoes));
+          t.push(`TEXT ${Math.round(W / 2) - 40},${y},"1",0,1,1,"PORC.:"`);
+          t.push(`TEXT ${Math.round(W / 2) - 30},${y + fh['1'] + 2},"2",0,1,1,"${porcoes}"`);
         }
-        z.push(fb(x0, y, CW - 8, 20, 16, 'R', 'PESO:'));
-        z.push(fb(x0, y + 22, CW - 8, 26, 20, 'R', peso || '—'));
-        y += 52;
+        t.push(`TEXT ${R - 6 - 5 * fw['1']},${y},"1",0,1,1,"PESO:"`);
+        t.push(`TEXT ${Math.max(R - 80, R - 6 - pesoStr.length * fw['2'])},${y + fh['1'] + 2},"2",0,1,1,"${pesoStr}"`);
+        y += fh['1'] + fh['2'] + 14; // y=276
 
         // RODAPÉ
-        z.push(line(P, y, CW));
-        y += 5;
-        z.push(fb(x0, y, CW - 8, 30, 24, 'C', (empresa.nome || 'FATTORIA').toUpperCase()));
+        t.push(`BAR ${PAD},${y},${W - PAD * 2},2`);
+        y += 8; // y=284
+        t.push(`TEXT ${cx(nomeEmp, '3')},${y},"3",0,1,1,"${nomeEmp}"`);
         if (empresa.cnpj || empresa.endereco) {
-          y += 36;
+          y += fh['3'] + 4; // y=312
           const rodape = `${empresa.cnpj ? empresa.cnpj + ' ' : ''}${empresa.endereco || ''}`;
-          z.push(fb(x0, y, CW - 8, 20, 16, 'C', rodape));
+          t.push(`TEXT ${cx(rodape, '1')},${y},"1",0,1,1,"${rodape}"`);
         }
 
-        z.push('^XZ');
-        return z.join('\n');
+        t.push(`PRINT 1,1`);
+        return t.join('\r\n');
       };
 
-      // ── Canvas (fallback, não usado) ──
-      const buildCanvas = (): Promise<string> => new Promise((resolve) => {
-        const W = 226; const H = 226;
-        const c = document.createElement('canvas');
-        c.width = W; c.height = H;
-        const ctx = c.getContext('2d')!;
+      const tspl = buildTSPL();
 
-        // Helper: retângulo arredondado
-        const rr = (x: number, y: number, w: number, h: number, r: number) => {
-          ctx.beginPath();
-          ctx.moveTo(x + r, y);
-          ctx.arcTo(x + w, y,     x + w, y + h, r);
-          ctx.arcTo(x + w, y + h, x,     y + h, r);
-          ctx.arcTo(x,     y + h, x,     y,     r);
-          ctx.arcTo(x,     y,     x + w, y,     r);
-          ctx.closePath();
-        };
-
-        // PAD = margem interna no canvas (o driver sempre imprime 60mm cheio)
-        const PAD = 8;
-        const CW = W - PAD * 2; // área útil: 210px
-        const CH = H - PAD * 2;
-
-        // Fundo branco total
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(0, 0, W, H);
-
-        // Borda externa arredondada dentro do PAD
-        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        rr(PAD, PAD, CW, CH, 7); ctx.stroke();
-
-        // ── HEADER ── 33px
-        const HDR = PAD + 33;
-        ctx.fillStyle = '#000';
-        ctx.font = 'bold 13px Arial, sans-serif';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(insumoSel.toUpperCase(), W / 2, PAD + 16, CW - 8);
-        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(PAD, HDR); ctx.lineTo(W - PAD, HDR); ctx.stroke();
-
-        let y = HDR + 4;
-
-        // ── MARCA/FORNECEDOR ── linha única: label + valor lado a lado
-        const marca = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
-        ctx.font = 'bold 9px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#000';
-        ctx.fillText('MARCA:', PAD + 4, y + 9);
-        ctx.textAlign = 'right';
-        ctx.fillText(marca, W - PAD - 4, y + 9, CW - 50);
-        y += 22;
-
-        ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(PAD + 4, y); ctx.lineTo(W - PAD - 4, y); ctx.stroke();
-        y += 4;
-
-        // ── BADGE CONSERVAÇÃO ──
-        const bW = 90; const bH = 20; const bX = (W - bW) / 2;
-        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        rr(bX, y, bW, bH, 4); ctx.stroke();
-        ctx.font = 'bold 9px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#000';
-        ctx.fillText(conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO', W / 2, y + bH / 2);
-        y += bH + 4;
-
-        ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(PAD + 4, y); ctx.lineTo(W - PAD - 4, y); ctx.stroke();
-        y += 4;
-
-        // ── MANIPULAÇÃO ── label + valor
-        ctx.font = 'bold 9px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#000';
-        ctx.fillText('MANIP.:', PAD + 4, y + 9);
-        ctx.textAlign = 'right';
-        ctx.fillText(fmtManip(), W - PAD - 4, y + 9);
-        y += 22;
-
-        // ── VALIDADE ──
-        const vH = 26;
-        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        rr(PAD + 2, y, CW - 4, vH, 4); ctx.stroke();
-        ctx.font = 'bold 9px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#000';
-        ctx.fillText('VALIDADE', PAD + 7, y + vH / 2);
-        ctx.font = 'bold 10px Arial, sans-serif'; ctx.textAlign = 'right';
-        ctx.fillText(fmtDT(validadeDT), W - PAD - 7, y + vH / 2);
-        y += vH + 4;
-
-        ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(PAD + 4, y); ctx.lineTo(W - PAD - 4, y); ctx.stroke();
-        y += 4;
-
-        // ── RESPONSÁVEL / PORÇÕES / PESO ── tudo em 9px
-        ctx.fillStyle = '#000'; ctx.textBaseline = 'top';
-        ctx.font = 'bold 9px Arial, sans-serif'; ctx.textAlign = 'left';
-        ctx.fillText('RESP.:', PAD + 4, y);
-        ctx.fillText(responsavel, PAD + 4, y + 11, 80);
-        if (porcoes) {
-          ctx.textAlign = 'center';
-          ctx.fillText('PORC.:', W / 2, y);
-          ctx.fillText(porcoes, W / 2, y + 11);
-        }
-        ctx.textAlign = 'right';
-        ctx.fillText('PESO:', W - PAD - 4, y);
-        ctx.fillText(peso || '—', W - PAD - 4, y + 11);
-        y += 26;
-
-        // ── RODAPÉ ──
-        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
-        y += 2;
-        const footH = (H - PAD) - y;
-        ctx.font = 'bold 10px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#000';
-        ctx.fillText((empresa.nome || 'FATTORIA').toUpperCase(), W / 2, y + footH * 0.38, CW - 8);
-        if (empresa.cnpj || empresa.endereco) {
-          ctx.font = 'bold 9px Arial, sans-serif';
-          const rodape = `${empresa.cnpj ? empresa.cnpj + ' · ' : ''}${empresa.endereco || ''}`;
-          ctx.fillText(rodape, W / 2, y + footH * 0.75, W - 12);
-        }
-
-        resolve(c.toDataURL('image/png').split(',')[1]);
-      });
-
-      const zpl = buildZPL();
-
-      // Conexão direta via TCP/IP — bypassa driver Windows por completo
-      // ZPL vai direto para o firmware da impressora (porta 9100 = RAW/JetDirect)
-      const printer = { host: '192.168.2.115', port: { number: 9100 } };
-      const config = qz.configs.create(printer);
+      // type:'raw' + driver Elgin = passagem direta para firmware da impressora
+      const config = qz.configs.create('ELGIN L42PRO FULL');
 
       for (let i = 0; i < qtdEtiquetas; i++) {
         await qz.print(config, [{
           type: 'raw',
           format: 'plain',
           flavor: 'plain',
-          data: zpl,
+          data: tspl,
         }]);
       }
 
