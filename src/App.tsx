@@ -4309,8 +4309,10 @@ function EtiquetasTab() {
 
       const zpl = buildZPL();
 
-      // Raw ZPL — impressora renderiza a 203 DPI nativamente, sem upscale
-      const config = qz.configs.create('ELGIN L42PRO FULL');
+      // Conexão direta via TCP/IP — bypassa driver Windows por completo
+      // ZPL vai direto para o firmware da impressora (porta 9100 = RAW/JetDirect)
+      const printer = { host: '192.168.2.115', port: { number: 9100 } };
+      const config = qz.configs.create(printer);
 
       for (let i = 0; i < qtdEtiquetas; i++) {
         await qz.print(config, [{
