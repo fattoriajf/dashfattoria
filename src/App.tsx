@@ -4131,11 +4131,13 @@ Hkv3oXU0OaJG0HPBV9AvL2Wbl/FAdEjrYAoZPw==
 
     try {
       qz.security.setCertificatePromise((resolve: any) => resolve(QZ_CERT));
-      qz.security.setSignaturePromise((toSign: any) => (resolve: any, reject: any) => {
+      qz.security.setSignaturePromise((toSign: any) => async (resolve: any, reject: any) => {
         try {
+          const keyRes = await fetch('https://raw.githubusercontent.com/qzind/tray/master/assets/signing/demo-rsa-private-key.pem');
+          const privateKey = await keyRes.text();
           const KJUR = (window as any).KJUR;
           const sig = new KJUR.crypto.Signature({ alg: 'SHA1withRSA' });
-          sig.init(QZ_PRIVATE_KEY);
+          sig.init(privateKey.trim());
           sig.updateString(toSign);
           resolve((window as any).hex2b64(sig.sign()));
         } catch (e) {
