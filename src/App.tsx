@@ -4059,17 +4059,120 @@ function EtiquetasTab() {
         </div>
       </div>`;
 
-    const singleLabel = `<!DOCTYPE html><html><head>
-      <style>
-        @page { size: 60mm 60mm; margin: 0; }
-        body { margin: 0; padding: 0; background: #fff; }
-        * {
-          -webkit-font-smoothing: none !important;
-          font-smooth: never !important;
-          text-rendering: optimizeSpeed !important;
-        }
-      </style>
-    </head><body>${etiquetaHTML(0)}</body></html>`;
+    // Canvas 480x480px = 60mm a 203 DPI — resolução nativa da impressora
+    const buildCanvasLabel = (): Promise<string> => new Promise((resolve) => {
+      const MM = 203 / 25.4; // ~8 dots/mm
+      const W = Math.round(60 * MM); // 480px
+      const H = Math.round(60 * MM); // 480px
+      const canvas = document.createElement('canvas');
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext('2d')!;
+
+      const f = (mm: number) => Math.round(mm * MM); // mm → px helper
+
+      // Fundo branco
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, W, H);
+
+      // Borda externa
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+      ctx.strokeRect(1, 1, W - 2, H - 2);
+
+      // Header — nome do insumo
+      const hdrH = f(13);
+      ctx.fillStyle = '#000';
+      ctx.font = `bold ${f(5.5)}px Arial`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(insumoSel.toUpperCase(), W / 2, hdrH / 2, W - f(4));
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(0, hdrH); ctx.lineTo(W, hdrH); ctx.stroke();
+
+      let y = hdrH + f(2);
+
+      // Marca / Fornecedor
+      ctx.font = `${f(2)}px Arial`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('MARCA/FORNECEDOR', f(2), y + f(3));
+      const marca = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
+      ctx.font = `bold ${f(2.5)}px Arial`; ctx.textAlign = 'right';
+      ctx.fillText(marca, W - f(2), y + f(3), W - f(4));
+      y += f(8);
+
+      ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(f(2), y); ctx.lineTo(W - f(2), y); ctx.stroke();
+      y += f(2);
+
+      // Badge conservação
+      const badgeW = f(38); const badgeH = f(7);
+      const bx = (W - badgeW) / 2;
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+      ctx.strokeRect(bx, y, badgeW, badgeH);
+      ctx.font = `bold ${f(2.8)}px Arial`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#000';
+      ctx.fillText(conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO', W / 2, y + badgeH / 2);
+      y += badgeH + f(2);
+
+      ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(f(2), y); ctx.lineTo(W - f(2), y); ctx.stroke();
+      y += f(2);
+
+      // Manipulação
+      ctx.font = `${f(2)}px Arial`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#000';
+      ctx.fillText('MANIPULAÇÃO', f(2), y + f(3));
+      ctx.font = `bold ${f(2.5)}px Arial`; ctx.textAlign = 'right';
+      ctx.fillText(fmtManip(), W - f(2), y + f(3));
+      y += f(8);
+
+      // Validade — caixa destacada
+      const valH = f(11);
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+      ctx.strokeRect(f(1), y, W - f(2), valH);
+      ctx.font = `bold ${f(2.2)}px Arial`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('VALIDADE', f(3), y + valH / 2);
+      ctx.font = `bold ${f(3.2)}px Arial`; ctx.textAlign = 'right';
+      ctx.fillText(fmtDT(validadeDT), W - f(3), y + valH / 2);
+      y += valH + f(2);
+
+      ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(f(2), y); ctx.lineTo(W - f(2), y); ctx.stroke();
+      y += f(2);
+
+      // Responsável / Porções / Peso
+      ctx.textBaseline = 'top'; ctx.fillStyle = '#000';
+      // Responsável
+      ctx.font = `${f(1.8)}px Arial`; ctx.textAlign = 'left';
+      ctx.fillText('RESPONSÁVEL', f(2), y);
+      ctx.font = `bold ${f(2.5)}px Arial`;
+      ctx.fillText(responsavel, f(2), y + f(2.5), f(25));
+      // Porções
+      if (porcoes) {
+        ctx.font = `${f(1.8)}px Arial`; ctx.textAlign = 'center';
+        ctx.fillText('PORÇÕES', W / 2, y);
+        ctx.font = `bold ${f(2.5)}px Arial`;
+        ctx.fillText(porcoes, W / 2, y + f(2.5));
+      }
+      // Peso
+      ctx.font = `${f(1.8)}px Arial`; ctx.textAlign = 'right';
+      ctx.fillText('PESO', W - f(2), y);
+      ctx.font = `bold ${f(2.5)}px Arial`;
+      ctx.fillText(peso || '—', W - f(2), y + f(2.5));
+      y += f(10);
+
+      // Rodapé — empresa
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+      y += f(2);
+      const footH = H - y;
+      ctx.font = `bold ${f(3)}px Arial`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText((empresa.nome || 'FATTORIA').toUpperCase(), W / 2, y + footH * 0.35, W - f(4));
+      if (empresa.cnpj || empresa.endereco) {
+        ctx.font = `${f(1.8)}px Arial`;
+        const cnpjEnd = `${empresa.cnpj ? 'CNPJ ' + empresa.cnpj + ' · ' : ''}${empresa.endereco || ''}`;
+        ctx.fillText(cnpjEnd, W / 2, y + footH * 0.72, W - f(4));
+      }
+
+      resolve(canvas.toDataURL('image/png').split(',')[1]);
+    });
 
     const qz = (window as any).qz;
 
@@ -4103,20 +4206,20 @@ function EtiquetasTab() {
         await qz.websocket.connect();
       }
 
+      const base64 = await buildCanvasLabel();
+
       const config = qz.configs.create('ELGIN L42PRO FULL', {
         size: { width: 60, height: 60 },
         units: 'mm',
         density: 203,
-        interpolation: 'bicubic',
       });
 
-      // Envia um job separado por etiqueta para garantir uma por folha
       for (let i = 0; i < qtdEtiquetas; i++) {
         await qz.print(config, [{
           type: 'pixel',
-          format: 'html',
-          flavor: 'plain',
-          data: singleLabel,
+          format: 'image',
+          flavor: 'base64',
+          data: `data:image/png;base64,${base64}`,
         }]);
       }
 
