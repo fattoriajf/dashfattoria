@@ -4149,7 +4149,7 @@ function EtiquetasTab() {
         y += 4;
 
         // ── BADGE CONSERVAÇÃO ──
-        const bW = 110; const bH = 19; const bX = (W - bW) / 2;
+        const bW = 88; const bH = 19; const bX = (W - bW) / 2;
         ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
         rr(bX, y, bW, bH, 4); ctx.stroke();
         ctx.font = 'bold 8.5px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -4235,6 +4235,7 @@ function EtiquetasTab() {
         size: { width: 60, height: 60 },
         units: 'mm',
         density: 203,
+        colorType: 'blackwhite', // térmicas só imprimem P&B puro — evita pontilhado de cinza
       });
 
       for (let i = 0; i < qtdEtiquetas; i++) {
