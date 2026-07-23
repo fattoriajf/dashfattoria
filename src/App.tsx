@@ -4091,10 +4091,11 @@ function EtiquetasTab() {
         await qz.websocket.connect();
       }
 
-      // Canvas 220×220px = 58mm a 96 DPI
-      // Driver com recuo zerado → só 1mm de margem natural em cada lado
+      // Canvas 226×226px = 60mm a 96 DPI (tamanho real do label)
+      // Driver ignora size do config — o tamanho é sempre 60mm
+      // Padding interno de 8px em cada lado cria margem sem depender do driver
       const buildCanvas = (): Promise<string> => new Promise((resolve) => {
-        const W = 220; const H = 220;
+        const W = 226; const H = 226;
         const c = document.createElement('canvas');
         c.width = W; c.height = H;
         const ctx = c.getContext('2d')!;
@@ -4110,104 +4111,107 @@ function EtiquetasTab() {
           ctx.closePath();
         };
 
-        // Fundo branco com borda externa arredondada (r=8)
-        ctx.fillStyle = '#fff';
-        rr(0, 0, W, H, 8); ctx.fill();
-        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        rr(1, 1, W - 2, H - 2, 7); ctx.stroke();
+        // PAD = margem interna no canvas (o driver sempre imprime 60mm cheio)
+        const PAD = 8;
+        const CW = W - PAD * 2; // área útil: 210px
+        const CH = H - PAD * 2;
 
-        // ── HEADER (nome do insumo) ── 35px
-        const HDR = 35;
-        ctx.fillStyle = '#000';
-        ctx.font = 'bold 14px Arial, sans-serif';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(insumoSel.toUpperCase(), W / 2, HDR / 2, W - 12);
+        // Fundo branco total
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, W, H);
+
+        // Borda externa arredondada dentro do PAD
         ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(1, HDR); ctx.lineTo(W - 1, HDR); ctx.stroke();
+        rr(PAD, PAD, CW, CH, 7); ctx.stroke();
+
+        // ── HEADER ── 33px
+        const HDR = PAD + 33;
+        ctx.fillStyle = '#000';
+        ctx.font = 'bold 13px Arial, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(insumoSel.toUpperCase(), W / 2, PAD + 16, CW - 8);
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(PAD, HDR); ctx.lineTo(W - PAD, HDR); ctx.stroke();
 
         let y = HDR + 4;
 
-        // ── MARCA/FORNECEDOR ── 24px
-        ctx.font = '7.5px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#444';
-        ctx.fillText('MARCA/FORNECEDOR', 6, y + 8);
+        // ── MARCA/FORNECEDOR ──
+        ctx.font = '7px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#555';
+        ctx.fillText('MARCA/FORNECEDOR', PAD + 4, y + 7);
         const marca = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
-        ctx.font = 'bold 9.5px Arial, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = '#000';
-        ctx.fillText(marca, W - 6, y + 8, W - 12);
-        ctx.fillText('', 0, 0); // reset
-        y += 22;
-
-        // linha separadora
-        ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(6, y); ctx.lineTo(W - 6, y); ctx.stroke();
-        y += 5;
-
-        // ── BADGE CONSERVAÇÃO ── 22px com bordas arredondadas
-        const bW = 120; const bH = 20; const bX = (W - bW) / 2;
-        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        rr(bX, y, bW, bH, 4); ctx.stroke();
-        ctx.font = 'bold 9px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#000';
-        ctx.fillText(conservacao === 'resfriado' ? '❄ RESFRIADO' : '🧊 CONGELADO', W / 2, y + bH / 2);
-        y += bH + 5;
-
-        // linha separadora
-        ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(6, y); ctx.lineTo(W - 6, y); ctx.stroke();
-        y += 5;
-
-        // ── MANIPULAÇÃO ── 22px
-        ctx.font = '7.5px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#444';
-        ctx.fillText('MANIPULAÇÃO', 6, y + 7);
-        ctx.font = 'bold 9.5px Arial, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = '#000';
-        ctx.fillText(fmtManip(), W - 6, y + 7);
+        ctx.font = 'bold 9px Arial, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = '#000';
+        ctx.fillText(marca, W - PAD - 4, y + 7, CW - 8);
         y += 20;
 
-        // ── VALIDADE — box com borda arredondada ── 30px
-        const vH = 28;
-        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        rr(3, y, W - 6, vH, 4); ctx.stroke();
-        ctx.font = 'bold 8px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#000';
-        ctx.fillText('VALIDADE', 9, y + vH / 2);
-        ctx.font = 'bold 11px Arial, sans-serif'; ctx.textAlign = 'right';
-        ctx.fillText(fmtDT(validadeDT), W - 9, y + vH / 2);
-        y += vH + 4;
-
-        // linha separadora
         ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(6, y); ctx.lineTo(W - 6, y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(PAD + 4, y); ctx.lineTo(W - PAD - 4, y); ctx.stroke();
         y += 4;
 
-        // ── RESPONSÁVEL / PORÇÕES / PESO ── 28px
-        ctx.fillStyle = '#444'; ctx.textBaseline = 'top';
-        ctx.font = '7px Arial, sans-serif'; ctx.textAlign = 'left';
-        ctx.fillText('RESPONSÁVEL', 6, y);
-        ctx.font = 'bold 9px Arial, sans-serif'; ctx.fillStyle = '#000';
-        ctx.fillText(responsavel, 6, y + 9, 80);
+        // ── BADGE CONSERVAÇÃO ──
+        const bW = 110; const bH = 19; const bX = (W - bW) / 2;
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+        rr(bX, y, bW, bH, 4); ctx.stroke();
+        ctx.font = 'bold 8.5px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#000';
+        ctx.fillText(conservacao === 'resfriado' ? '❄ RESFRIADO' : '🧊 CONGELADO', W / 2, y + bH / 2);
+        y += bH + 4;
+
+        ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(PAD + 4, y); ctx.lineTo(W - PAD - 4, y); ctx.stroke();
+        y += 4;
+
+        // ── MANIPULAÇÃO ──
+        ctx.font = '7px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#555';
+        ctx.fillText('MANIPULAÇÃO', PAD + 4, y + 7);
+        ctx.font = 'bold 9px Arial, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = '#000';
+        ctx.fillText(fmtManip(), W - PAD - 4, y + 7);
+        y += 18;
+
+        // ── VALIDADE ──
+        const vH = 26;
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+        rr(PAD + 2, y, CW - 4, vH, 4); ctx.stroke();
+        ctx.font = 'bold 7.5px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#000';
+        ctx.fillText('VALIDADE', PAD + 7, y + vH / 2);
+        ctx.font = 'bold 10px Arial, sans-serif'; ctx.textAlign = 'right';
+        ctx.fillText(fmtDT(validadeDT), W - PAD - 7, y + vH / 2);
+        y += vH + 4;
+
+        ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(PAD + 4, y); ctx.lineTo(W - PAD - 4, y); ctx.stroke();
+        y += 4;
+
+        // ── RESPONSÁVEL / PORÇÕES / PESO ──
+        ctx.fillStyle = '#555'; ctx.textBaseline = 'top';
+        ctx.font = '6.5px Arial, sans-serif'; ctx.textAlign = 'left';
+        ctx.fillText('RESPONSÁVEL', PAD + 4, y);
+        ctx.font = 'bold 8.5px Arial, sans-serif'; ctx.fillStyle = '#000';
+        ctx.fillText(responsavel, PAD + 4, y + 8, 72);
         if (porcoes) {
-          ctx.font = '7px Arial, sans-serif'; ctx.fillStyle = '#444'; ctx.textAlign = 'center';
+          ctx.font = '6.5px Arial, sans-serif'; ctx.fillStyle = '#555'; ctx.textAlign = 'center';
           ctx.fillText('PORÇÕES', W / 2, y);
-          ctx.font = 'bold 9px Arial, sans-serif'; ctx.fillStyle = '#000';
-          ctx.fillText(porcoes, W / 2, y + 9);
+          ctx.font = 'bold 8.5px Arial, sans-serif'; ctx.fillStyle = '#000';
+          ctx.fillText(porcoes, W / 2, y + 8);
         }
-        ctx.font = '7px Arial, sans-serif'; ctx.fillStyle = '#444'; ctx.textAlign = 'right';
-        ctx.fillText('PESO', W - 6, y);
-        ctx.font = 'bold 9px Arial, sans-serif'; ctx.fillStyle = '#000';
-        ctx.fillText(peso || '—', W - 6, y + 9);
-        y += 26;
+        ctx.font = '6.5px Arial, sans-serif'; ctx.fillStyle = '#555'; ctx.textAlign = 'right';
+        ctx.fillText('PESO', W - PAD - 4, y);
+        ctx.font = 'bold 8.5px Arial, sans-serif'; ctx.fillStyle = '#000';
+        ctx.fillText(peso || '—', W - PAD - 4, y + 8);
+        y += 24;
 
         // ── RODAPÉ ──
         ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(1, y); ctx.lineTo(W - 1, y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
         y += 2;
-        const footH = H - y - 2;
-        ctx.font = 'bold 10px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        const footH = (H - PAD) - y;
+        ctx.font = 'bold 9.5px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillStyle = '#000';
-        ctx.fillText((empresa.nome || 'FATTORIA').toUpperCase(), W / 2, y + footH * 0.4, W - 12);
+        ctx.fillText((empresa.nome || 'FATTORIA').toUpperCase(), W / 2, y + footH * 0.4, CW - 8);
         if (empresa.cnpj || empresa.endereco) {
-          ctx.font = '6.5px Arial, sans-serif';
+          ctx.font = '6px Arial, sans-serif';
           const rodape = `${empresa.cnpj ? 'CNPJ ' + empresa.cnpj + ' · ' : ''}${empresa.endereco || ''}`;
           ctx.fillText(rodape, W / 2, y + footH * 0.75, W - 12);
         }
@@ -4217,18 +4221,18 @@ function EtiquetasTab() {
 
       const base64 = await buildCanvas();
 
-      // 58mm a 96 DPI = 220px — driver com recuo zerado, sem margin CSS
+      // 60mm a 96 DPI = 226px — tamanho real do label, margem embutida no canvas
       const printHTML = `<!DOCTYPE html><html><head>
         <style>
-          @page { size: 58mm 58mm; margin: 0; }
+          @page { size: 60mm 60mm; margin: 0; }
           * { margin: 0; padding: 0; }
-          html, body { width: 220px; height: 220px; overflow: hidden; background: #fff; }
-          img { display: block; width: 220px; height: 220px; }
+          html, body { width: 226px; height: 226px; overflow: hidden; background: #fff; }
+          img { display: block; width: 226px; height: 226px; }
         </style>
       </head><body><img src="data:image/png;base64,${base64}" /></body></html>`;
 
       const config = qz.configs.create('ELGIN L42PRO FULL', {
-        size: { width: 58, height: 58 },
+        size: { width: 60, height: 60 },
         units: 'mm',
         density: 203,
       });
