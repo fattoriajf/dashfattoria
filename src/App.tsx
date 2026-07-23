@@ -4208,6 +4208,14 @@ function EtiquetasTab() {
 
       const base64 = await buildCanvasLabel();
 
+      const htmlContent = `<!DOCTYPE html><html><head>
+        <style>
+          @page { size: 60mm 60mm; margin: 0; }
+          body { margin: 0; padding: 0; }
+          img { width: 60mm; height: 60mm; display: block; }
+        </style>
+      </head><body><img src="data:image/png;base64,${base64}" /></body></html>`;
+
       const config = qz.configs.create('ELGIN L42PRO FULL', {
         size: { width: 60, height: 60 },
         units: 'mm',
@@ -4217,9 +4225,9 @@ function EtiquetasTab() {
       for (let i = 0; i < qtdEtiquetas; i++) {
         await qz.print(config, [{
           type: 'pixel',
-          format: 'image',
-          flavor: 'base64',
-          data: base64,
+          format: 'html',
+          flavor: 'plain',
+          data: htmlContent,
         }]);
       }
 
