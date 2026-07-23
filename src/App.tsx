@@ -3997,7 +3997,7 @@ function EtiquetasTab() {
   const validadeDT = calcValidade();
 
   // ── Impressão ──
-  const handlePrint = () => {
+  const handlePrint = async () => {
     if (!insumoSel) { alert('Selecione um insumo.'); return; }
     if (!responsavel.trim()) { alert('Informe o responsável.'); return; }
 
@@ -4061,32 +4061,44 @@ function EtiquetasTab() {
 
     const etiquetas = Array.from({length: qtdEtiquetas}, (_,i) => etiquetaHTML(i)).join('');
 
-    // Remove iframe anterior se existir
-    const old = document.getElementById('etiqueta-print-frame');
-    if (old) old.remove();
-
-    // Cria iframe oculto na mesma janela (necessário para --kiosk-printing funcionar)
-    const iframe = document.createElement('iframe');
-    iframe.id = 'etiqueta-print-frame';
-    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:0;height:0;border:0;';
-    document.body.appendChild(iframe);
-
-    const doc = iframe.contentDocument || (iframe.contentWindow as any)?.document;
-    if (!doc) { alert('Erro ao preparar impressão.'); return; }
-
-    doc.open();
-    doc.write(`<!DOCTYPE html><html><head><title>Etiqueta</title>
+    const htmlContent = `<!DOCTYPE html><html><head>
       <style>
         @page { size: 60mm 60mm; margin: 0; }
         body { margin: 0; padding: 0; background: #fff; }
       </style>
-    </head><body>${etiquetas}</body></html>`);
-    doc.close();
+    </head><body>${etiquetas}</body></html>`;
 
-    setTimeout(() => {
-      (iframe.contentWindow as any)?.print();
-      setTimeout(() => iframe.remove(), 1000);
-    }, 300);
+    const qz = (window as any).qz;
+
+    if (!qz) {
+      alert('QZ Tray não encontrado. Verifique se está instalado e rodando no tablet.');
+      return;
+    }
+
+    try {
+      // Permite conexão sem certificado assinado (uso interno)
+      qz.security.setCertificatePromise((resolve: any) => resolve(''));
+      qz.security.setSignaturePromise(() => (resolve: any) => resolve(''));
+
+      if (!qz.websocket.isActive()) {
+        await qz.websocket.connect();
+      }
+
+      const config = qz.configs.create('ELGIN L42PRO FULL', {
+        size: { width: 60, height: 60 },
+        units: 'mm',
+      });
+
+      await qz.print(config, [{
+        type: 'pixel',
+        format: 'html',
+        flavor: 'plain',
+        data: htmlContent,
+      }]);
+
+    } catch (err: any) {
+      alert(`Erro ao imprimir: ${String(err)}`);
+    }
   };
 
   // ── salvar empresa ──
