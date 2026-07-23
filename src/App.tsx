@@ -4091,10 +4091,10 @@ function EtiquetasTab() {
         await qz.websocket.connect();
       }
 
-      // Canvas 226×226px = 60mm a 96 DPI (DPI do QZ Tray HTML)
-      // Layout calculado para caber exatamente nos 226px com cantos arredondados
+      // Canvas 208×208px = 55mm a 96 DPI
+      // Papel físico 60×60mm → 2,5mm de margem natural em cada lado
       const buildCanvas = (): Promise<string> => new Promise((resolve) => {
-        const W = 226; const H = 226;
+        const W = 208; const H = 208;
         const c = document.createElement('canvas');
         c.width = W; c.height = H;
         const ctx = c.getContext('2d')!;
@@ -4217,22 +4217,19 @@ function EtiquetasTab() {
 
       const base64 = await buildCanvas();
 
-      // QZ Tray renderiza HTML a 96 DPI → 60mm = 226px
-      // margin-left/top: compensam a margem física não-imprimível da cabeça térmica (~2mm)
-      // Ajuste OFFSET_LEFT e OFFSET_TOP se ainda cortar (cada px = ~0.26mm)
-      const OFFSET_LEFT = 8; // px → ~2mm
-      const OFFSET_TOP  = 8; // px → ~2mm
+      // Papel físico: 60×60mm. Imprimimos em 55×55mm → 2,5mm de margem natural em cada lado
+      // 55mm a 96 DPI = 208px
       const printHTML = `<!DOCTYPE html><html><head>
         <style>
-          @page { size: 60mm 60mm; margin: 0; }
+          @page { size: 55mm 55mm; margin: 0; }
           * { margin: 0; padding: 0; }
-          html, body { width: 226px; height: 226px; overflow: hidden; background: #fff; }
-          img { display: block; width: 226px; height: 226px; margin-left: ${OFFSET_LEFT}px; margin-top: ${OFFSET_TOP}px; }
+          html, body { width: 208px; height: 208px; overflow: hidden; background: #fff; }
+          img { display: block; width: 208px; height: 208px; }
         </style>
       </head><body><img src="data:image/png;base64,${base64}" /></body></html>`;
 
       const config = qz.configs.create('ELGIN L42PRO FULL', {
-        size: { width: 60, height: 60 },
+        size: { width: 55, height: 55 },
         units: 'mm',
         density: 203,
       });
