@@ -4062,7 +4062,7 @@ function EtiquetasTab() {
     const singleLabel = `<!DOCTYPE html><html><head>
       <style>
         @page { size: 60mm 60mm; margin: 0; }
-        body { margin: 0; padding: 0; background: #fff; zoom: 2; }
+        body { margin: 0; padding: 0; background: #fff; }
         * {
           -webkit-font-smoothing: none !important;
           font-smooth: never !important;
