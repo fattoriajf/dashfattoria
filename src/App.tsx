@@ -4091,9 +4091,100 @@ function EtiquetasTab() {
         await qz.websocket.connect();
       }
 
-      // Canvas 226×226px = 60mm a 96 DPI (tamanho real do label)
-      // Driver ignora size do config — o tamanho é sempre 60mm
-      // Padding interno de 8px em cada lado cria margem sem depender do driver
+      // ── ZPL: linguagem nativa da impressora térmica ──
+      // Sem upscale, sem HTML, sem canvas — renderizado a 203 DPI diretamente
+      const buildZPL = () => {
+        const D = Math.round(203 / 25.4); // 8 dots/mm
+        const mm = (n: number) => Math.round(n * D);
+        const W = mm(60); const H = mm(60); // 480 × 480 dots
+        const P = mm(2);  // padding 2mm = 16 dots
+        const CW = W - P * 2; // 448 dots de área útil
+        const x0 = P + 4;     // margem interna esquerda
+
+        const marca = `${insumoAtual?.marca_fornecedor || ''}${insumoAtual?.sif ? ' SIF:' + insumoAtual.sif : ''}` || '—';
+        const conservBadge = conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO';
+
+        // ^FB w,lines,spacing,justify — bloco de texto com alinhamento
+        const fb = (x: number, y: number, w: number, h: number, sz: number, align: string, txt: string) =>
+          `^FO${x},${y}^FB${w},1,0,${align}^A0N,${h},${sz}^FD${txt}^FS`;
+        const line = (x: number, y: number, w: number, t = 2) =>
+          `^FO${x},${y}^GB${w},${t},${t}^FS`;
+        const rect = (x: number, y: number, w: number, h: number, t = 3) =>
+          `^FO${x},${y}^GB${w},${h},${t}^FS`;
+
+        let y = P;
+        const z: string[] = [
+          '^XA',
+          `^PW${W}`,
+          `^LL${H}`,
+          '^CI28',       // UTF-8 para acentos
+          '^LH0,0',
+          rect(P, P, CW, CW - 1), // borda externa
+        ];
+
+        // HEADER — nome do insumo
+        y = P + 6;
+        z.push(fb(x0, y, CW - 8, 38, 30, 'C', insumoSel.toUpperCase()));
+        y += 48;
+        z.push(line(P, y, CW));
+        y += 6;
+
+        // MARCA/FORNECEDOR
+        z.push(fb(x0, y, 90, 22, 18, 'L', 'MARCA:'));
+        z.push(fb(x0, y, CW - 8, 22, 18, 'R', marca));
+        y += 28;
+        z.push(line(x0, y, CW - 8, 1));
+        y += 5;
+
+        // BADGE CONSERVAÇÃO
+        const bW = mm(32); const bH = 28;
+        const bX = Math.round((W - bW) / 2);
+        z.push(rect(bX, y, bW, bH, 2));
+        z.push(fb(bX, y + 3, bW, 22, 18, 'C', conservBadge));
+        y += bH + 5;
+        z.push(line(x0, y, CW - 8, 1));
+        y += 5;
+
+        // MANIPULAÇÃO
+        z.push(fb(x0, y, 90, 22, 18, 'L', 'MANIP.:'));
+        z.push(fb(x0, y, CW - 8, 22, 18, 'R', fmtManip()));
+        y += 28;
+
+        // VALIDADE — caixa destacada
+        const vH = 36;
+        z.push(rect(P, y, CW, vH, 2));
+        z.push(fb(x0, y + 7, 120, 24, 20, 'L', 'VALIDADE'));
+        z.push(fb(x0, y + 7, CW - 8, 24, 20, 'R', fmtDT(validadeDT)));
+        y += vH + 5;
+        z.push(line(x0, y, CW - 8, 1));
+        y += 5;
+
+        // RESPONSÁVEL / PORÇÕES / PESO
+        z.push(fb(x0, y, 130, 20, 16, 'L', 'RESP.:'));
+        z.push(fb(x0, y + 22, 130, 26, 20, 'L', responsavel));
+        if (porcoes) {
+          z.push(fb(Math.round(W / 2) - 50, y, 100, 20, 16, 'C', 'PORC.:'));
+          z.push(fb(Math.round(W / 2) - 50, y + 22, 100, 26, 20, 'C', porcoes));
+        }
+        z.push(fb(x0, y, CW - 8, 20, 16, 'R', 'PESO:'));
+        z.push(fb(x0, y + 22, CW - 8, 26, 20, 'R', peso || '—'));
+        y += 52;
+
+        // RODAPÉ
+        z.push(line(P, y, CW));
+        y += 5;
+        z.push(fb(x0, y, CW - 8, 30, 24, 'C', (empresa.nome || 'FATTORIA').toUpperCase()));
+        if (empresa.cnpj || empresa.endereco) {
+          y += 36;
+          const rodape = `${empresa.cnpj ? empresa.cnpj + ' ' : ''}${empresa.endereco || ''}`;
+          z.push(fb(x0, y, CW - 8, 20, 16, 'C', rodape));
+        }
+
+        z.push('^XZ');
+        return z.join('\n');
+      };
+
+      // ── Canvas (fallback, não usado) ──
       const buildCanvas = (): Promise<string> => new Promise((resolve) => {
         const W = 226; const H = 226;
         const c = document.createElement('canvas');
@@ -4216,31 +4307,17 @@ function EtiquetasTab() {
         resolve(c.toDataURL('image/png').split(',')[1]);
       });
 
-      const base64 = await buildCanvas();
+      const zpl = buildZPL();
 
-      // 60mm a 96 DPI = 226px — tamanho real do label, margem embutida no canvas
-      const printHTML = `<!DOCTYPE html><html><head>
-        <style>
-          @page { size: 60mm 60mm; margin: 0; }
-          * { margin: 0; padding: 0; }
-          html, body { width: 226px; height: 226px; overflow: hidden; background: #fff; }
-          img { display: block; width: 226px; height: 226px; }
-        </style>
-      </head><body><img src="data:image/png;base64,${base64}" /></body></html>`;
-
-      const config = qz.configs.create('ELGIN L42PRO FULL', {
-        size: { width: 60, height: 60 },
-        units: 'mm',
-        density: 203,
-        colorType: 'blackwhite', // térmicas só imprimem P&B puro — evita pontilhado de cinza
-      });
+      // Raw ZPL — impressora renderiza a 203 DPI nativamente, sem upscale
+      const config = qz.configs.create('ELGIN L42PRO FULL');
 
       for (let i = 0; i < qtdEtiquetas; i++) {
         await qz.print(config, [{
-          type: 'pixel',
-          format: 'html',
+          type: 'raw',
+          format: 'plain',
           flavor: 'plain',
-          data: printHTML,
+          data: zpl,
         }]);
       }
 
