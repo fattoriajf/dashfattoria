@@ -4091,10 +4091,10 @@ function EtiquetasTab() {
         await qz.websocket.connect();
       }
 
-      // Canvas 208×208px = 55mm a 96 DPI
-      // Papel físico 60×60mm → 2,5mm de margem natural em cada lado
+      // Canvas 189×189px = 50mm a 96 DPI
+      // Papel físico 60×60mm → 5mm de margem em cada lado
       const buildCanvas = (): Promise<string> => new Promise((resolve) => {
-        const W = 208; const H = 208;
+        const W = 189; const H = 189;
         const c = document.createElement('canvas');
         c.width = W; c.height = H;
         const ctx = c.getContext('2d')!;
@@ -4217,19 +4217,19 @@ function EtiquetasTab() {
 
       const base64 = await buildCanvas();
 
-      // Papel físico: 60×60mm. Imprimimos em 55×55mm → 2,5mm de margem natural em cada lado
-      // 55mm a 96 DPI = 208px
+      // Papel físico: 60×60mm. Imprimimos em 50×50mm → 5mm de margem em cada lado
+      // 50mm a 96 DPI = 189px
       const printHTML = `<!DOCTYPE html><html><head>
         <style>
-          @page { size: 55mm 55mm; margin: 0; }
+          @page { size: 50mm 50mm; margin: 0; }
           * { margin: 0; padding: 0; }
-          html, body { width: 208px; height: 208px; overflow: hidden; background: #fff; }
-          img { display: block; width: 208px; height: 208px; }
+          html, body { width: 189px; height: 189px; overflow: hidden; background: #fff; }
+          img { display: block; width: 189px; height: 189px; }
         </style>
       </head><body><img src="data:image/png;base64,${base64}" /></body></html>`;
 
       const config = qz.configs.create('ELGIN L42PRO FULL', {
-        size: { width: 55, height: 55 },
+        size: { width: 50, height: 50 },
         units: 'mm',
         density: 203,
       });
