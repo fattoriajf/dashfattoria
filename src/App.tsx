@@ -4075,10 +4075,73 @@ function EtiquetasTab() {
       return;
     }
 
+    const QZ_CERT = `-----BEGIN CERTIFICATE-----
+MIIECzCCAvOgAwIBAgIGAZ+Mlx5+MA0GCSqGSIb3DQEBCwUAMIGiMQswCQYDVQQG
+EwJVUzELMAkGA1UECAwCTlkxEjAQBgNVBAcMCUNhbmFzdG90YTEbMBkGA1UECgwS
+UVogSW5kdXN0cmllcywgTExDMRswGQYDVQQLDBJRWiBJbmR1c3RyaWVzLCBMTEMx
+HDAaBgkqhkiG9w0BCQEWDXN1cHBvcnRAcXouaW8xGjAYBgNVBAMMEVFaIFRyYXkg
+RGVtbyBDZXJ0MB4XDTI2MDcyMjAxMjkwMVoXDTQ2MDcyMjAxMjkwMVowgaIxCzAJ
+BgNVBAYTAlVTMQswCQYDVQQIDAJOWTESMBAGA1UEBwwJQ2FuYXN0b3RhMRswGQYD
+VQQKDBJRWiBJbmR1c3RyaWVzLCBMTEMxGzAZBgNVBAsMElFaIEluZHVzdHJpZXMs
+IExMQzEcMBoGCSqGSIb3DQEJARYNc3VwcG9ydEBxei5pbzEaMBgGA1UEAwwRUVog
+VHJheSBEZW1vIENlcnQwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC2
+rJH/Q6zb3/kgcGK6lJDBSuB89vcgFPpBVTl4Nd/DdkMjk2XngBnTjNc7fNRIjh4U
+Q3bEDxDAzE4fZINLKCeCc3AMK5Iihef0KILw2WwzKuqNKtok84Ft4unAj62RAgpo
+V5qrtMRXvgf7zyzimtwf0NghbW3sJE6ooWshx0CmezvhM6pmQvX+Tintsd/N1bea
+jDVH/RjCXQNvWomwOWckZ7URl1OEBz7zSSFgKUewY2Ftg7wOUHgVGG5cI3BhwNwF
+i4qZu2CD4C9T696l4+pw5+zK3MuBYzgUDiHkA3deYNDrYZfPaMDejsqFuhLodQ3I
+e+Bi1/2OHRD9Z/PalIzzAgMBAAGjRTBDMBIGA1UdEwEB/wQIMAYBAf8CAQEwDgYD
+VR0PAQH/BAQDAgEGMB0GA1UdDgQWBBQTV+4ocqsfA72sM7RhFYZyynvumjANBgkq
+hkiG9w0BAQsFAAOCAQEAgm1jgpmTCdP065cyGJdK9B4jPDZ441TemcU/Elrcl7Pd
+QTbgoHYdoRo3p7Bv/h5oVbCZm02veNf3PBcfhJtlhphMMwX8FFS7HezN7XAQDSNt
+q0Zoob7bPEQgwzs0wNMUPV66lKxS3T8/zQDGbftMNpB8pqH5NwmOceHlJ1kcusCr
+EvyRbPdJ7tlvR/GA4tmelEGDxqCElAUU6D9PxvwmrhTHHIN+GZcgoM7QNnOp1Wac
+vOA6KFg6VzL4sLXQwGzT+x97Y5iSMOC7/8wiomrV9sEpsBhblCQjuEOMfPcqArSl
+nKV8cDOfAAk/jGe5WAkWvasiqor4MsdPdSiOjRxdSA==
+-----END CERTIFICATE-----`;
+
+    // Chave privada do QZ Tray Demo Certificate (pública por design — apenas para testes)
+    const QZ_PRIVATE_KEY = `-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEAtqyR/0Os29/5IHBiupSQwUrgfPb3IBT6QVU5eDXfw3ZDI5Nl
+54AZ04zXO3zUSI4eFEN2xA8QwMxOH2SDSygngnNwDCuSIoXn9CiC8NlsMyrojSra
+JPOBbeLpwI+tkQIKaFeaq7TEV74H+88s4prcH9DYTW1t7CROqKFrIcdApns74TOq
+ZkL1/k4p7bHfzdW3mow1R/0Ywl0Db1qJsDlnJGe1EZdThAc+80khYClHsGNhbYO
+8DlB4FRhuXCNwYcDcBYuKmbgIPhL1Pr3qXj6nDn7Mrcy4FjOBQOIeQDd15g0Oth
+ls9owN6OyoW6Euh1Dch74GLX/Y4dEP1n89qUjPMCAwEAAQKCAQBhzOPEFnGHiJzl
+BfMPAmpGI5EEOSiJmFZdE0Nxz0gSZ8SFJVBSJ7TLQG7dEA8j7u5cFEA5wPh3BhJG
+p6hA7gJJ/b9LcY0NlBR0W9fF0Z2NkGpYsA5oiK5MCF0M4zfmWOL1ky4r9DVJ0B+Y
+VGpWFR98BZm1YRMzXWJ5x4gHnGalV55mCjpf4y2mkjfgX+MOaRf7H+3VZmv/tYZ
++Y7A2T0z0GLQF2OxDyoIVPZ5C8vNGFNyRK4T0Dj5yp2KN2GKJZ3C6w5jxfFZBrP
+w4e/FsAXJMPONFP0WcSsF6i94UJHRi7KTEIwRn97DlE5X8rWtEUWALdnAzlZ3WZh
+AoGBAONIl3lnO5dlyCWqAlXz3HaxijwfRBPi8kVsf4Hm0RWdO8HQI2WqUGvFOVq6
+4YFSY0gKdEq79ItqPN5Ub3CkgN+ZrSe0H8GVJQ/F41ZBJ6hC5/cT3wuFjimRCrj5
+8lRMrZ7vJKt8DX6D+eFN8M9Ol8g5NjDVQVQ2jY0jEbDwT9mRAoGBAM4k8mymH+h+
+CcgwCJwGjqhNRkVEHYrW5yvAU/UG1PvjQYSmXVXERVKqECKBcJlJfphvL9kbfh2Y
+JKgjGmNV2YWd0yYoqT5EMSqKMxoMVpR5qZJP0hFPSv/cIFRWJoRoKkQj9y7D5Wb/
+FYJQ/h8jgsMCiZ6YbZS1TBa0nGgJE0dXAoGASLRBiYnX/hnGBuLvuTHbpO1LFKVY
+dXNRgXWOJ4/8+E6iRBLa5p2D4mVhD8+zB5jF1h0h8GVlmjLJt4GHaZKjlJ1MDuW6
+E3fJyuGPEi5TRzP+cR6mNLaMeoCRCxlOY4o5hHANhM9lN3/tCFUvF0UlA7fTBzBU
+jKqiznuCe8ECgYEAuE7iJLmVKkb84l8j/7zENrq1hE9BEjCEZJJVBxnZ4UMqU0yY
+WFVqB4TK44HzgVvA9rXy8vJqD3XVbJO4l7XSTH/GE3JfAJr5GlPVOVxUDGUwJBXN
+jbVHqS7b4k+UwJpXdKRD4N6jDqNRlsFDWn4hD3wT+UjJ3K1YRrD+T3cCgYB4T3OY
+E2kGFJk5GGjdPJIJ3wZo5xoHFPcFsFV4MDz0VwYFamY3mFQqjFSaBUixR5c/C+5P
+qFJCsU9GLPJ1I3Uf2CiHGYKxLUxV4FQXvJRlDWHp0s7dNKqr0M5r7wEfECH+JBHd
+Hkv3oXU0OaJG0HPBV9AvL2Wbl/FAdEjrYAoZPw==
+-----END RSA PRIVATE KEY-----`;
+
     try {
-      // Permite conexão sem certificado assinado (uso interno)
-      qz.security.setCertificatePromise((resolve: any) => resolve(''));
-      qz.security.setSignaturePromise(() => (resolve: any) => resolve(''));
+      qz.security.setCertificatePromise((resolve: any) => resolve(QZ_CERT));
+      qz.security.setSignaturePromise((toSign: any) => (resolve: any, reject: any) => {
+        try {
+          const KJUR = (window as any).KJUR;
+          const sig = new KJUR.crypto.Signature({ alg: 'SHA1withRSA' });
+          sig.init(QZ_PRIVATE_KEY);
+          sig.updateString(toSign);
+          resolve((window as any).hex2b64(sig.sign()));
+        } catch (e) {
+          reject(e);
+        }
+      });
 
       if (!qz.websocket.isActive()) {
         await qz.websocket.connect();
