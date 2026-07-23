@@ -4217,14 +4217,17 @@ function EtiquetasTab() {
 
       const base64 = await buildCanvas();
 
-      // QZ Tray renderiza HTML sempre a 96 DPI → 60mm = 226px
-      // Canvas desenhado a 226px para corresponder 1:1
+      // QZ Tray renderiza HTML a 96 DPI → 60mm = 226px
+      // margin-left/top: compensam a margem física não-imprimível da cabeça térmica (~2mm)
+      // Ajuste OFFSET_LEFT e OFFSET_TOP se ainda cortar (cada px = ~0.26mm)
+      const OFFSET_LEFT = 8; // px → ~2mm
+      const OFFSET_TOP  = 8; // px → ~2mm
       const printHTML = `<!DOCTYPE html><html><head>
         <style>
           @page { size: 60mm 60mm; margin: 0; }
-          * { margin: 0; padding: 0; box-sizing: border-box; }
+          * { margin: 0; padding: 0; }
           html, body { width: 226px; height: 226px; overflow: hidden; background: #fff; }
-          img { display: block; width: 226px; height: 226px; }
+          img { display: block; width: 226px; height: 226px; margin-left: ${OFFSET_LEFT}px; margin-top: ${OFFSET_TOP}px; }
         </style>
       </head><body><img src="data:image/png;base64,${base64}" /></body></html>`;
 
