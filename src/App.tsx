@@ -4091,103 +4091,8 @@ function EtiquetasTab() {
         await qz.websocket.connect();
       }
 
-      // ── TSPL: linguagem nativa Elgin/TSC — renderizado a 203 DPI pelo firmware ──
-      const buildTSPL = () => {
-        const W = 480; const H = 480;  // 60mm × 8 dots/mm
-        const PAD = 16;                 // 2mm margem
-        const R = W - PAD;              // borda direita = 464
-        const B = H - PAD;              // borda inferior = 464
-
-        const marca = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' SIF:' + insumoAtual.sif : ''}`;
-        const conservBadge = conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO';
-        const nomeInsumo = insumoSel.toUpperCase();
-        const validadeStr = fmtDT(validadeDT);
-        const resp = responsavel || '—';
-        const pesoStr = peso || '—';
-        const nomeEmp = (empresa.nome || 'FATTORIA').toUpperCase();
-
-        // Largura em dots por caractere (escala 1×1):
-        // font "1" = 8w×12h  "2" = 8w×16h  "3" = 10w×24h  "4" = 12w×24h
-        const fw: Record<string, number> = { '1': 8, '2': 8, '3': 10, '4': 12 };
-        const fh: Record<string, number> = { '1': 12, '2': 16, '3': 24, '4': 24 };
-        const cx = (text: string, f: string) =>
-          Math.max(PAD + 4, Math.round((W - text.length * fw[f]) / 2));
-
-        const t: string[] = [
-          `SIZE 60 mm,60 mm`,
-          `GAP 0 mm,0 mm`,
-          `DIRECTION 0,0`,
-          `REFERENCE 0,0`,
-          `CODEPAGE 1252`,
-          `CLS`,
-          `BOX ${PAD},${PAD},${R},${B},3`,
-        ];
-
-        let y = PAD + 6; // y=22
-
-        // HEADER — nome do insumo
-        t.push(`TEXT ${cx(nomeInsumo, '4')},${y},"4",0,1,1,"${nomeInsumo}"`);
-        y += fh['4'] + 12; // y=58
-        t.push(`BAR ${PAD},${y},${W - PAD * 2},2`);
-        y += 10; // y=68
-
-        // MARCA/FORNECEDOR
-        t.push(`TEXT ${PAD + 4},${y},"2",0,1,1,"MARCA: ${marca}"`);
-        y += fh['2'] + 10; // y=94
-        t.push(`BAR ${PAD + 4},${y},${W - PAD * 2 - 8},1`);
-        y += 8; // y=102
-
-        // BADGE CONSERVAÇÃO
-        const bW = Math.max(130, conservBadge.length * fw['3'] + 20);
-        const bH = 32;
-        const bX = Math.round((W - bW) / 2);
-        t.push(`BOX ${bX},${y},${bX + bW},${y + bH},2`);
-        t.push(`TEXT ${cx(conservBadge, '3')},${y + 4},"3",0,1,1,"${conservBadge}"`);
-        y += bH + 8; // y=142
-        t.push(`BAR ${PAD + 4},${y},${W - PAD * 2 - 8},1`);
-        y += 8; // y=150
-
-        // MANIPULAÇÃO
-        t.push(`TEXT ${PAD + 4},${y},"2",0,1,1,"MANIP.: ${fmtManip()}"`);
-        y += fh['2'] + 10; // y=176
-
-        // VALIDADE — caixa destacada
-        const vH = 42;
-        t.push(`BOX ${PAD},${y},${R},${y + vH},2`);
-        t.push(`TEXT ${PAD + 6},${y + 9},"3",0,1,1,"VALIDADE"`);
-        const vX = Math.max(PAD + 110, R - 6 - validadeStr.length * fw['3']);
-        t.push(`TEXT ${vX},${y + 9},"3",0,1,1,"${validadeStr}"`);
-        y += vH + 8; // y=226
-        t.push(`BAR ${PAD + 4},${y},${W - PAD * 2 - 8},1`);
-        y += 8; // y=234
-
-        // RESPONSÁVEL / PORÇÕES / PESO
-        t.push(`TEXT ${PAD + 4},${y},"1",0,1,1,"RESP.:"`);
-        t.push(`TEXT ${PAD + 4},${y + fh['1'] + 2},"2",0,1,1,"${resp}"`);
-        if (porcoes) {
-          t.push(`TEXT ${Math.round(W / 2) - 40},${y},"1",0,1,1,"PORC.:"`);
-          t.push(`TEXT ${Math.round(W / 2) - 30},${y + fh['1'] + 2},"2",0,1,1,"${porcoes}"`);
-        }
-        t.push(`TEXT ${R - 6 - 5 * fw['1']},${y},"1",0,1,1,"PESO:"`);
-        t.push(`TEXT ${Math.max(R - 80, R - 6 - pesoStr.length * fw['2'])},${y + fh['1'] + 2},"2",0,1,1,"${pesoStr}"`);
-        y += fh['1'] + fh['2'] + 14; // y=276
-
-        // RODAPÉ
-        t.push(`BAR ${PAD},${y},${W - PAD * 2},2`);
-        y += 8; // y=284
-        t.push(`TEXT ${cx(nomeEmp, '3')},${y},"3",0,1,1,"${nomeEmp}"`);
-        if (empresa.cnpj || empresa.endereco) {
-          y += fh['3'] + 4; // y=312
-          const rodape = `${empresa.cnpj ? empresa.cnpj + ' ' : ''}${empresa.endereco || ''}`;
-          t.push(`TEXT ${cx(rodape, '1')},${y},"1",0,1,1,"${rodape}"`);
-        }
-
-        t.push(`PRINT 1,1`);
-        return t.join('\r\n');
-      };
-
-      // ── DIAGNÓSTICO: etiqueta minimalista para confirmar canal de impressão ──
-      alert('CÓDIGO NOVO RODANDO — v3');
+      // ── DIAGNÓSTICO: confirma que novo código chegou e testa canal de impressão ──
+      alert('CÓDIGO NOVO RODANDO — v4');
       const testData = `SIZE 60 mm,60 mm\r\nGAP 0 mm,0 mm\r\nCLS\r\nTEXT 80,200,"4",0,2,2,"TESTE OK"\r\nPRINT 1,1\r\n`;
       console.log('[QZ] Enviando para impressora:', testData);
 
@@ -4196,8 +4101,7 @@ function EtiquetasTab() {
 
       await qz.print(config, [{
         type: 'raw',
-        format: 'plain',
-        flavor: 'plain',
+        format: 'command',
         data: testData,
       }]);
       console.log('[QZ] Print enviado com sucesso');
