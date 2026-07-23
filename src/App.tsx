@@ -4059,11 +4059,11 @@ function EtiquetasTab() {
         </div>
       </div>`;
 
-    // Canvas 480x480px = 60mm a 203 DPI — resolução nativa da impressora
+    // Canvas 454x454px = 60mm a 192 DPI (2x de 96 DPI = qualidade 2x sem estouro de tamanho)
     const buildCanvasLabel = (): Promise<string> => new Promise((resolve) => {
-      const MM = 203 / 25.4; // ~8 dots/mm
-      const W = Math.round(60 * MM); // 480px
-      const H = Math.round(60 * MM); // 480px
+      const MM = (96 * 2) / 25.4; // ~7.56 dots/mm — 2x a resolução CSS
+      const W = Math.round(60 * MM); // ~454px
+      const H = Math.round(60 * MM); // ~454px
       const canvas = document.createElement('canvas');
       canvas.width = W; canvas.height = H;
       const ctx = canvas.getContext('2d')!;
@@ -4212,14 +4212,13 @@ function EtiquetasTab() {
         <style>
           @page { size: 60mm 60mm; margin: 0; }
           html, body { margin: 0; padding: 0; width: 60mm; height: 60mm; overflow: hidden; }
-          img { width: 100%; height: 100%; display: block; object-fit: fill; }
+          img { width: 60mm; height: 60mm; display: block; }
         </style>
       </head><body><img src="data:image/png;base64,${base64}" /></body></html>`;
 
       const config = qz.configs.create('ELGIN L42PRO FULL', {
         size: { width: 60, height: 60 },
         units: 'mm',
-        density: 203,
       });
 
       for (let i = 0; i < qtdEtiquetas; i++) {
