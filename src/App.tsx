@@ -4135,21 +4135,21 @@ function EtiquetasTab() {
 
         let y = HDR + 4;
 
-        // ── MARCA/FORNECEDOR ──
-        ctx.font = 'bold 7.5px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#000';
-        ctx.fillText('MARCA/FORNECEDOR', PAD + 4, y + 7);
+        // ── MARCA/FORNECEDOR ── linha única: label + valor lado a lado
         const marca = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
-        ctx.font = 'bold 9px Arial, sans-serif'; ctx.textAlign = 'right';
-        ctx.fillText(marca, W - PAD - 4, y + 7, CW - 8);
-        y += 20;
+        ctx.font = 'bold 9px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#000';
+        ctx.fillText('MARCA:', PAD + 4, y + 9);
+        ctx.textAlign = 'right';
+        ctx.fillText(marca, W - PAD - 4, y + 9, CW - 50);
+        y += 22;
 
         ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(PAD + 4, y); ctx.lineTo(W - PAD - 4, y); ctx.stroke();
         y += 4;
 
         // ── BADGE CONSERVAÇÃO ──
-        const bW = 88; const bH = 19; const bX = (W - bW) / 2;
+        const bW = 90; const bH = 20; const bX = (W - bW) / 2;
         ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
         rr(bX, y, bW, bH, 4); ctx.stroke();
         ctx.font = 'bold 9px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -4161,19 +4161,19 @@ function EtiquetasTab() {
         ctx.beginPath(); ctx.moveTo(PAD + 4, y); ctx.lineTo(W - PAD - 4, y); ctx.stroke();
         y += 4;
 
-        // ── MANIPULAÇÃO ──
-        ctx.font = 'bold 7.5px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        // ── MANIPULAÇÃO ── label + valor
+        ctx.font = 'bold 9px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
         ctx.fillStyle = '#000';
-        ctx.fillText('MANIPULACAO', PAD + 4, y + 7);
-        ctx.font = 'bold 9px Arial, sans-serif'; ctx.textAlign = 'right';
-        ctx.fillText(fmtManip(), W - PAD - 4, y + 7);
-        y += 18;
+        ctx.fillText('MANIP.:', PAD + 4, y + 9);
+        ctx.textAlign = 'right';
+        ctx.fillText(fmtManip(), W - PAD - 4, y + 9);
+        y += 22;
 
         // ── VALIDADE ──
         const vH = 26;
         ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
         rr(PAD + 2, y, CW - 4, vH, 4); ctx.stroke();
-        ctx.font = 'bold 8px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.font = 'bold 9px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
         ctx.fillStyle = '#000';
         ctx.fillText('VALIDADE', PAD + 7, y + vH / 2);
         ctx.font = 'bold 10px Arial, sans-serif'; ctx.textAlign = 'right';
@@ -4184,35 +4184,32 @@ function EtiquetasTab() {
         ctx.beginPath(); ctx.moveTo(PAD + 4, y); ctx.lineTo(W - PAD - 4, y); ctx.stroke();
         y += 4;
 
-        // ── RESPONSÁVEL / PORÇÕES / PESO ──
+        // ── RESPONSÁVEL / PORÇÕES / PESO ── tudo em 9px
         ctx.fillStyle = '#000'; ctx.textBaseline = 'top';
-        ctx.font = 'bold 7px Arial, sans-serif'; ctx.textAlign = 'left';
-        ctx.fillText('RESPONSAVEL', PAD + 4, y);
-        ctx.font = 'bold 8.5px Arial, sans-serif';
-        ctx.fillText(responsavel, PAD + 4, y + 9, 72);
+        ctx.font = 'bold 9px Arial, sans-serif'; ctx.textAlign = 'left';
+        ctx.fillText('RESP.:', PAD + 4, y);
+        ctx.fillText(responsavel, PAD + 4, y + 11, 80);
         if (porcoes) {
-          ctx.font = 'bold 7px Arial, sans-serif'; ctx.textAlign = 'center';
-          ctx.fillText('PORCOES', W / 2, y);
-          ctx.font = 'bold 8.5px Arial, sans-serif';
-          ctx.fillText(porcoes, W / 2, y + 9);
+          ctx.textAlign = 'center';
+          ctx.fillText('PORC.:', W / 2, y);
+          ctx.fillText(porcoes, W / 2, y + 11);
         }
-        ctx.font = 'bold 7px Arial, sans-serif'; ctx.textAlign = 'right';
-        ctx.fillText('PESO', W - PAD - 4, y);
-        ctx.font = 'bold 8.5px Arial, sans-serif';
-        ctx.fillText(peso || '—', W - PAD - 4, y + 9);
-        y += 24;
+        ctx.textAlign = 'right';
+        ctx.fillText('PESO:', W - PAD - 4, y);
+        ctx.fillText(peso || '—', W - PAD - 4, y + 11);
+        y += 26;
 
         // ── RODAPÉ ──
         ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
         y += 2;
         const footH = (H - PAD) - y;
-        ctx.font = 'bold 9.5px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = 'bold 10px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillStyle = '#000';
-        ctx.fillText((empresa.nome || 'FATTORIA').toUpperCase(), W / 2, y + footH * 0.4, CW - 8);
+        ctx.fillText((empresa.nome || 'FATTORIA').toUpperCase(), W / 2, y + footH * 0.38, CW - 8);
         if (empresa.cnpj || empresa.endereco) {
-          ctx.font = 'bold 6.5px Arial, sans-serif';
-          const rodape = `${empresa.cnpj ? 'CNPJ ' + empresa.cnpj + ' · ' : ''}${empresa.endereco || ''}`;
+          ctx.font = 'bold 9px Arial, sans-serif';
+          const rodape = `${empresa.cnpj ? empresa.cnpj + ' · ' : ''}${empresa.endereco || ''}`;
           ctx.fillText(rodape, W / 2, y + footH * 0.75, W - 12);
         }
 
