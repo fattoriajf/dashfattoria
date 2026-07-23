@@ -4219,7 +4219,7 @@ function EtiquetasTab() {
           type: 'pixel',
           format: 'image',
           flavor: 'base64',
-          data: `data:image/png;base64,${base64}`,
+          data: base64,
         }]);
       }
 
