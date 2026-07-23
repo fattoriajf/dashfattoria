@@ -4091,14 +4091,12 @@ function EtiquetasTab() {
         await qz.websocket.connect();
       }
 
-      // Canvas 480×480px = 60mm a 203 DPI (resolução nativa da impressora)
-      // @page em polegadas: 60mm = 2.3622in → a 203 DPI = 480px exatos
-      // Isso força QZ Tray a renderizar a 203 DPI, sem escalar
+      // Canvas 226×226px = 60mm a 96 DPI (DPI real do QZ Tray HTML)
       const buildCanvas = (): Promise<string> => new Promise((resolve) => {
-        const DPI = 203;
+        const DPI = 96;
         const MM = DPI / 25.4;
-        const W = Math.round(60 * MM); // 480px
-        const H = Math.round(60 * MM); // 480px
+        const W = Math.round(60 * MM); // 226px
+        const H = Math.round(60 * MM); // 226px
         const c = document.createElement('canvas');
         c.width = W; c.height = H;
         const ctx = c.getContext('2d')!;
@@ -4206,14 +4204,14 @@ function EtiquetasTab() {
 
       const base64 = await buildCanvas();
 
-      // 60mm = 2.3622in — @page em polegadas força o QZ Tray a renderizar a 203 DPI
-      // evitando o upscale 96→203 que causava borrão
+      // QZ Tray renderiza HTML sempre a 96 DPI → 60mm = 226px
+      // Canvas desenhado a 226px para corresponder 1:1
       const printHTML = `<!DOCTYPE html><html><head>
         <style>
-          @page { size: 2.3622in 2.3622in; margin: 0; }
-          * { margin: 0; padding: 0; }
-          html, body { width: 480px; height: 480px; overflow: hidden; background: #fff; }
-          img { display: block; width: 480px; height: 480px; }
+          @page { size: 60mm 60mm; margin: 0; }
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          html, body { width: 226px; height: 226px; overflow: hidden; background: #fff; }
+          img { display: block; width: 226px; height: 226px; }
         </style>
       </head><body><img src="data:image/png;base64,${base64}" /></body></html>`;
 
