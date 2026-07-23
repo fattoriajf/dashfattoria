@@ -4211,8 +4211,8 @@ function EtiquetasTab() {
       const htmlContent = `<!DOCTYPE html><html><head>
         <style>
           @page { size: 60mm 60mm; margin: 0; }
-          body { margin: 0; padding: 0; }
-          img { width: 60mm; height: 60mm; display: block; }
+          html, body { margin: 0; padding: 0; width: 60mm; height: 60mm; overflow: hidden; }
+          img { width: 100%; height: 100%; display: block; object-fit: fill; }
         </style>
       </head><body><img src="data:image/png;base64,${base64}" /></body></html>`;
 
