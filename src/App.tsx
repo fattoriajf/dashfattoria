@@ -4059,11 +4059,11 @@ function EtiquetasTab() {
         </div>
       </div>`;
 
-    // Canvas 454x454px = 60mm a 192 DPI (2x de 96 DPI = qualidade 2x sem estouro de tamanho)
+    // Canvas 480x480px = exatamente 60mm a 203 DPI (resolução nativa da Elgin L42 Pro)
     const buildCanvasLabel = (): Promise<string> => new Promise((resolve) => {
-      const MM = (96 * 2) / 25.4; // ~7.56 dots/mm — 2x a resolução CSS
-      const W = Math.round(60 * MM); // ~454px
-      const H = Math.round(60 * MM); // ~454px
+      const MM = 203 / 25.4; // ~7.99 dots/mm
+      const W = Math.round(60 * MM); // 480px
+      const H = Math.round(60 * MM); // 480px
       const canvas = document.createElement('canvas');
       canvas.width = W; canvas.height = H;
       const ctx = canvas.getContext('2d')!;
@@ -4208,25 +4208,20 @@ function EtiquetasTab() {
 
       const base64 = await buildCanvasLabel();
 
-      const htmlContent = `<!DOCTYPE html><html><head>
-        <style>
-          @page { size: 60mm 60mm; margin: 0; }
-          html, body { margin: 0; padding: 0; width: 60mm; height: 60mm; overflow: hidden; }
-          img { width: 60mm; height: 60mm; display: block; }
-        </style>
-      </head><body><img src="data:image/png;base64,${base64}" /></body></html>`;
-
+      // Impressão direta como imagem — sem HTML, sem DPI do sistema interferindo
+      // 480x480px + density:203 + size:60mm → o QZ Tray mapeia 1px = 1 dot da impressora
       const config = qz.configs.create('ELGIN L42PRO FULL', {
         size: { width: 60, height: 60 },
         units: 'mm',
+        density: 203,
       });
 
       for (let i = 0; i < qtdEtiquetas; i++) {
         await qz.print(config, [{
           type: 'pixel',
-          format: 'html',
-          flavor: 'plain',
-          data: htmlContent,
+          format: 'image',
+          flavor: 'base64',
+          data: 'data:image/png;base64,' + base64,
         }]);
       }
 
