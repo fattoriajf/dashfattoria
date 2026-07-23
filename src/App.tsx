@@ -4091,112 +4091,125 @@ function EtiquetasTab() {
         await qz.websocket.connect();
       }
 
-      // Canvas 226×226px = 60mm a 96 DPI (DPI real do QZ Tray HTML)
+      // Canvas 226×226px = 60mm a 96 DPI (DPI do QZ Tray HTML)
+      // Layout calculado para caber exatamente nos 226px com cantos arredondados
       const buildCanvas = (): Promise<string> => new Promise((resolve) => {
-        const DPI = 96;
-        const MM = DPI / 25.4;
-        const W = Math.round(60 * MM); // 226px
-        const H = Math.round(60 * MM); // 226px
+        const W = 226; const H = 226;
         const c = document.createElement('canvas');
         c.width = W; c.height = H;
         const ctx = c.getContext('2d')!;
-        const f = (mm: number) => Math.round(mm * MM);
 
+        // Helper: retângulo arredondado
+        const rr = (x: number, y: number, w: number, h: number, r: number) => {
+          ctx.beginPath();
+          ctx.moveTo(x + r, y);
+          ctx.arcTo(x + w, y,     x + w, y + h, r);
+          ctx.arcTo(x + w, y + h, x,     y + h, r);
+          ctx.arcTo(x,     y + h, x,     y,     r);
+          ctx.arcTo(x,     y,     x + w, y,     r);
+          ctx.closePath();
+        };
+
+        // Fundo branco com borda externa arredondada (r=8)
         ctx.fillStyle = '#fff';
-        ctx.fillRect(0, 0, W, H);
-
-        // Borda
+        rr(0, 0, W, H, 8); ctx.fill();
         ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        ctx.strokeRect(1, 1, W - 2, H - 2);
+        rr(1, 1, W - 2, H - 2, 7); ctx.stroke();
 
-        // Header — nome do insumo
-        const hdrH = f(13);
+        // ── HEADER (nome do insumo) ── 35px
+        const HDR = 35;
         ctx.fillStyle = '#000';
-        ctx.font = `bold ${f(5.5)}px Arial, sans-serif`;
+        ctx.font = 'bold 14px Arial, sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(insumoSel.toUpperCase(), W / 2, hdrH / 2, W - f(4));
-        ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(0, hdrH); ctx.lineTo(W, hdrH); ctx.stroke();
+        ctx.fillText(insumoSel.toUpperCase(), W / 2, HDR / 2, W - 12);
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(1, HDR); ctx.lineTo(W - 1, HDR); ctx.stroke();
 
-        let y = hdrH + f(2);
+        let y = HDR + 4;
 
-        // Marca/Fornecedor
-        ctx.font = `${f(2.2)}px Arial, sans-serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillText('MARCA/FORNECEDOR', f(2), y + f(3));
+        // ── MARCA/FORNECEDOR ── 24px
+        ctx.font = '7.5px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#444';
+        ctx.fillText('MARCA/FORNECEDOR', 6, y + 8);
         const marca = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
-        ctx.font = `bold ${f(2.8)}px Arial, sans-serif`; ctx.textAlign = 'right';
-        ctx.fillText(marca, W - f(2), y + f(3), W - f(4));
-        y += f(8);
+        ctx.font = 'bold 9.5px Arial, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = '#000';
+        ctx.fillText(marca, W - 6, y + 8, W - 12);
+        ctx.fillText('', 0, 0); // reset
+        y += 22;
 
-        ctx.strokeStyle = '#999'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(f(2), y); ctx.lineTo(W - f(2), y); ctx.stroke();
-        y += f(2);
+        // linha separadora
+        ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(6, y); ctx.lineTo(W - 6, y); ctx.stroke();
+        y += 5;
 
-        // Badge conservação
-        const badgeW = f(38); const badgeH = f(7);
-        const bx = (W - badgeW) / 2;
+        // ── BADGE CONSERVAÇÃO ── 22px com bordas arredondadas
+        const bW = 120; const bH = 20; const bX = (W - bW) / 2;
         ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        ctx.strokeRect(bx, y, badgeW, badgeH);
-        ctx.font = `bold ${f(3)}px Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        rr(bX, y, bW, bH, 4); ctx.stroke();
+        ctx.font = 'bold 9px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillStyle = '#000';
-        ctx.fillText(conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO', W / 2, y + badgeH / 2);
-        y += badgeH + f(2);
+        ctx.fillText(conservacao === 'resfriado' ? '❄ RESFRIADO' : '🧊 CONGELADO', W / 2, y + bH / 2);
+        y += bH + 5;
 
-        ctx.strokeStyle = '#999'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(f(2), y); ctx.lineTo(W - f(2), y); ctx.stroke();
-        y += f(2);
+        // linha separadora
+        ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(6, y); ctx.lineTo(W - 6, y); ctx.stroke();
+        y += 5;
 
-        // Manipulação
-        ctx.font = `${f(2.2)}px Arial, sans-serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#000';
-        ctx.fillText('MANIPULAÇÃO', f(2), y + f(3));
-        ctx.font = `bold ${f(2.8)}px Arial, sans-serif`; ctx.textAlign = 'right';
-        ctx.fillText(fmtManip(), W - f(2), y + f(3));
-        y += f(8);
+        // ── MANIPULAÇÃO ── 22px
+        ctx.font = '7.5px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#444';
+        ctx.fillText('MANIPULAÇÃO', 6, y + 7);
+        ctx.font = 'bold 9.5px Arial, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = '#000';
+        ctx.fillText(fmtManip(), W - 6, y + 7);
+        y += 20;
 
-        // Validade — box destacado
-        const valH = f(11);
+        // ── VALIDADE — box com borda arredondada ── 30px
+        const vH = 28;
         ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        ctx.strokeRect(f(1), y, W - f(2), valH);
-        ctx.font = `bold ${f(2.5)}px Arial, sans-serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillText('VALIDADE', f(3), y + valH / 2);
-        ctx.font = `bold ${f(3.5)}px Arial, sans-serif`; ctx.textAlign = 'right';
-        ctx.fillText(fmtDT(validadeDT), W - f(3), y + valH / 2);
-        y += valH + f(2);
+        rr(3, y, W - 6, vH, 4); ctx.stroke();
+        ctx.font = 'bold 8px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#000';
+        ctx.fillText('VALIDADE', 9, y + vH / 2);
+        ctx.font = 'bold 11px Arial, sans-serif'; ctx.textAlign = 'right';
+        ctx.fillText(fmtDT(validadeDT), W - 9, y + vH / 2);
+        y += vH + 4;
 
-        ctx.strokeStyle = '#999'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(f(2), y); ctx.lineTo(W - f(2), y); ctx.stroke();
-        y += f(2);
+        // linha separadora
+        ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(6, y); ctx.lineTo(W - 6, y); ctx.stroke();
+        y += 4;
 
-        // Responsável / Porções / Peso
-        ctx.fillStyle = '#000'; ctx.textBaseline = 'top';
-        ctx.font = `${f(2)}px Arial, sans-serif`; ctx.textAlign = 'left';
-        ctx.fillText('RESPONSÁVEL', f(2), y);
-        ctx.font = `bold ${f(2.8)}px Arial, sans-serif`;
-        ctx.fillText(responsavel, f(2), y + f(2.5), f(24));
+        // ── RESPONSÁVEL / PORÇÕES / PESO ── 28px
+        ctx.fillStyle = '#444'; ctx.textBaseline = 'top';
+        ctx.font = '7px Arial, sans-serif'; ctx.textAlign = 'left';
+        ctx.fillText('RESPONSÁVEL', 6, y);
+        ctx.font = 'bold 9px Arial, sans-serif'; ctx.fillStyle = '#000';
+        ctx.fillText(responsavel, 6, y + 9, 80);
         if (porcoes) {
-          ctx.font = `${f(2)}px Arial, sans-serif`; ctx.textAlign = 'center';
+          ctx.font = '7px Arial, sans-serif'; ctx.fillStyle = '#444'; ctx.textAlign = 'center';
           ctx.fillText('PORÇÕES', W / 2, y);
-          ctx.font = `bold ${f(2.8)}px Arial, sans-serif`;
-          ctx.fillText(porcoes, W / 2, y + f(2.5));
+          ctx.font = 'bold 9px Arial, sans-serif'; ctx.fillStyle = '#000';
+          ctx.fillText(porcoes, W / 2, y + 9);
         }
-        ctx.font = `${f(2)}px Arial, sans-serif`; ctx.textAlign = 'right';
-        ctx.fillText('PESO', W - f(2), y);
-        ctx.font = `bold ${f(2.8)}px Arial, sans-serif`;
-        ctx.fillText(peso || '—', W - f(2), y + f(2.5));
-        y += f(10);
+        ctx.font = '7px Arial, sans-serif'; ctx.fillStyle = '#444'; ctx.textAlign = 'right';
+        ctx.fillText('PESO', W - 6, y);
+        ctx.font = 'bold 9px Arial, sans-serif'; ctx.fillStyle = '#000';
+        ctx.fillText(peso || '—', W - 6, y + 9);
+        y += 26;
 
-        // Rodapé
+        // ── RODAPÉ ──
         ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-        y += f(2);
-        const footH = H - y;
-        ctx.font = `bold ${f(3.2)}px Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText((empresa.nome || 'FATTORIA').toUpperCase(), W / 2, y + footH * 0.38, W - f(4));
+        ctx.beginPath(); ctx.moveTo(1, y); ctx.lineTo(W - 1, y); ctx.stroke();
+        y += 2;
+        const footH = H - y - 2;
+        ctx.font = 'bold 10px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#000';
+        ctx.fillText((empresa.nome || 'FATTORIA').toUpperCase(), W / 2, y + footH * 0.4, W - 12);
         if (empresa.cnpj || empresa.endereco) {
-          ctx.font = `${f(2)}px Arial, sans-serif`;
+          ctx.font = '6.5px Arial, sans-serif';
           const rodape = `${empresa.cnpj ? 'CNPJ ' + empresa.cnpj + ' · ' : ''}${empresa.endereco || ''}`;
-          ctx.fillText(rodape, W / 2, y + footH * 0.72, W - f(4));
+          ctx.fillText(rodape, W / 2, y + footH * 0.75, W - 12);
         }
 
         resolve(c.toDataURL('image/png').split(',')[1]);
