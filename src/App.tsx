@@ -4186,20 +4186,20 @@ function EtiquetasTab() {
         return t.join('\r\n');
       };
 
-      const tspl = buildTSPL();
+      // ── DIAGNÓSTICO: etiqueta minimalista para confirmar canal de impressão ──
+      const testData = `SIZE 60 mm,60 mm\r\nGAP 0 mm,0 mm\r\nCLS\r\nTEXT 80,200,"4",0,2,2,"TESTE OK"\r\nPRINT 1,1\r\n`;
+      console.log('[QZ] Enviando para impressora:', testData);
 
-      // Conexão direta TCP/IP socket → bypassa driver Windows por completo
-      // TSPL vai direto para o firmware da Elgin na porta 9100 (RAW/JetDirect)
       const config = qz.configs.create({ host: '192.168.2.115', port: 9100 });
+      console.log('[QZ] Config criada:', JSON.stringify(config));
 
-      for (let i = 0; i < qtdEtiquetas; i++) {
-        await qz.print(config, [{
-          type: 'raw',
-          format: 'plain',
-          flavor: 'plain',
-          data: tspl,
-        }]);
-      }
+      await qz.print(config, [{
+        type: 'raw',
+        format: 'plain',
+        flavor: 'plain',
+        data: testData,
+      }]);
+      console.log('[QZ] Print enviado com sucesso');
 
     } catch (err: any) {
       alert(`Erro ao imprimir: ${String(err)}`);
