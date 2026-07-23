@@ -4187,6 +4187,7 @@ function EtiquetasTab() {
       };
 
       // ── DIAGNÓSTICO: etiqueta minimalista para confirmar canal de impressão ──
+      alert('CÓDIGO NOVO RODANDO — v3');
       const testData = `SIZE 60 mm,60 mm\r\nGAP 0 mm,0 mm\r\nCLS\r\nTEXT 80,200,"4",0,2,2,"TESTE OK"\r\nPRINT 1,1\r\n`;
       console.log('[QZ] Enviando para impressora:', testData);
 
