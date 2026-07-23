@@ -4188,8 +4188,9 @@ function EtiquetasTab() {
 
       const tspl = buildTSPL();
 
-      // type:'raw' + driver Elgin = passagem direta para firmware da impressora
-      const config = qz.configs.create('ELGIN L42PRO FULL');
+      // Conexão direta TCP/IP socket → bypassa driver Windows por completo
+      // TSPL vai direto para o firmware da Elgin na porta 9100 (RAW/JetDirect)
+      const config = qz.configs.create({ host: '192.168.2.115', port: 9100 });
 
       for (let i = 0; i < qtdEtiquetas; i++) {
         await qz.print(config, [{
