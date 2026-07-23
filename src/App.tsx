@@ -4059,14 +4059,12 @@ function EtiquetasTab() {
         </div>
       </div>`;
 
-    const etiquetas = Array.from({length: qtdEtiquetas}, (_,i) => etiquetaHTML(i)).join('');
-
-    const htmlContent = `<!DOCTYPE html><html><head>
+    const singleLabel = `<!DOCTYPE html><html><head>
       <style>
         @page { size: 60mm 60mm; margin: 0; }
         body { margin: 0; padding: 0; background: #fff; }
       </style>
-    </head><body>${etiquetas}</body></html>`;
+    </head><body>${etiquetaHTML(0)}</body></html>`;
 
     const qz = (window as any).qz;
 
@@ -4103,14 +4101,19 @@ function EtiquetasTab() {
       const config = qz.configs.create('ELGIN L42PRO FULL', {
         size: { width: 60, height: 60 },
         units: 'mm',
+        density: 203,
+        interpolation: 'bicubic',
       });
 
-      await qz.print(config, [{
-        type: 'pixel',
-        format: 'html',
-        flavor: 'plain',
-        data: htmlContent,
-      }]);
+      // Envia um job separado por etiqueta para garantir uma por folha
+      for (let i = 0; i < qtdEtiquetas; i++) {
+        await qz.print(config, [{
+          type: 'pixel',
+          format: 'html',
+          flavor: 'plain',
+          data: singleLabel,
+        }]);
+      }
 
     } catch (err: any) {
       alert(`Erro ao imprimir: ${String(err)}`);
