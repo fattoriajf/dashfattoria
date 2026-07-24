@@ -4163,8 +4163,18 @@ function EtiquetasTab() {
 
       const base64 = await buildCanvasLabel();
 
-      // Envia imagem diretamente ao driver — sem passar pelo renderer HTML do browser
-      // 480px → 480 dots @ 203 DPI = exatamente 60mm, sem duplo escalonamento
+      // O canvas já tem 480×480px (= 60mm a 203 DPI).
+      // Ao renderizar o HTML com body/img em 480px (não mm), o QZ captura
+      // exatamente 480px → 480 dots na impressora. Sem duplo escalonamento.
+      const htmlContent = `<!DOCTYPE html><html>
+<head><style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:480px; height:480px; overflow:hidden; }
+  img { width:480px; height:480px; display:block; }
+</style></head>
+<body><img src="data:image/png;base64,${base64}" /></body>
+</html>`;
+
       const config = qz.configs.create('ELGIN L42PRO FULL', {
         size: { width: 60, height: 60 },
         units: 'mm',
@@ -4174,9 +4184,9 @@ function EtiquetasTab() {
       for (let i = 0; i < qtdEtiquetas; i++) {
         await qz.print(config, [{
           type: 'pixel',
-          format: 'image',
+          format: 'html',
           flavor: 'plain',
-          data: `data:image/png;base64,${base64}`,
+          data: htmlContent,
         }]);
       }
 
