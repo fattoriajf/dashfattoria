@@ -4104,9 +4104,24 @@ function EtiquetasTab() {
     }
 
     try {
-      console.log('[1] isActive:', qz.websocket.isActive());
+      qz.security.setCertificatePromise((resolve: any, reject: any) => {
+        fetch('/digital-certificate.txt', { cache: 'no-store' })
+          .then((r) => r.ok ? resolve(r.text()) : reject(r.text()));
+      });
+      qz.security.setSignatureAlgorithm('SHA512');
+      qz.security.setSignaturePromise((toSign: any) => async (resolve: any, reject: any) => {
+        try {
+          const keyRes = await fetch('/private-key.pem', { cache: 'no-store' });
+          const privateKey = await keyRes.text();
+          const KJUR = (window as any).KJUR;
+          const sig = new KJUR.crypto.Signature({ alg: 'SHA512withRSA' });
+          sig.init(privateKey.trim());
+          sig.updateString(toSign);
+          resolve((window as any).hex2b64(sig.sign()));
+        } catch (e) { reject(e); }
+      });
+
       if (!qz.websocket.isActive()) {
-        console.log('[2] reconectando...');
         await qz.websocket.connect();
       }
 
@@ -4136,7 +4151,7 @@ function EtiquetasTab() {
         const cx1 = (s: string) => Math.max(PAD + 4, Math.round((W - s.length * 8) / 2));
 
         const L: string[] = [
-          'SIZE 60 mm,60 mm', 'GAP 0 mm,0 mm', 'DIRECTION 1', 'CLS',
+          'SIZE 60 mm,60 mm', 'GAP 0 mm,0 mm', 'CLS',
           `BOX ${PAD},${PAD},${R},${B},3`,
         ];
 
