@@ -3962,6 +3962,42 @@ function EtiquetasTab() {
 
   useEffect(() => { loadAll(); }, []);
 
+  // ── conecta QZ Tray ao abrir a aba ──
+  useEffect(() => {
+    const qz = (window as any).qz;
+    if (!qz) return;
+
+    const setupQZ = async () => {
+      try {
+        qz.security.setCertificatePromise((resolve: any, reject: any) => {
+          fetch('/digital-certificate.txt', { cache: 'no-store' })
+            .then((r) => r.ok ? resolve(r.text()) : reject(r.text()));
+        });
+        qz.security.setSignatureAlgorithm('SHA512');
+        qz.security.setSignaturePromise((toSign: any) => async (resolve: any, reject: any) => {
+          try {
+            const keyRes = await fetch('/private-key.pem', { cache: 'no-store' });
+            const privateKey = await keyRes.text();
+            const KJUR = (window as any).KJUR;
+            const sig = new KJUR.crypto.Signature({ alg: 'SHA512withRSA' });
+            sig.init(privateKey.trim());
+            sig.updateString(toSign);
+            resolve((window as any).hex2b64(sig.sign()));
+          } catch (e) { reject(e); }
+        });
+
+        if (!qz.websocket.isActive()) {
+          await qz.websocket.connect();
+          console.log('[QZ] conectado ao abrir aba etiquetas');
+        }
+      } catch (e) {
+        console.warn('[QZ] falha ao conectar na abertura:', e);
+      }
+    };
+
+    setupQZ();
+  }, []);
+
   // ── derivados ──
   const insumoAtual = insumos.find(i => i.nome === insumoSel);
   const categoriaAtual = categorias.find(c => c.nome === insumoAtual?.categoria_validade);
@@ -4068,29 +4104,9 @@ function EtiquetasTab() {
     }
 
     try {
-      console.log('[1] configurando certificado...');
-      qz.security.setCertificatePromise((resolve: any, reject: any) => {
-        fetch('/digital-certificate.txt', { cache: 'no-store', headers: { 'Content-Type': 'text/plain' } })
-          .then((r) => r.ok ? resolve(r.text()) : reject(r.text()));
-      });
-
-      qz.security.setSignatureAlgorithm('SHA512');
-      qz.security.setSignaturePromise((toSign: any) => async (resolve: any, reject: any) => {
-        try {
-          const keyRes = await fetch('/private-key.pem', { cache: 'no-store', headers: { 'Content-Type': 'text/plain' } });
-          const privateKey = await keyRes.text();
-          const KJUR = (window as any).KJUR;
-          const sig = new KJUR.crypto.Signature({ alg: 'SHA512withRSA' });
-          sig.init(privateKey.trim());
-          sig.updateString(toSign);
-          resolve((window as any).hex2b64(sig.sign()));
-        } catch (e) {
-          reject(e);
-        }
-      });
-
-      console.log('[2] verificando websocket isActive:', qz.websocket.isActive());
+      console.log('[1] isActive:', qz.websocket.isActive());
       if (!qz.websocket.isActive()) {
+        console.log('[2] reconectando...');
         await qz.websocket.connect();
       }
 
