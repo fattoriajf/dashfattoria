@@ -4163,14 +4163,13 @@ function EtiquetasTab() {
 
       const base64 = await buildCanvasLabel();
 
-      // O canvas já tem 480×480px (= 60mm a 203 DPI).
-      // Ao renderizar o HTML com body/img em 480px (não mm), o QZ captura
-      // exatamente 480px → 480 dots na impressora. Sem duplo escalonamento.
-      const htmlContent = `<!DOCTYPE html><html>
-<head><style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  html, body { width:480px; height:480px; overflow:hidden; }
-  img { width:480px; height:480px; display:block; }
+      // HTML com dimensões em mm — mesma abordagem do código original que imprimia corretamente.
+      // O canvas de 480×480px é embutido como imagem; o QZ/driver cuida da escala.
+      const htmlContent = `<!DOCTYPE html><html><head>
+<style>
+  @page { size: 60mm 60mm; margin: 0; }
+  body { margin: 0; padding: 0; }
+  img { width: 60mm; height: 60mm; display: block; }
 </style></head>
 <body><img src="data:image/png;base64,${base64}" /></body>
 </html>`;
