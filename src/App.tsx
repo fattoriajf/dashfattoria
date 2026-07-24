@@ -4001,63 +4001,136 @@ function EtiquetasTab() {
     if (!insumoSel) { alert('Selecione um insumo.'); return; }
     if (!responsavel.trim()) { alert('Informe o responsável.'); return; }
 
-    const etiquetaHTML = (idx: number) => `
-      <div style="
-        width:226px; height:226px;
-        background:#fff;
-        border:1.5px solid #000;
-        border-radius:6px;
-        display:flex; flex-direction:column;
-        font-family:Arial,sans-serif;
-        overflow:hidden;
-        page-break-inside:avoid;
-        margin: ${idx > 0 ? '8px' : '0'} auto 0;
-      ">
-        <div style="border-bottom:1.5px solid #000;text-align:center;padding:5px 6px 4px;font-size:13px;font-weight:bold;letter-spacing:0.3px;line-height:1.2;color:#000;">
-          ${insumoSel.toUpperCase()}
-        </div>
-        <div style="flex:1;padding:6px 8px 4px;display:flex;flex-direction:column;gap:3px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:0.5px solid #999;padding-bottom:3px;">
-            <span style="font-size:9px;color:#000;text-transform:uppercase;letter-spacing:0.4px;">Marca/Fornecedor</span>
-            <span style="font-size:10px;font-weight:bold;color:#000;">
-              ${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}
-            </span>
-          </div>
-          <div style="display:flex;justify-content:center;padding:2px 0 3px;border-bottom:0.5px solid #999;">
-            <span style="font-size:9px;font-weight:bold;color:#000;
-              border-radius:3px;padding:2px 8px;letter-spacing:0.5px;text-transform:uppercase;
-              border:1px solid #000;">
-              ${conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO'}
-            </span>
-          </div>
-          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0;">
-            <span style="font-size:9px;color:#000;text-transform:uppercase;letter-spacing:0.4px;">Manipulação</span>
-            <span style="font-size:10px;font-weight:bold;color:#000;">${fmtManip()}</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;align-items:baseline;border-radius:3px;padding:3px 5px;border:1.5px solid #000;">
-            <span style="font-size:9px;color:#000;text-transform:uppercase;letter-spacing:0.4px;font-weight:bold;">Validade</span>
-            <span style="font-size:11px;font-weight:bold;color:#000;">${fmtDT(validadeDT)}</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0;border-top:0.5px solid #999;margin-top:2px;">
-            <div style="display:flex;flex-direction:column;">
-              <span style="font-size:8px;color:#000;text-transform:uppercase;letter-spacing:0.4px;">Responsável</span>
-              <span style="font-size:10px;font-weight:bold;color:#000;">${responsavel}</span>
-            </div>
-            ${porcoes ? `<div style="display:flex;flex-direction:column;align-items:center;">
-              <span style="font-size:8px;color:#000;text-transform:uppercase;letter-spacing:0.4px;">Porções</span>
-              <span style="font-size:10px;font-weight:bold;color:#000;">${porcoes}</span>
-            </div>` : ''}
-            <div style="display:flex;flex-direction:column;align-items:flex-end;">
-              <span style="font-size:8px;color:#000;text-transform:uppercase;letter-spacing:0.4px;">Peso</span>
-              <span style="font-size:10px;font-weight:bold;color:#000;">${peso || '—'}</span>
-            </div>
-          </div>
-        </div>
-        <div style="border-top:1.5px solid #000;padding:4px 6px 5px;text-align:center;">
-          <div style="color:#000;font-size:10px;font-weight:bold;letter-spacing:1.5px;">${empresa.nome || 'FATTORIA'}</div>
-          <div style="color:#000;font-size:6.5px;margin-top:1px;">${empresa.cnpj ? 'CNPJ ' + empresa.cnpj + ' · ' : ''}${empresa.endereco || ''}</div>
-        </div>
-      </div>`;
+    // Gera imagem PNG nativa 480×480px (60mm × 203 DPI) via Canvas
+    // Enviada diretamente ao driver como image/base64 — sem re-escalonamento pelo browser
+    const buildCanvasLabel = (): Promise<string> => new Promise((resolve) => {
+      const W = 480, H = 480;
+      const canvas = document.createElement('canvas');
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext('2d')!;
+
+      // Fundo branco
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, W, H);
+
+      const BORD = 8;   // inset da borda externa
+      const PAD  = 20;  // padding horizontal interno
+      const maxTW = W - (PAD + BORD) * 2;
+
+      // Borda externa
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(BORD, BORD, W - BORD * 2, H - BORD * 2);
+
+      // Divisórias Y fixas
+      const HEADER_H  = 62;
+      const FOOTER_Y  = 400;
+
+      // ── CABEÇALHO: nome do produto ──
+      ctx.fillStyle = '#000';
+      ctx.font = 'bold 26px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(insumoSel.toUpperCase(), W / 2, HEADER_H / 2, maxTW);
+
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(BORD, HEADER_H); ctx.lineTo(W - BORD, HEADER_H); ctx.stroke();
+
+      // ── CONTEÚDO ──
+      let cy = HEADER_H + 18;
+
+      // Linha fina auxiliar
+      const thinLine = (y: number) => {
+        ctx.save();
+        ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(PAD + BORD, y); ctx.lineTo(W - PAD - BORD, y); ctx.stroke();
+        ctx.restore();
+      };
+
+      // Marca/Fornecedor
+      ctx.fillStyle = '#000';
+      ctx.font = '15px Arial';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('MARCA/FORNECEDOR', PAD + BORD, cy, maxTW * 0.45);
+      const marcaVal = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
+      ctx.font = 'bold 17px Arial';
+      ctx.textAlign = 'right';
+      ctx.fillText(marcaVal, W - PAD - BORD, cy, maxTW * 0.55);
+      cy += 28;
+      thinLine(cy); cy += 12;
+
+      // Badge conservação
+      const badge = conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO';
+      ctx.font = 'bold 17px Arial';
+      const bW = ctx.measureText(badge).width + 36;
+      const bH = 30;
+      const bX = (W - bW) / 2;
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+      ctx.strokeRect(bX, cy, bW, bH);
+      ctx.fillStyle = '#000'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(badge, W / 2, cy + bH / 2);
+      cy += bH + 12;
+      thinLine(cy); cy += 12;
+
+      // Manipulação
+      ctx.fillStyle = '#000';
+      ctx.font = '15px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('MANIPULAÇÃO', PAD + BORD, cy, maxTW * 0.45);
+      ctx.font = 'bold 17px Arial'; ctx.textAlign = 'right';
+      ctx.fillText(fmtManip(), W - PAD - BORD, cy, maxTW * 0.55);
+      cy += 36;
+
+      // Caixa Validade
+      const vH = 52;
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+      ctx.strokeRect(PAD + BORD - 4, cy, W - (PAD + BORD - 4) * 2, vH);
+      ctx.fillStyle = '#000';
+      ctx.font = 'bold 17px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('VALIDADE', PAD + BORD + 4, cy + vH / 2);
+      ctx.font = 'bold 20px Arial'; ctx.textAlign = 'right';
+      ctx.fillText(fmtDT(validadeDT), W - PAD - BORD - 4, cy + vH / 2, maxTW * 0.6);
+      cy += vH + 10;
+      thinLine(cy); cy += 10;
+
+      // Responsável / Porções / Peso — labels
+      ctx.fillStyle = '#000';
+      ctx.font = '14px Arial'; ctx.textBaseline = 'top';
+      ctx.textAlign = 'left';
+      ctx.fillText('RESPONSÁVEL', PAD + BORD, cy, maxTW / 3);
+      if (porcoes) {
+        ctx.textAlign = 'center';
+        ctx.fillText('PORÇÕES', W / 2, cy);
+      }
+      ctx.textAlign = 'right';
+      ctx.fillText('PESO', W - PAD - BORD, cy, maxTW / 3);
+      cy += 18;
+
+      // Responsável / Porções / Peso — valores
+      ctx.font = 'bold 18px Arial';
+      ctx.textAlign = 'left';
+      ctx.fillText(responsavel, PAD + BORD, cy, maxTW / 3);
+      if (porcoes) {
+        ctx.textAlign = 'center';
+        ctx.fillText(String(porcoes), W / 2, cy);
+      }
+      ctx.textAlign = 'right';
+      ctx.fillText(peso || '—', W - PAD - BORD, cy, maxTW / 3);
+
+      // ── RODAPÉ ──
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(BORD, FOOTER_Y); ctx.lineTo(W - BORD, FOOTER_Y); ctx.stroke();
+
+      ctx.fillStyle = '#000';
+      ctx.font = 'bold 18px Arial';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText((empresa.nome || 'FATTORIA').toUpperCase(), W / 2, FOOTER_Y + 26, maxTW);
+
+      ctx.font = '13px Arial';
+      const footLine = `${empresa.cnpj ? 'CNPJ ' + empresa.cnpj + ' · ' : ''}${empresa.endereco || ''}`;
+      if (footLine.trim()) ctx.fillText(footLine, W / 2, FOOTER_Y + 52, maxTW);
+
+      resolve(canvas.toDataURL('image/png').split(',')[1]);
+    });
 
     const qz = (window as any).qz;
 
@@ -4088,127 +4161,10 @@ function EtiquetasTab() {
         await qz.websocket.connect();
       }
 
-      // Canvas 480×480px = 60mm a 203 DPI — resolução nativa da impressora, sem upscaling
-      const buildCanvasLabel = (): Promise<string> => new Promise((resolve) => {
-        const MM = 203 / 25.4; // ~7.99 dots/mm
-        const W = Math.round(60 * MM); // 480px
-        const H = Math.round(60 * MM); // 480px
-        const canvas = document.createElement('canvas');
-        canvas.width = W; canvas.height = H;
-        const ctx = canvas.getContext('2d')!;
-
-        const f = (mm: number) => Math.round(mm * MM); // mm → px helper
-
-        // Fundo branco
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(0, 0, W, H);
-
-        // Borda externa
-        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        ctx.strokeRect(1, 1, W - 2, H - 2);
-
-        // Header — nome do insumo
-        const hdrH = f(13);
-        ctx.fillStyle = '#000';
-        ctx.font = `bold ${f(5.5)}px Arial`;
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(insumoSel.toUpperCase(), W / 2, hdrH / 2, W - f(4));
-        ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(0, hdrH); ctx.lineTo(W, hdrH); ctx.stroke();
-
-        let y = hdrH + f(2);
-
-        // Marca / Fornecedor
-        ctx.font = `${f(2)}px Arial`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillText('MARCA/FORNECEDOR', f(2), y + f(3));
-        const marca = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
-        ctx.font = `bold ${f(2.5)}px Arial`; ctx.textAlign = 'right';
-        ctx.fillText(marca, W - f(2), y + f(3), W - f(4));
-        y += f(8);
-
-        ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(f(2), y); ctx.lineTo(W - f(2), y); ctx.stroke();
-        y += f(2);
-
-        // Badge conservação
-        const badgeW = f(38); const badgeH = f(7);
-        const bx = (W - badgeW) / 2;
-        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        ctx.strokeRect(bx, y, badgeW, badgeH);
-        ctx.font = `bold ${f(2.8)}px Arial`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#000';
-        ctx.fillText(conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO', W / 2, y + badgeH / 2);
-        y += badgeH + f(2);
-
-        ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(f(2), y); ctx.lineTo(W - f(2), y); ctx.stroke();
-        y += f(2);
-
-        // Manipulação
-        ctx.font = `${f(2)}px Arial`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#000';
-        ctx.fillText('MANIPULAÇÃO', f(2), y + f(3));
-        ctx.font = `bold ${f(2.5)}px Arial`; ctx.textAlign = 'right';
-        ctx.fillText(fmtManip(), W - f(2), y + f(3));
-        y += f(8);
-
-        // Validade — caixa destacada
-        const valH = f(11);
-        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        ctx.strokeRect(f(1), y, W - f(2), valH);
-        ctx.font = `bold ${f(2.2)}px Arial`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillText('VALIDADE', f(3), y + valH / 2);
-        ctx.font = `bold ${f(3.2)}px Arial`; ctx.textAlign = 'right';
-        ctx.fillText(fmtDT(validadeDT), W - f(3), y + valH / 2);
-        y += valH + f(2);
-
-        ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(f(2), y); ctx.lineTo(W - f(2), y); ctx.stroke();
-        y += f(2);
-
-        // Responsável / Porções / Peso
-        ctx.textBaseline = 'top'; ctx.fillStyle = '#000';
-        ctx.font = `${f(1.8)}px Arial`; ctx.textAlign = 'left';
-        ctx.fillText('RESPONSÁVEL', f(2), y);
-        ctx.font = `bold ${f(2.5)}px Arial`;
-        ctx.fillText(responsavel, f(2), y + f(2.5), f(25));
-        if (porcoes) {
-          ctx.font = `${f(1.8)}px Arial`; ctx.textAlign = 'center';
-          ctx.fillText('PORÇÕES', W / 2, y);
-          ctx.font = `bold ${f(2.5)}px Arial`;
-          ctx.fillText(porcoes, W / 2, y + f(2.5));
-        }
-        ctx.font = `${f(1.8)}px Arial`; ctx.textAlign = 'right';
-        ctx.fillText('PESO', W - f(2), y);
-        ctx.font = `bold ${f(2.5)}px Arial`;
-        ctx.fillText(peso || '—', W - f(2), y + f(2.5));
-        y += f(10);
-
-        // Rodapé — empresa
-        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-        y += f(2);
-        const footH = H - y;
-        ctx.font = `bold ${f(3)}px Arial`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText((empresa.nome || 'FATTORIA').toUpperCase(), W / 2, y + footH * 0.35, W - f(4));
-        if (empresa.cnpj || empresa.endereco) {
-          ctx.font = `${f(1.8)}px Arial`;
-          const cnpjEnd = `${empresa.cnpj ? 'CNPJ ' + empresa.cnpj + ' · ' : ''}${empresa.endereco || ''}`;
-          ctx.fillText(cnpjEnd, W / 2, y + footH * 0.72, W - f(4));
-        }
-
-        resolve(canvas.toDataURL('image/png').split(',')[1]);
-      });
-
       const base64 = await buildCanvasLabel();
-      const htmlContent = `<!DOCTYPE html><html><head>
-        <style>
-          @page { size: 60mm 60mm; margin: 0; }
-          body { margin: 0; padding: 0; }
-          img { width: 60mm; height: 60mm; display: block; }
-        </style>
-      </head><body><img src="data:image/png;base64,${base64}" /></body></html>`;
 
+      // Envia imagem diretamente ao driver — sem passar pelo renderer HTML do browser
+      // 480px → 480 dots @ 203 DPI = exatamente 60mm, sem duplo escalonamento
       const config = qz.configs.create('ELGIN L42PRO FULL', {
         size: { width: 60, height: 60 },
         units: 'mm',
@@ -4218,9 +4174,9 @@ function EtiquetasTab() {
       for (let i = 0; i < qtdEtiquetas; i++) {
         await qz.print(config, [{
           type: 'pixel',
-          format: 'html',
-          flavor: 'plain',
-          data: htmlContent,
+          format: 'image',
+          flavor: 'base64',
+          data: base64,
         }]);
       }
 
