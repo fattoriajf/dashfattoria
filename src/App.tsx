@@ -4015,19 +4015,19 @@ function EtiquetasTab() {
   };
 
   const fmtDT = (dt: Date | null) => {
-    if (!dt) return '—';
+    if (!dt) return '-';
     const d = String(dt.getDate()).padStart(2,'0');
     const m = String(dt.getMonth()+1).padStart(2,'0');
     const y = dt.getFullYear();
     const h = String(dt.getHours()).padStart(2,'0');
     const min = String(dt.getMinutes()).padStart(2,'0');
-    return `${d}/${m}/${y} · ${h}:${min}`;
+    return `${d}/${m}/${y} ${h}:${min}`;
   };
 
   const fmtManip = () => {
-    if (!manipData || !manipHora) return '—';
+    if (!manipData || !manipHora) return '-';
     const [y,m,d] = manipData.split('-');
-    return `${d}/${m}/${y} · ${manipHora}`;
+    return `${d}/${m}/${y} ${manipHora}`;
   };
 
   const validadeDT = calcValidade();
@@ -4115,13 +4115,20 @@ function EtiquetasTab() {
       const buildTSPL = (): string => {
         const W = 480; const PAD = 16; const R = W - PAD; const B = W - PAD;
 
-        const nome     = insumoSel.toUpperCase();
-        const marca    = (insumoAtual?.marca_fornecedor || '—') + (insumoAtual?.sif ? ' SIF:' + insumoAtual.sif : '');
+        // Converte caracteres especiais para ASCII puro (firmware Elgin não aceita UTF-8 multi-byte)
+        const ascii = (s: string) => s
+          .normalize('NFD').replace(/[̀-ͯ]/g, '') // remove acentos (Ç→C, Ú→U, etc.)
+          .replace(/[·•]/g, '-')   // middle dot
+          .replace(/[—–]/g, '-')   // em/en dash
+          .replace(/[^\x00-\x7F]/g, '?'); // qualquer outro não-ASCII → ?
+
+        const nome     = ascii(insumoSel.toUpperCase());
+        const marca    = ascii((insumoAtual?.marca_fornecedor || '-') + (insumoAtual?.sif ? ' SIF:' + insumoAtual.sif : ''));
         const badge    = conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO';
         const validade = fmtDT(validadeDT);
-        const resp     = responsavel || '—';
-        const pesoVal  = peso || '—';
-        const nomeEmp  = (empresa.nome || 'FATTORIA').toUpperCase();
+        const resp     = ascii(responsavel || '-');
+        const pesoVal  = ascii(peso || '-');
+        const nomeEmp  = ascii((empresa.nome || 'FATTORIA').toUpperCase());
 
         // Centralização por fonte (largura aproximada por caractere)
         const cx4 = (s: string) => Math.max(PAD + 4, Math.round((W - s.length * 12) / 2));
@@ -4180,7 +4187,7 @@ function EtiquetasTab() {
         L.push(`TEXT ${cx3(nomeEmp)},${y},"3",0,1,1,"${nomeEmp}"`);
         if (empresa.cnpj || empresa.endereco) {
           y += 28;
-          const rodape = (empresa.cnpj ? empresa.cnpj + ' ' : '') + (empresa.endereco || '');
+          const rodape = ascii((empresa.cnpj ? empresa.cnpj + ' ' : '') + (empresa.endereco || ''));
           L.push(`TEXT ${cx1(rodape)},${y},"1",0,1,1,"${rodape}"`);
         }
 
