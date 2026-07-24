@@ -3979,19 +3979,19 @@ function EtiquetasTab() {
   };
 
   const fmtDT = (dt: Date | null) => {
-    if (!dt) return '-';
+    if (!dt) return '—';
     const d = String(dt.getDate()).padStart(2,'0');
     const m = String(dt.getMonth()+1).padStart(2,'0');
     const y = dt.getFullYear();
     const h = String(dt.getHours()).padStart(2,'0');
     const min = String(dt.getMinutes()).padStart(2,'0');
-    return `${d}/${m}/${y} ${h}:${min}`;
+    return `${d}/${m}/${y} · ${h}:${min}`;
   };
 
   const fmtManip = () => {
-    if (!manipData || !manipHora) return '-';
+    if (!manipData || !manipHora) return '—';
     const [y,m,d] = manipData.split('-');
-    return `${d}/${m}/${y} ${manipHora}`;
+    return `${d}/${m}/${y} · ${manipHora}`;
   };
 
   const validadeDT = calcValidade();
@@ -4068,106 +4068,178 @@ function EtiquetasTab() {
 
     try {
       qz.security.setCertificatePromise((resolve: any, reject: any) => {
-        fetch('/digital-certificate.txt', { cache: 'no-store' })
+        fetch('/digital-certificate.txt', { cache: 'no-store', headers: { 'Content-Type': 'text/plain' } })
           .then((r) => r.ok ? resolve(r.text()) : reject(r.text()));
       });
+
       qz.security.setSignatureAlgorithm('SHA512');
       qz.security.setSignaturePromise((toSign: any) => async (resolve: any, reject: any) => {
         try {
-          const keyRes = await fetch('/private-key.pem', { cache: 'no-store' });
+          const keyRes = await fetch('/private-key.pem', { cache: 'no-store', headers: { 'Content-Type': 'text/plain' } });
           const privateKey = await keyRes.text();
           const KJUR = (window as any).KJUR;
           const sig = new KJUR.crypto.Signature({ alg: 'SHA512withRSA' });
           sig.init(privateKey.trim());
           sig.updateString(toSign);
           resolve((window as any).hex2b64(sig.sign()));
-        } catch (e) { reject(e); }
+        } catch (e) {
+          reject(e);
+        }
       });
 
       if (!qz.websocket.isActive()) {
         await qz.websocket.connect();
       }
 
-      // ── TSPL: linguagem nativa Elgin/TSC — 203 DPI, TCP direto, sem driver Windows ──
-      const buildTSPL = (): string => {
-        const W = 480; const PAD = 16; const R = W - PAD; const B = W - PAD;
+      // Canvas 220×220px = 58mm a 96 DPI
+      // Driver com recuo zerado → só 1mm de margem natural em cada lado
+      const buildCanvas = (): Promise<string> => new Promise((resolve) => {
+        const W = 220; const H = 220;
+        const c = document.createElement('canvas');
+        c.width = W; c.height = H;
+        const ctx = c.getContext('2d')!;
 
-        const nome     = insumoSel.toUpperCase();
-        const marca    = (insumoAtual?.marca_fornecedor || '—') + (insumoAtual?.sif ? ' SIF:' + insumoAtual.sif : '');
-        const badge    = conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO';
-        const validade = fmtDT(validadeDT);
-        const resp     = responsavel || '—';
-        const pesoVal  = peso || '—';
-        const nomeEmp  = (empresa.nome || 'FATTORIA').toUpperCase();
+        // Helper: retângulo arredondado
+        const rr = (x: number, y: number, w: number, h: number, r: number) => {
+          ctx.beginPath();
+          ctx.moveTo(x + r, y);
+          ctx.arcTo(x + w, y,     x + w, y + h, r);
+          ctx.arcTo(x + w, y + h, x,     y + h, r);
+          ctx.arcTo(x,     y + h, x,     y,     r);
+          ctx.arcTo(x,     y,     x + w, y,     r);
+          ctx.closePath();
+        };
 
-        // Centralização por fonte (largura aproximada por caractere)
-        const cx4 = (s: string) => Math.max(PAD + 4, Math.round((W - s.length * 12) / 2));
-        const cx3 = (s: string) => Math.max(PAD + 4, Math.round((W - s.length * 10) / 2));
-        const cx1 = (s: string) => Math.max(PAD + 4, Math.round((W - s.length * 8) / 2));
+        // Fundo branco com borda externa arredondada (r=8)
+        ctx.fillStyle = '#fff';
+        rr(0, 0, W, H, 8); ctx.fill();
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+        rr(1, 1, W - 2, H - 2, 7); ctx.stroke();
 
-        const L: string[] = [
-          'SIZE 60 mm,60 mm', 'GAP 0 mm,0 mm', 'CLS',
-          `BOX ${PAD},${PAD},${R},${B},3`,
-        ];
+        // ── HEADER (nome do insumo) ── 35px
+        const HDR = 35;
+        ctx.fillStyle = '#000';
+        ctx.font = 'bold 14px Arial, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(insumoSel.toUpperCase(), W / 2, HDR / 2, W - 12);
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(1, HDR); ctx.lineTo(W - 1, HDR); ctx.stroke();
 
-        let y = PAD + 14; // y=30 — espaço do topo
+        let y = HDR + 4;
 
-        // HEADER — nome do insumo
-        L.push(`TEXT ${cx4(nome)},${y},"4",0,1,1,"${nome}"`);
-        y += 38; L.push(`BAR ${PAD},${y},${W - PAD * 2},2`); y += 8;
+        // ── MARCA/FORNECEDOR ── 24px
+        ctx.font = '7.5px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#444';
+        ctx.fillText('MARCA/FORNECEDOR', 6, y + 8);
+        const marca = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
+        ctx.font = 'bold 9.5px Arial, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = '#000';
+        ctx.fillText(marca, W - 6, y + 8, W - 12);
+        ctx.fillText('', 0, 0); // reset
+        y += 22;
 
-        // MARCA/FORNECEDOR
-        L.push(`TEXT ${PAD + 4},${y},"2",0,1,1,"MARCA: ${marca}"`);
-        y += 26; L.push(`BAR ${PAD + 4},${y},${W - PAD * 2 - 8},1`); y += 6;
+        // linha separadora
+        ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(6, y); ctx.lineTo(W - 6, y); ctx.stroke();
+        y += 5;
 
-        // BADGE CONSERVAÇÃO
-        const bW = Math.max(116, badge.length * 12 + 20);
-        const bH = 32; const bX = Math.round((W - bW) / 2);
-        L.push(`BOX ${bX},${y},${bX + bW},${y + bH},2`);
-        L.push(`TEXT ${cx3(badge)},${y + 4},"3",0,1,1,"${badge}"`);
-        y += bH + 6; L.push(`BAR ${PAD + 4},${y},${W - PAD * 2 - 8},1`); y += 6;
+        // ── BADGE CONSERVAÇÃO ── 22px com bordas arredondadas
+        const bW = 120; const bH = 20; const bX = (W - bW) / 2;
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+        rr(bX, y, bW, bH, 4); ctx.stroke();
+        ctx.font = 'bold 9px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#000';
+        ctx.fillText(conservacao === 'resfriado' ? '❄ RESFRIADO' : '🧊 CONGELADO', W / 2, y + bH / 2);
+        y += bH + 5;
 
-        // MANIPULAÇÃO
-        L.push(`TEXT ${PAD + 4},${y},"2",0,1,1,"MANIP.: ${fmtManip()}"`);
+        // linha separadora
+        ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(6, y); ctx.lineTo(W - 6, y); ctx.stroke();
+        y += 5;
+
+        // ── MANIPULAÇÃO ── 22px
+        ctx.font = '7.5px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#444';
+        ctx.fillText('MANIPULAÇÃO', 6, y + 7);
+        ctx.font = 'bold 9.5px Arial, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = '#000';
+        ctx.fillText(fmtManip(), W - 6, y + 7);
+        y += 20;
+
+        // ── VALIDADE — box com borda arredondada ── 30px
+        const vH = 28;
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+        rr(3, y, W - 6, vH, 4); ctx.stroke();
+        ctx.font = 'bold 8px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#000';
+        ctx.fillText('VALIDADE', 9, y + vH / 2);
+        ctx.font = 'bold 11px Arial, sans-serif'; ctx.textAlign = 'right';
+        ctx.fillText(fmtDT(validadeDT), W - 9, y + vH / 2);
+        y += vH + 4;
+
+        // linha separadora
+        ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(6, y); ctx.lineTo(W - 6, y); ctx.stroke();
+        y += 4;
+
+        // ── RESPONSÁVEL / PORÇÕES / PESO ── 28px
+        ctx.fillStyle = '#444'; ctx.textBaseline = 'top';
+        ctx.font = '7px Arial, sans-serif'; ctx.textAlign = 'left';
+        ctx.fillText('RESPONSÁVEL', 6, y);
+        ctx.font = 'bold 9px Arial, sans-serif'; ctx.fillStyle = '#000';
+        ctx.fillText(responsavel, 6, y + 9, 80);
+        if (porcoes) {
+          ctx.font = '7px Arial, sans-serif'; ctx.fillStyle = '#444'; ctx.textAlign = 'center';
+          ctx.fillText('PORÇÕES', W / 2, y);
+          ctx.font = 'bold 9px Arial, sans-serif'; ctx.fillStyle = '#000';
+          ctx.fillText(porcoes, W / 2, y + 9);
+        }
+        ctx.font = '7px Arial, sans-serif'; ctx.fillStyle = '#444'; ctx.textAlign = 'right';
+        ctx.fillText('PESO', W - 6, y);
+        ctx.font = 'bold 9px Arial, sans-serif'; ctx.fillStyle = '#000';
+        ctx.fillText(peso || '—', W - 6, y + 9);
         y += 26;
 
-        // VALIDADE — caixa
-        const vH = 42;
-        L.push(`BOX ${PAD},${y},${R},${y + vH},2`);
-        L.push(`TEXT ${PAD + 6},${y + 9},"3",0,1,1,"VALIDADE"`);
-        // Fonte 2 (8w/char) para a data — evita corte à direita
-        const vdX = Math.max(PAD + 110, R - 6 - validade.length * 9);
-        L.push(`TEXT ${vdX},${y + 11},"2",0,1,1,"${validade}"`);
-        y += vH + 6; L.push(`BAR ${PAD + 4},${y},${W - PAD * 2 - 8},1`); y += 6;
-
-        // RESPONSÁVEL / PORÇÕES / PESO
-        L.push(`TEXT ${PAD + 4},${y},"1",0,1,1,"RESP.:"`);
-        L.push(`TEXT ${PAD + 4},${y + 14},"2",0,1,1,"${resp}"`);
-        if (porcoes) {
-          const mid = Math.round(W / 2);
-          L.push(`TEXT ${mid - 40},${y},"1",0,1,1,"PORC.:"`);
-          L.push(`TEXT ${mid - 28},${y + 14},"2",0,1,1,"${porcoes}"`);
-        }
-        L.push(`TEXT ${R - 46},${y},"1",0,1,1,"PESO:"`);
-        L.push(`TEXT ${Math.max(R - 70, R - 6 - pesoVal.length * 8)},${y + 14},"2",0,1,1,"${pesoVal}"`);
-        y += 42;
-
-        // RODAPÉ
-        L.push(`BAR ${PAD},${y},${W - PAD * 2},2`); y += 6;
-        L.push(`TEXT ${cx3(nomeEmp)},${y},"3",0,1,1,"${nomeEmp}"`);
+        // ── RODAPÉ ──
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(1, y); ctx.lineTo(W - 1, y); ctx.stroke();
+        y += 2;
+        const footH = H - y - 2;
+        ctx.font = 'bold 10px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#000';
+        ctx.fillText((empresa.nome || 'FATTORIA').toUpperCase(), W / 2, y + footH * 0.4, W - 12);
         if (empresa.cnpj || empresa.endereco) {
-          y += 28;
-          const rodape = (empresa.cnpj ? empresa.cnpj + ' ' : '') + (empresa.endereco || '');
-          L.push(`TEXT ${cx1(rodape)},${y},"1",0,1,1,"${rodape}"`);
+          ctx.font = '6.5px Arial, sans-serif';
+          const rodape = `${empresa.cnpj ? 'CNPJ ' + empresa.cnpj + ' · ' : ''}${empresa.endereco || ''}`;
+          ctx.fillText(rodape, W / 2, y + footH * 0.75, W - 12);
         }
 
-        L.push('PRINT 1,1');
-        return L.join('\r\n');
-      };
+        resolve(c.toDataURL('image/png').split(',')[1]);
+      });
 
-      const config = qz.configs.create({ host: '192.168.2.115', port: 9100 });
+      const base64 = await buildCanvas();
+
+      // 58mm a 96 DPI = 220px — driver com recuo zerado, sem margin CSS
+      const printHTML = `<!DOCTYPE html><html><head>
+        <style>
+          @page { size: 58mm 58mm; margin: 0; }
+          * { margin: 0; padding: 0; }
+          html, body { width: 220px; height: 220px; overflow: hidden; background: #fff; }
+          img { display: block; width: 220px; height: 220px; }
+        </style>
+      </head><body><img src="data:image/png;base64,${base64}" /></body></html>`;
+
+      const config = qz.configs.create('ELGIN L42PRO FULL', {
+        size: { width: 58, height: 58 },
+        units: 'mm',
+        density: 203,
+      });
+
       for (let i = 0; i < qtdEtiquetas; i++) {
-        await qz.print(config, [{ type: 'raw', format: 'command', data: buildTSPL() }]);
+        await qz.print(config, [{
+          type: 'pixel',
+          format: 'html',
+          flavor: 'plain',
+          data: printHTML,
+        }]);
       }
 
     } catch (err: any) {
