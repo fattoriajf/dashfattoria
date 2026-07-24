@@ -3998,6 +3998,7 @@ function EtiquetasTab() {
 
   // ── Impressão ──
   const handlePrint = async () => {
+    console.log('handlePrint chamado — insumoSel:', insumoSel, '| responsavel:', responsavel);
     if (!insumoSel) { alert('Selecione um insumo.'); return; }
     if (!responsavel.trim()) { alert('Informe o responsável.'); return; }
 
