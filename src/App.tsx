@@ -4109,7 +4109,7 @@ function EtiquetasTab() {
         const cx1 = (s: string) => Math.max(PAD + 4, Math.round((W - s.length * 8) / 2));
 
         const L: string[] = [
-          'SIZE 60 mm,60 mm', 'GAP 0 mm,0 mm', 'CLS',
+          'SIZE 60 mm,60 mm', 'GAP 0 mm,0 mm', 'DIRECTION 1', 'CLS',
           `BOX ${PAD},${PAD},${R},${B},3`,
         ];
 
