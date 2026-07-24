@@ -4091,20 +4091,93 @@ function EtiquetasTab() {
         await qz.websocket.connect();
       }
 
-      // ── DIAGNÓSTICO: confirma que novo código chegou e testa canal de impressão ──
-      alert('CÓDIGO NOVO RODANDO — v4');
-      const testData = `SIZE 60 mm,60 mm\r\nGAP 0 mm,0 mm\r\nCLS\r\nTEXT 80,200,"4",0,2,2,"TESTE OK"\r\nPRINT 1,1\r\n`;
-      console.log('[QZ] Enviando para impressora:', testData);
+      // ── TSPL: linguagem nativa Elgin/TSC — 203 DPI, TCP direto, sem driver Windows ──
+      const buildTSPL = (): string => {
+        const W = 480; const PAD = 16; const R = W - PAD; const B = W - PAD;
 
+        const nome     = insumoSel.toUpperCase();
+        const marca    = (insumoAtual?.marca_fornecedor || '—') + (insumoAtual?.sif ? ' SIF:' + insumoAtual.sif : '');
+        const badge    = conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO';
+        const validade = fmtDT(validadeDT);
+        const resp     = responsavel || '—';
+        const pesoVal  = peso || '—';
+        const nomeEmp  = (empresa.nome || 'FATTORIA').toUpperCase();
+
+        // Centralização por fonte (largura aproximada por caractere)
+        const cx4 = (s: string) => Math.max(PAD + 4, Math.round((W - s.length * 12) / 2));
+        const cx3 = (s: string) => Math.max(PAD + 4, Math.round((W - s.length * 10) / 2));
+        const cx1 = (s: string) => Math.max(PAD + 4, Math.round((W - s.length * 8) / 2));
+
+        const L: string[] = [
+          'SIZE 60 mm,60 mm', 'GAP 0 mm,0 mm', 'CLS',
+          `BOX ${PAD},${PAD},${R},${B},3`,
+        ];
+
+        let y = PAD + 14; // y=30 — espaço do topo
+
+        // HEADER — nome do insumo
+        L.push(`TEXT ${cx4(nome)},${y},"4",0,1,1,"${nome}"`);
+        y += 38; L.push(`BAR ${PAD},${y},${W - PAD * 2},2`); y += 8;
+
+        // MARCA/FORNECEDOR
+        L.push(`TEXT ${PAD + 4},${y},"2",0,1,1,"MARCA: ${marca}"`);
+        y += 26; L.push(`BAR ${PAD + 4},${y},${W - PAD * 2 - 8},1`); y += 6;
+
+        // BADGE CONSERVAÇÃO
+        const bW = Math.max(116, badge.length * 12 + 20);
+        const bH = 32; const bX = Math.round((W - bW) / 2);
+        L.push(`BOX ${bX},${y},${bX + bW},${y + bH},2`);
+        L.push(`TEXT ${cx3(badge)},${y + 4},"3",0,1,1,"${badge}"`);
+        y += bH + 6; L.push(`BAR ${PAD + 4},${y},${W - PAD * 2 - 8},1`); y += 6;
+
+        // MANIPULAÇÃO
+        L.push(`TEXT ${PAD + 4},${y},"2",0,1,1,"MANIP.: ${fmtManip()}"`);
+        y += 26;
+
+        // VALIDADE — caixa
+        const vH = 42;
+        L.push(`BOX ${PAD},${y},${R},${y + vH},2`);
+        L.push(`TEXT ${PAD + 6},${y + 9},"3",0,1,1,"VALIDADE"`);
+        // Fonte 2 (8w/char) para a data — evita corte à direita
+        const vdX = Math.max(PAD + 110, R - 6 - validade.length * 9);
+        L.push(`TEXT ${vdX},${y + 11},"2",0,1,1,"${validade}"`);
+        y += vH + 6; L.push(`BAR ${PAD + 4},${y},${W - PAD * 2 - 8},1`); y += 6;
+
+        // RESPONSÁVEL / PORÇÕES / PESO
+        L.push(`TEXT ${PAD + 4},${y},"1",0,1,1,"RESP.:"`);
+        L.push(`TEXT ${PAD + 4},${y + 14},"2",0,1,1,"${resp}"`);
+        if (porcoes) {
+          const mid = Math.round(W / 2);
+          L.push(`TEXT ${mid - 40},${y},"1",0,1,1,"PORC.:"`);
+          L.push(`TEXT ${mid - 28},${y + 14},"2",0,1,1,"${porcoes}"`);
+        }
+        L.push(`TEXT ${R - 46},${y},"1",0,1,1,"PESO:"`);
+        L.push(`TEXT ${Math.max(R - 70, R - 6 - pesoVal.length * 8)},${y + 14},"2",0,1,1,"${pesoVal}"`);
+        y += 42;
+
+        // RODAPÉ
+        L.push(`BAR ${PAD},${y},${W - PAD * 2},2`); y += 6;
+        L.push(`TEXT ${cx3(nomeEmp)},${y},"3",0,1,1,"${nomeEmp}"`);
+        if (empresa.cnpj || empresa.endereco) {
+          y += 28;
+          const rodape = (empresa.cnpj ? empresa.cnpj + ' ' : '') + (empresa.endereco || '');
+          L.push(`TEXT ${cx1(rodape)},${y},"1",0,1,1,"${rodape}"`);
+        }
+
+        L.push('PRINT 1,1');
+        return L.join('\r\n');
+      };
+
+      // Conexão TCP direta → bypassa driver Windows, TSPL vai ao firmware da Elgin
       const config = qz.configs.create({ host: '192.168.2.115', port: 9100 });
-      console.log('[QZ] Config criada:', JSON.stringify(config));
 
-      await qz.print(config, [{
-        type: 'raw',
-        format: 'command',
-        data: testData,
-      }]);
-      console.log('[QZ] Print enviado com sucesso');
+      for (let i = 0; i < qtdEtiquetas; i++) {
+        await qz.print(config, [{
+          type: 'raw',
+          format: 'command',
+          data: buildTSPL(),
+        }]);
+      }
 
     } catch (err: any) {
       alert(`Erro ao imprimir: ${String(err)}`);
