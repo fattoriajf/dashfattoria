@@ -4175,8 +4175,8 @@ function EtiquetasTab() {
         await qz.print(config, [{
           type: 'pixel',
           format: 'image',
-          flavor: 'base64',
-          data: base64,
+          flavor: 'plain',
+          data: `data:image/png;base64,${base64}`,
         }]);
       }
 
