@@ -4205,7 +4205,7 @@ function EtiquetasTab() {
         <style>
           @page { size: 60mm 60mm; margin: 0; }
           body { margin: 0; padding: 0; }
-          img { width: 480px; height: 480px; display: block; }
+          img { width: 60mm; height: 60mm; display: block; }
         </style>
       </head><body><img src="data:image/png;base64,${base64}" /></body></html>`;
 
