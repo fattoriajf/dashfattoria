@@ -3979,19 +3979,19 @@ function EtiquetasTab() {
   };
 
   const fmtDT = (dt: Date | null) => {
-    if (!dt) return '—';
+    if (!dt) return '-';
     const d = String(dt.getDate()).padStart(2,'0');
     const m = String(dt.getMonth()+1).padStart(2,'0');
     const y = dt.getFullYear();
     const h = String(dt.getHours()).padStart(2,'0');
     const min = String(dt.getMinutes()).padStart(2,'0');
-    return `${d}/${m}/${y} · ${h}:${min}`;
+    return `${d}/${m}/${y} ${h}:${min}`;
   };
 
   const fmtManip = () => {
-    if (!manipData || !manipHora) return '—';
+    if (!manipData || !manipHora) return '-';
     const [y,m,d] = manipData.split('-');
-    return `${d}/${m}/${y} · ${manipHora}`;
+    return `${d}/${m}/${y} ${manipHora}`;
   };
 
   const validadeDT = calcValidade();
@@ -4068,167 +4068,149 @@ function EtiquetasTab() {
 
     try {
       qz.security.setCertificatePromise((resolve: any, reject: any) => {
-        fetch('/digital-certificate.txt', { cache: 'no-store', headers: { 'Content-Type': 'text/plain' } })
+        fetch('/digital-certificate.txt', { cache: 'no-store' })
           .then((r) => r.ok ? resolve(r.text()) : reject(r.text()));
       });
-
       qz.security.setSignatureAlgorithm('SHA512');
       qz.security.setSignaturePromise((toSign: any) => async (resolve: any, reject: any) => {
         try {
-          const keyRes = await fetch('/private-key.pem', { cache: 'no-store', headers: { 'Content-Type': 'text/plain' } });
+          const keyRes = await fetch('/private-key.pem', { cache: 'no-store' });
           const privateKey = await keyRes.text();
           const KJUR = (window as any).KJUR;
           const sig = new KJUR.crypto.Signature({ alg: 'SHA512withRSA' });
           sig.init(privateKey.trim());
           sig.updateString(toSign);
           resolve((window as any).hex2b64(sig.sign()));
-        } catch (e) {
-          reject(e);
-        }
+        } catch (e) { reject(e); }
       });
 
       if (!qz.websocket.isActive()) {
         await qz.websocket.connect();
       }
 
-      // Canvas 220×220px = 58mm a 96 DPI
-      // Driver com recuo zerado → só 1mm de margem natural em cada lado
-      const buildCanvas = (): Promise<string> => new Promise((resolve) => {
-        const W = 220; const H = 220;
-        const c = document.createElement('canvas');
-        c.width = W; c.height = H;
-        const ctx = c.getContext('2d')!;
+      // Canvas 480×480px = 60mm a 203 DPI — resolução nativa da impressora, sem upscaling
+      const buildCanvasLabel = (): Promise<string> => new Promise((resolve) => {
+        const MM = 203 / 25.4; // ~7.99 dots/mm
+        const W = Math.round(60 * MM); // 480px
+        const H = Math.round(60 * MM); // 480px
+        const canvas = document.createElement('canvas');
+        canvas.width = W; canvas.height = H;
+        const ctx = canvas.getContext('2d')!;
 
-        // Helper: retângulo arredondado
-        const rr = (x: number, y: number, w: number, h: number, r: number) => {
-          ctx.beginPath();
-          ctx.moveTo(x + r, y);
-          ctx.arcTo(x + w, y,     x + w, y + h, r);
-          ctx.arcTo(x + w, y + h, x,     y + h, r);
-          ctx.arcTo(x,     y + h, x,     y,     r);
-          ctx.arcTo(x,     y,     x + w, y,     r);
-          ctx.closePath();
-        };
+        const f = (mm: number) => Math.round(mm * MM); // mm → px helper
 
-        // Fundo branco com borda externa arredondada (r=8)
+        // Fundo branco
         ctx.fillStyle = '#fff';
-        rr(0, 0, W, H, 8); ctx.fill();
-        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        rr(1, 1, W - 2, H - 2, 7); ctx.stroke();
+        ctx.fillRect(0, 0, W, H);
 
-        // ── HEADER (nome do insumo) ── 35px
-        const HDR = 35;
+        // Borda externa
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+        ctx.strokeRect(1, 1, W - 2, H - 2);
+
+        // Header — nome do insumo
+        const hdrH = f(13);
         ctx.fillStyle = '#000';
-        ctx.font = 'bold 14px Arial, sans-serif';
+        ctx.font = `bold ${f(5.5)}px Arial`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(insumoSel.toUpperCase(), W / 2, HDR / 2, W - 12);
-        ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(1, HDR); ctx.lineTo(W - 1, HDR); ctx.stroke();
+        ctx.fillText(insumoSel.toUpperCase(), W / 2, hdrH / 2, W - f(4));
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(0, hdrH); ctx.lineTo(W, hdrH); ctx.stroke();
 
-        let y = HDR + 4;
+        let y = hdrH + f(2);
 
-        // ── MARCA/FORNECEDOR ── 24px
-        ctx.font = '7.5px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#444';
-        ctx.fillText('MARCA/FORNECEDOR', 6, y + 8);
+        // Marca / Fornecedor
+        ctx.font = `${f(2)}px Arial`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText('MARCA/FORNECEDOR', f(2), y + f(3));
         const marca = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
-        ctx.font = 'bold 9.5px Arial, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = '#000';
-        ctx.fillText(marca, W - 6, y + 8, W - 12);
-        ctx.fillText('', 0, 0); // reset
-        y += 22;
+        ctx.font = `bold ${f(2.5)}px Arial`; ctx.textAlign = 'right';
+        ctx.fillText(marca, W - f(2), y + f(3), W - f(4));
+        y += f(8);
 
-        // linha separadora
-        ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(6, y); ctx.lineTo(W - 6, y); ctx.stroke();
-        y += 5;
+        ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(f(2), y); ctx.lineTo(W - f(2), y); ctx.stroke();
+        y += f(2);
 
-        // ── BADGE CONSERVAÇÃO ── 22px com bordas arredondadas
-        const bW = 120; const bH = 20; const bX = (W - bW) / 2;
+        // Badge conservação
+        const badgeW = f(38); const badgeH = f(7);
+        const bx = (W - badgeW) / 2;
         ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        rr(bX, y, bW, bH, 4); ctx.stroke();
-        ctx.font = 'bold 9px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.strokeRect(bx, y, badgeW, badgeH);
+        ctx.font = `bold ${f(2.8)}px Arial`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillStyle = '#000';
-        ctx.fillText(conservacao === 'resfriado' ? '❄ RESFRIADO' : '🧊 CONGELADO', W / 2, y + bH / 2);
-        y += bH + 5;
+        ctx.fillText(conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO', W / 2, y + badgeH / 2);
+        y += badgeH + f(2);
 
-        // linha separadora
-        ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(6, y); ctx.lineTo(W - 6, y); ctx.stroke();
-        y += 5;
+        ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(f(2), y); ctx.lineTo(W - f(2), y); ctx.stroke();
+        y += f(2);
 
-        // ── MANIPULAÇÃO ── 22px
-        ctx.font = '7.5px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#444';
-        ctx.fillText('MANIPULAÇÃO', 6, y + 7);
-        ctx.font = 'bold 9.5px Arial, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = '#000';
-        ctx.fillText(fmtManip(), W - 6, y + 7);
-        y += 20;
+        // Manipulação
+        ctx.font = `${f(2)}px Arial`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#000';
+        ctx.fillText('MANIPULAÇÃO', f(2), y + f(3));
+        ctx.font = `bold ${f(2.5)}px Arial`; ctx.textAlign = 'right';
+        ctx.fillText(fmtManip(), W - f(2), y + f(3));
+        y += f(8);
 
-        // ── VALIDADE — box com borda arredondada ── 30px
-        const vH = 28;
+        // Validade — caixa destacada
+        const valH = f(11);
         ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        rr(3, y, W - 6, vH, 4); ctx.stroke();
-        ctx.font = 'bold 8px Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#000';
-        ctx.fillText('VALIDADE', 9, y + vH / 2);
-        ctx.font = 'bold 11px Arial, sans-serif'; ctx.textAlign = 'right';
-        ctx.fillText(fmtDT(validadeDT), W - 9, y + vH / 2);
-        y += vH + 4;
+        ctx.strokeRect(f(1), y, W - f(2), valH);
+        ctx.font = `bold ${f(2.2)}px Arial`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText('VALIDADE', f(3), y + valH / 2);
+        ctx.font = `bold ${f(3.2)}px Arial`; ctx.textAlign = 'right';
+        ctx.fillText(fmtDT(validadeDT), W - f(3), y + valH / 2);
+        y += valH + f(2);
 
-        // linha separadora
-        ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(6, y); ctx.lineTo(W - 6, y); ctx.stroke();
-        y += 4;
+        ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(f(2), y); ctx.lineTo(W - f(2), y); ctx.stroke();
+        y += f(2);
 
-        // ── RESPONSÁVEL / PORÇÕES / PESO ── 28px
-        ctx.fillStyle = '#444'; ctx.textBaseline = 'top';
-        ctx.font = '7px Arial, sans-serif'; ctx.textAlign = 'left';
-        ctx.fillText('RESPONSÁVEL', 6, y);
-        ctx.font = 'bold 9px Arial, sans-serif'; ctx.fillStyle = '#000';
-        ctx.fillText(responsavel, 6, y + 9, 80);
+        // Responsável / Porções / Peso
+        ctx.textBaseline = 'top'; ctx.fillStyle = '#000';
+        ctx.font = `${f(1.8)}px Arial`; ctx.textAlign = 'left';
+        ctx.fillText('RESPONSÁVEL', f(2), y);
+        ctx.font = `bold ${f(2.5)}px Arial`;
+        ctx.fillText(responsavel, f(2), y + f(2.5), f(25));
         if (porcoes) {
-          ctx.font = '7px Arial, sans-serif'; ctx.fillStyle = '#444'; ctx.textAlign = 'center';
+          ctx.font = `${f(1.8)}px Arial`; ctx.textAlign = 'center';
           ctx.fillText('PORÇÕES', W / 2, y);
-          ctx.font = 'bold 9px Arial, sans-serif'; ctx.fillStyle = '#000';
-          ctx.fillText(porcoes, W / 2, y + 9);
+          ctx.font = `bold ${f(2.5)}px Arial`;
+          ctx.fillText(porcoes, W / 2, y + f(2.5));
         }
-        ctx.font = '7px Arial, sans-serif'; ctx.fillStyle = '#444'; ctx.textAlign = 'right';
-        ctx.fillText('PESO', W - 6, y);
-        ctx.font = 'bold 9px Arial, sans-serif'; ctx.fillStyle = '#000';
-        ctx.fillText(peso || '—', W - 6, y + 9);
-        y += 26;
+        ctx.font = `${f(1.8)}px Arial`; ctx.textAlign = 'right';
+        ctx.fillText('PESO', W - f(2), y);
+        ctx.font = `bold ${f(2.5)}px Arial`;
+        ctx.fillText(peso || '—', W - f(2), y + f(2.5));
+        y += f(10);
 
-        // ── RODAPÉ ──
+        // Rodapé — empresa
         ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(1, y); ctx.lineTo(W - 1, y); ctx.stroke();
-        y += 2;
-        const footH = H - y - 2;
-        ctx.font = 'bold 10px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#000';
-        ctx.fillText((empresa.nome || 'FATTORIA').toUpperCase(), W / 2, y + footH * 0.4, W - 12);
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+        y += f(2);
+        const footH = H - y;
+        ctx.font = `bold ${f(3)}px Arial`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText((empresa.nome || 'FATTORIA').toUpperCase(), W / 2, y + footH * 0.35, W - f(4));
         if (empresa.cnpj || empresa.endereco) {
-          ctx.font = '6.5px Arial, sans-serif';
-          const rodape = `${empresa.cnpj ? 'CNPJ ' + empresa.cnpj + ' · ' : ''}${empresa.endereco || ''}`;
-          ctx.fillText(rodape, W / 2, y + footH * 0.75, W - 12);
+          ctx.font = `${f(1.8)}px Arial`;
+          const cnpjEnd = `${empresa.cnpj ? 'CNPJ ' + empresa.cnpj + ' · ' : ''}${empresa.endereco || ''}`;
+          ctx.fillText(cnpjEnd, W / 2, y + footH * 0.72, W - f(4));
         }
 
-        resolve(c.toDataURL('image/png').split(',')[1]);
+        resolve(canvas.toDataURL('image/png').split(',')[1]);
       });
 
-      const base64 = await buildCanvas();
-
-      // 58mm a 96 DPI = 220px — driver com recuo zerado, sem margin CSS
-      const printHTML = `<!DOCTYPE html><html><head>
+      const base64 = await buildCanvasLabel();
+      const htmlContent = `<!DOCTYPE html><html><head>
         <style>
-          @page { size: 58mm 58mm; margin: 0; }
-          * { margin: 0; padding: 0; }
-          html, body { width: 220px; height: 220px; overflow: hidden; background: #fff; }
-          img { display: block; width: 220px; height: 220px; }
+          @page { size: 60mm 60mm; margin: 0; }
+          body { margin: 0; padding: 0; }
+          img { width: 480px; height: 480px; display: block; }
         </style>
       </head><body><img src="data:image/png;base64,${base64}" /></body></html>`;
 
       const config = qz.configs.create('ELGIN L42PRO FULL', {
-        size: { width: 58, height: 58 },
+        size: { width: 60, height: 60 },
         units: 'mm',
         density: 203,
       });
@@ -4238,7 +4220,7 @@ function EtiquetasTab() {
           type: 'pixel',
           format: 'html',
           flavor: 'plain',
-          data: printHTML,
+          data: htmlContent,
         }]);
       }
 
