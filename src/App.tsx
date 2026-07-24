@@ -4068,6 +4068,7 @@ function EtiquetasTab() {
     }
 
     try {
+      console.log('[1] configurando certificado...');
       qz.security.setCertificatePromise((resolve: any, reject: any) => {
         fetch('/digital-certificate.txt', { cache: 'no-store', headers: { 'Content-Type': 'text/plain' } })
           .then((r) => r.ok ? resolve(r.text()) : reject(r.text()));
@@ -4088,10 +4089,12 @@ function EtiquetasTab() {
         }
       });
 
+      console.log('[2] verificando websocket isActive:', qz.websocket.isActive());
       if (!qz.websocket.isActive()) {
         await qz.websocket.connect();
       }
 
+      console.log('[3] websocket ok, montando TSPL...');
       // ── TSPL: linguagem nativa Elgin/TSC — 203 DPI, TCP direto, sem driver Windows ──
       const buildTSPL = (): string => {
         const W = 480; const PAD = 16; const R = W - PAD; const B = W - PAD;
@@ -4171,16 +4174,22 @@ function EtiquetasTab() {
 
       // Conexão TCP direta → bypassa driver Windows, TSPL vai ao firmware da Elgin
       const config = qz.configs.create({ host: '192.168.2.115', port: 9100 });
+      const tspl = buildTSPL();
+      console.log('[4] TSPL gerado:\n', tspl);
 
       for (let i = 0; i < qtdEtiquetas; i++) {
+        console.log('[5] enviando impressão', i + 1, 'de', qtdEtiquetas);
         await qz.print(config, [{
           type: 'raw',
           format: 'command',
-          data: buildTSPL(),
+          data: tspl,
         }]);
+        console.log('[6] impressão', i + 1, 'enviada OK');
       }
+      console.log('[7] tudo enviado!');
 
     } catch (err: any) {
+      console.error('[ERRO]', err);
       alert(`Erro ao imprimir: ${String(err)}`);
     }
   };
