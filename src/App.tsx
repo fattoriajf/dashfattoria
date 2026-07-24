@@ -3962,42 +3962,6 @@ function EtiquetasTab() {
 
   useEffect(() => { loadAll(); }, []);
 
-  // ── conecta QZ Tray ao abrir a aba ──
-  useEffect(() => {
-    const qz = (window as any).qz;
-    if (!qz) return;
-
-    const setupQZ = async () => {
-      try {
-        qz.security.setCertificatePromise((resolve: any, reject: any) => {
-          fetch('/digital-certificate.txt', { cache: 'no-store' })
-            .then((r) => r.ok ? resolve(r.text()) : reject(r.text()));
-        });
-        qz.security.setSignatureAlgorithm('SHA512');
-        qz.security.setSignaturePromise((toSign: any) => async (resolve: any, reject: any) => {
-          try {
-            const keyRes = await fetch('/private-key.pem', { cache: 'no-store' });
-            const privateKey = await keyRes.text();
-            const KJUR = (window as any).KJUR;
-            const sig = new KJUR.crypto.Signature({ alg: 'SHA512withRSA' });
-            sig.init(privateKey.trim());
-            sig.updateString(toSign);
-            resolve((window as any).hex2b64(sig.sign()));
-          } catch (e) { reject(e); }
-        });
-
-        if (!qz.websocket.isActive()) {
-          await qz.websocket.connect();
-          console.log('[QZ] conectado ao abrir aba etiquetas');
-        }
-      } catch (e) {
-        console.warn('[QZ] falha ao conectar na abertura:', e);
-      }
-    };
-
-    setupQZ();
-  }, []);
-
   // ── derivados ──
   const insumoAtual = insumos.find(i => i.nome === insumoSel);
   const categoriaAtual = categorias.find(c => c.nome === insumoAtual?.categoria_validade);
@@ -4034,7 +3998,6 @@ function EtiquetasTab() {
 
   // ── Impressão ──
   const handlePrint = async () => {
-    console.log('handlePrint chamado — insumoSel:', insumoSel, '| responsavel:', responsavel);
     if (!insumoSel) { alert('Selecione um insumo.'); return; }
     if (!responsavel.trim()) { alert('Informe o responsável.'); return; }
 
@@ -4125,25 +4088,17 @@ function EtiquetasTab() {
         await qz.websocket.connect();
       }
 
-      console.log('[3] websocket ok, montando TSPL...');
       // ── TSPL: linguagem nativa Elgin/TSC — 203 DPI, TCP direto, sem driver Windows ──
       const buildTSPL = (): string => {
         const W = 480; const PAD = 16; const R = W - PAD; const B = W - PAD;
 
-        // Converte caracteres especiais para ASCII puro (firmware Elgin não aceita UTF-8 multi-byte)
-        const ascii = (s: string) => s
-          .normalize('NFD').replace(/[̀-ͯ]/g, '') // remove acentos (Ç→C, Ú→U, etc.)
-          .replace(/[·•]/g, '-')   // middle dot
-          .replace(/[—–]/g, '-')   // em/en dash
-          .replace(/[^\x00-\x7F]/g, '?'); // qualquer outro não-ASCII → ?
-
-        const nome     = ascii(insumoSel.toUpperCase());
-        const marca    = ascii((insumoAtual?.marca_fornecedor || '-') + (insumoAtual?.sif ? ' SIF:' + insumoAtual.sif : ''));
+        const nome     = insumoSel.toUpperCase();
+        const marca    = (insumoAtual?.marca_fornecedor || '—') + (insumoAtual?.sif ? ' SIF:' + insumoAtual.sif : '');
         const badge    = conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO';
         const validade = fmtDT(validadeDT);
-        const resp     = ascii(responsavel || '-');
-        const pesoVal  = ascii(peso || '-');
-        const nomeEmp  = ascii((empresa.nome || 'FATTORIA').toUpperCase());
+        const resp     = responsavel || '—';
+        const pesoVal  = peso || '—';
+        const nomeEmp  = (empresa.nome || 'FATTORIA').toUpperCase();
 
         // Centralização por fonte (largura aproximada por caractere)
         const cx4 = (s: string) => Math.max(PAD + 4, Math.round((W - s.length * 12) / 2));
@@ -4202,7 +4157,7 @@ function EtiquetasTab() {
         L.push(`TEXT ${cx3(nomeEmp)},${y},"3",0,1,1,"${nomeEmp}"`);
         if (empresa.cnpj || empresa.endereco) {
           y += 28;
-          const rodape = ascii((empresa.cnpj ? empresa.cnpj + ' ' : '') + (empresa.endereco || ''));
+          const rodape = (empresa.cnpj ? empresa.cnpj + ' ' : '') + (empresa.endereco || '');
           L.push(`TEXT ${cx1(rodape)},${y},"1",0,1,1,"${rodape}"`);
         }
 
@@ -4210,24 +4165,12 @@ function EtiquetasTab() {
         return L.join('\r\n');
       };
 
-      // Conexão TCP direta → bypassa driver Windows, TSPL vai ao firmware da Elgin
       const config = qz.configs.create({ host: '192.168.2.115', port: 9100 });
-      const tspl = buildTSPL();
-      console.log('[4] TSPL gerado:\n', tspl);
-
       for (let i = 0; i < qtdEtiquetas; i++) {
-        console.log('[5] enviando impressão', i + 1, 'de', qtdEtiquetas);
-        await qz.print(config, [{
-          type: 'raw',
-          format: 'command',
-          data: tspl,
-        }]);
-        console.log('[6] impressão', i + 1, 'enviada OK');
+        await qz.print(config, [{ type: 'raw', format: 'command', data: buildTSPL() }]);
       }
-      console.log('[7] tudo enviado!');
 
     } catch (err: any) {
-      console.error('[ERRO]', err);
       alert(`Erro ao imprimir: ${String(err)}`);
     }
   };
