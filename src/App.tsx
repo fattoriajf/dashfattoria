@@ -4013,57 +4013,59 @@ function EtiquetasTab() {
       ctx.fillStyle = '#fff';
       ctx.fillRect(0, 0, W, H);
 
-      const BORD = 8;   // inset da borda externa
-      const PAD  = 20;  // padding horizontal interno
-      const maxTW = W - (PAD + BORD) * 2;
+      // BORD = 24 dots ≈ 3mm — garante que a borda entra na área imprimível em todos os lados
+      const BORD = 24;
+      const PAD  = 14;  // padding horizontal interno (entre borda e texto)
+      const L = BORD + PAD;          // margem esquerda do texto
+      const R = W - BORD - PAD;      // margem direita do texto
+      const maxTW = R - L;
 
-      // Borda externa
+      // Borda externa (linha dupla para mais presença visual)
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 3;
       ctx.strokeRect(BORD, BORD, W - BORD * 2, H - BORD * 2);
 
-      // Divisórias Y fixas
-      const HEADER_H  = 62;
-      const FOOTER_Y  = 400;
+      // Divisórias Y
+      const HEADER_H = 68;
+      const FOOTER_Y = 392;
 
-      // ── CABEÇALHO: nome do produto ──
+      // ── CABEÇALHO ──
       ctx.fillStyle = '#000';
-      ctx.font = 'bold 26px Arial';
+      ctx.font = 'bold 28px Arial';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(insumoSel.toUpperCase(), W / 2, HEADER_H / 2, maxTW);
+      ctx.fillText(insumoSel.toUpperCase(), W / 2, (BORD + HEADER_H) / 2, maxTW);
 
       ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(BORD, HEADER_H); ctx.lineTo(W - BORD, HEADER_H); ctx.stroke();
 
       // ── CONTEÚDO ──
-      let cy = HEADER_H + 18;
+      let cy = HEADER_H + 16;
 
-      // Linha fina auxiliar
       const thinLine = (y: number) => {
         ctx.save();
-        ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(PAD + BORD, y); ctx.lineTo(W - PAD - BORD, y); ctx.stroke();
+        ctx.strokeStyle = '#999'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(R, y); ctx.stroke();
         ctx.restore();
       };
 
       // Marca/Fornecedor
       ctx.fillStyle = '#000';
-      ctx.font = '15px Arial';
+      ctx.font = '16px Arial';
       ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.fillText('MARCA/FORNECEDOR', PAD + BORD, cy, maxTW * 0.45);
+      ctx.fillText('MARCA/FORNECEDOR', L, cy, maxTW * 0.44);
       const marcaVal = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
-      ctx.font = 'bold 17px Arial';
+      ctx.font = 'bold 18px Arial';
       ctx.textAlign = 'right';
-      ctx.fillText(marcaVal, W - PAD - BORD, cy, maxTW * 0.55);
-      cy += 28;
+      ctx.fillText(marcaVal, R, cy, maxTW * 0.56);
+      cy += 30;
       thinLine(cy); cy += 12;
 
       // Badge conservação
       const badge = conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO';
-      ctx.font = 'bold 17px Arial';
-      const bW = ctx.measureText(badge).width + 36;
-      const bH = 30;
+      ctx.font = 'bold 18px Arial';
+      const bW = ctx.measureText(badge).width + 40;
+      const bH = 32;
       const bX = (W - bW) / 2;
       ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
       ctx.strokeRect(bX, cy, bW, bH);
@@ -4074,21 +4076,21 @@ function EtiquetasTab() {
 
       // Manipulação
       ctx.fillStyle = '#000';
-      ctx.font = '15px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.fillText('MANIPULAÇÃO', PAD + BORD, cy, maxTW * 0.45);
-      ctx.font = 'bold 17px Arial'; ctx.textAlign = 'right';
-      ctx.fillText(fmtManip(), W - PAD - BORD, cy, maxTW * 0.55);
+      ctx.font = '16px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('MANIPULAÇÃO', L, cy, maxTW * 0.44);
+      ctx.font = 'bold 18px Arial'; ctx.textAlign = 'right';
+      ctx.fillText(fmtManip(), R, cy, maxTW * 0.56);
       cy += 36;
 
       // Caixa Validade
-      const vH = 52;
+      const vH = 54;
       ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-      ctx.strokeRect(PAD + BORD - 4, cy, W - (PAD + BORD - 4) * 2, vH);
+      ctx.strokeRect(BORD + 4, cy, W - (BORD + 4) * 2, vH);
       ctx.fillStyle = '#000';
-      ctx.font = 'bold 17px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.fillText('VALIDADE', PAD + BORD + 4, cy + vH / 2);
-      ctx.font = 'bold 20px Arial'; ctx.textAlign = 'right';
-      ctx.fillText(fmtDT(validadeDT), W - PAD - BORD - 4, cy + vH / 2, maxTW * 0.6);
+      ctx.font = 'bold 18px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('VALIDADE', L + 2, cy + vH / 2);
+      ctx.font = 'bold 22px Arial'; ctx.textAlign = 'right';
+      ctx.fillText(fmtDT(validadeDT), R - 2, cy + vH / 2, maxTW * 0.62);
       cy += vH + 10;
       thinLine(cy); cy += 10;
 
@@ -4096,32 +4098,26 @@ function EtiquetasTab() {
       ctx.fillStyle = '#000';
       ctx.font = '14px Arial'; ctx.textBaseline = 'top';
       ctx.textAlign = 'left';
-      ctx.fillText('RESPONSÁVEL', PAD + BORD, cy, maxTW / 3);
-      if (porcoes) {
-        ctx.textAlign = 'center';
-        ctx.fillText('PORÇÕES', W / 2, cy);
-      }
+      ctx.fillText('RESPONSÁVEL', L, cy, maxTW / 3);
+      if (porcoes) { ctx.textAlign = 'center'; ctx.fillText('PORÇÕES', W / 2, cy); }
       ctx.textAlign = 'right';
-      ctx.fillText('PESO', W - PAD - BORD, cy, maxTW / 3);
-      cy += 18;
+      ctx.fillText('PESO', R, cy, maxTW / 3);
+      cy += 20;
 
       // Responsável / Porções / Peso — valores
-      ctx.font = 'bold 18px Arial';
+      ctx.font = 'bold 19px Arial';
       ctx.textAlign = 'left';
-      ctx.fillText(responsavel, PAD + BORD, cy, maxTW / 3);
-      if (porcoes) {
-        ctx.textAlign = 'center';
-        ctx.fillText(String(porcoes), W / 2, cy);
-      }
+      ctx.fillText(responsavel, L, cy, maxTW / 3);
+      if (porcoes) { ctx.textAlign = 'center'; ctx.fillText(String(porcoes), W / 2, cy); }
       ctx.textAlign = 'right';
-      ctx.fillText(peso || '—', W - PAD - BORD, cy, maxTW / 3);
+      ctx.fillText(peso || '—', R, cy, maxTW / 3);
 
       // ── RODAPÉ ──
       ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(BORD, FOOTER_Y); ctx.lineTo(W - BORD, FOOTER_Y); ctx.stroke();
 
       ctx.fillStyle = '#000';
-      ctx.font = 'bold 18px Arial';
+      ctx.font = 'bold 19px Arial';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText((empresa.nome || 'FATTORIA').toUpperCase(), W / 2, FOOTER_Y + 26, maxTW);
 
