@@ -3996,7 +3996,7 @@ function EtiquetasTab() {
         0x05, 0x00
       ]);
       const version = new Uint8Array([0x02, 0x01, 0x00]); // INTEGER 0
-      return tlv(0x30, cat(version, algId, tlv(0x04, pkcs1))).buffer;
+      return tlv(0x30, cat(version, algId, tlv(0x04, pkcs1))).buffer as ArrayBuffer;
     };
 
     // 1. Certificado público
