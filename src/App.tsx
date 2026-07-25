@@ -4150,7 +4150,7 @@ function EtiquetasTab() {
         <div class="ftr">
           <div class="ftr-name">${(empresa.nome || 'FATTORIA').toUpperCase()}</div>
           ${footLine ? `<div class="ftr-info">${footLine}</div>` : ''}
-          <div class="ftr-info" style="margin-top:0.5mm;letter-spacing:0.1mm;color:#555">${code}</div>
+          <div class="ftr-info" style="margin-top:0.4mm;letter-spacing:0.2mm;color:#000;font-weight:bold">${code}</div>
         </div>
       </body></html>`;
     };
@@ -4184,7 +4184,7 @@ function EtiquetasTab() {
       await qz.print(config, Array.from({ length: qtdEtiquetas }, () => labelItem));
 
       // Registra o lote no estoque
-      if (SYNC_ENDPOINT && validadeDT) {
+      if (SYNC_ENDPOINT) {
         fetch(SYNC_ENDPOINT, {
           method: 'POST', mode: 'no-cors',
           headers: { 'Content-Type': 'application/json' },
@@ -4193,7 +4193,7 @@ function EtiquetasTab() {
             id: loteCode,
             insumo: insumoSel,
             conservacao,
-            validade_dt: validadeDT.toISOString(),
+            validade_dt: validadeDT ? validadeDT.toISOString() : '',
             manip_dt: `${manipData}T${manipHora}`,
             responsavel,
             porcoes,
