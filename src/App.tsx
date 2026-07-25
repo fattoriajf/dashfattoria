@@ -3963,75 +3963,29 @@ function EtiquetasTab() {
   useEffect(() => { loadAll(); }, []);
 
   // ── QZ Tray: inicializa certificado UMA vez ao montar o componente ──
+  // Mover o setup para fora do handlePrint evita o diálogo de confirmação a cada impressão.
   useEffect(() => {
     const qz = (window as any).qz;
     if (!qz) return;
 
-    // Converte chave PKCS#1 (BEGIN RSA PRIVATE KEY) para PKCS#8 que o Web Crypto aceita.
-    // Necessário pois o QZ Tray "Create New" gera chaves PKCS#1 por padrão.
-    const pkcs1ToPkcs8 = (pkcs1: Uint8Array): ArrayBuffer => {
-      const encLen = (n: number): Uint8Array =>
-        n < 128 ? new Uint8Array([n]) :
-        n < 256 ? new Uint8Array([0x81, n]) :
-        new Uint8Array([0x82, (n >> 8) & 0xff, n & 0xff]);
-
-      const tlv = (tag: number, data: Uint8Array): Uint8Array => {
-        const len = encLen(data.length);
-        const out = new Uint8Array(1 + len.length + data.length);
-        out[0] = tag; out.set(len, 1); out.set(data, 1 + len.length);
-        return out;
-      };
-
-      const cat = (...arrays: Uint8Array[]): Uint8Array => {
-        const total = arrays.reduce((s, a) => s + a.length, 0);
-        const r = new Uint8Array(total); let o = 0;
-        arrays.forEach(a => { r.set(a, o); o += a.length; });
-        return r;
-      };
-
-      // AlgorithmIdentifier: SEQUENCE { OID rsaEncryption, NULL }
-      const algId = new Uint8Array([
-        0x30, 0x0d,
-        0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01,
-        0x05, 0x00
-      ]);
-      const version = new Uint8Array([0x02, 0x01, 0x00]); // INTEGER 0
-      return tlv(0x30, cat(version, algId, tlv(0x04, pkcs1))).buffer as ArrayBuffer;
-    };
-
-    // 1. Certificado público
     qz.security.setCertificatePromise((resolve: any, reject: any) => {
       fetch('/digital-certificate.txt', { cache: 'no-store' })
-        .then(r => r.ok ? resolve(r.text()) : reject('digital-certificate.txt não encontrado em /public'));
+        .then((r) => r.ok ? resolve(r.text()) : reject(r.text()));
+    });
+    qz.security.setSignatureAlgorithm('SHA512');
+    qz.security.setSignaturePromise((toSign: any) => async (resolve: any, reject: any) => {
+      try {
+        const keyRes = await fetch('/private-key.pem', { cache: 'no-store' });
+        const privateKey = await keyRes.text();
+        const KJUR = (window as any).KJUR;
+        const sig = new KJUR.crypto.Signature({ alg: 'SHA512withRSA' });
+        sig.init(privateKey.trim());
+        sig.updateString(toSign);
+        resolve((window as any).hex2b64(sig.sign()));
+      } catch (e) { reject(e); }
     });
 
-    qz.security.setSignatureAlgorithm('SHA512');
-
-    // 2. Pré-carrega e cacheia a CryptoKey uma vez — signing fica instantâneo
-    const cryptoKeyPromise: Promise<CryptoKey> = fetch('/private-key.pem', { cache: 'no-store' })
-      .then(async r => {
-        if (!r.ok) throw new Error(`private-key.pem não encontrado (HTTP ${r.status})`);
-        const pem = await r.text();
-        const b64 = pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
-        const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-        // PKCS#8 = "BEGIN PRIVATE KEY" (sem RSA); PKCS#1 = "BEGIN RSA PRIVATE KEY"
-        const buf = pem.includes('BEGIN RSA PRIVATE KEY') ? pkcs1ToPkcs8(raw) : raw.buffer;
-        return crypto.subtle.importKey(
-          'pkcs8', buf,
-          { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-512' },
-          false, ['sign']
-        );
-      });
-
-    qz.security.setSignaturePromise((toSign: any) =>
-      cryptoKeyPromise.then(key =>
-        crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(toSign))
-      ).then(sigBytes =>
-        btoa(String.fromCharCode(...new Uint8Array(sigBytes)))
-      )
-    );
-
-    // 3. Conecta uma vez; mantém aberto para todos os prints da sessão
+    // Conecta uma vez; mantém a conexão aberta para todos os prints da sessão
     if (!qz.websocket.isActive()) {
       qz.websocket.connect().catch(() => {});
     }
@@ -4182,16 +4136,20 @@ function EtiquetasTab() {
 
       const htmlContent = buildHTMLLabel();
 
-      // Um único qz.print() com N itens no array — uma chamada, um job, N etiquetas.
-      // Mais rápido que loop com await e evita o erro de "copies" em pixel/HTML mode.
       const config = qz.configs.create('ELGIN L42PRO FULL', {
         size: { width: 60, height: 60 },
         units: 'mm',
         density: 203,
       });
 
-      const labelItem = { type: 'pixel', format: 'html', flavor: 'plain', data: htmlContent };
-      await qz.print(config, Array.from({ length: qtdEtiquetas }, () => labelItem));
+      for (let i = 0; i < qtdEtiquetas; i++) {
+        await qz.print(config, [{
+          type: 'pixel',
+          format: 'html',
+          flavor: 'plain',
+          data: htmlContent,
+        }]);
+      }
 
     } catch (err: any) {
       alert(`Erro ao imprimir: ${String(err)}`);
