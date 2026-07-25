@@ -3890,7 +3890,10 @@ function DRETab() {
 function EtiquetasTab() {
   const BRAND = { primary: '#233253', green: '#009249', red: '#cf2a39' };
 
-  const [subAba, setSubAba] = useState<'gerar'|'categorias'|'empresa'>('gerar');
+  const [subAba, setSubAba] = useState<'gerar'|'estoque'|'categorias'|'empresa'>('gerar');
+  const [estoqueItens, setEstoqueItens] = useState<any[]>([]);
+  const [loadingEstoque, setLoadingEstoque] = useState(false);
+  const [baixandoId, setBaixandoId] = useState<string|null>(null);
 
   // ── dados carregados ──
   const [insumos, setInsumos] = useState<any[]>([]);
@@ -3962,6 +3965,30 @@ function EtiquetasTab() {
   };
 
   useEffect(() => { loadAll(); }, []);
+
+  const loadEstoque = async () => {
+    if (!SYNC_ENDPOINT) return;
+    setLoadingEstoque(true);
+    try {
+      const r = await fetch(`${SYNC_ENDPOINT}?action=listar_estoque&_ts=${Date.now()}`).then(r => r.json());
+      if (r.ok) setEstoqueItens(r.itens || []);
+    } catch {}
+    finally { setLoadingEstoque(false); }
+  };
+
+  const handleDarBaixa = async (id: string) => {
+    if (!confirm('Confirmar baixa deste item? Isso indica que ele foi para produção.')) return;
+    setBaixandoId(id);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: 'POST', mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'dar_baixa', id }),
+      });
+      setTimeout(() => loadEstoque(), 1500);
+    } catch { alert('Erro ao dar baixa.'); }
+    finally { setBaixandoId(null); }
+  };
 
   // ── QZ Tray: inicializa certificado UMA vez ao montar o componente ──
   useEffect(() => {
@@ -4036,7 +4063,9 @@ function EtiquetasTab() {
 
     // HTML puro — sem canvas. O WebView do QZ renderiza texto e bordas como vetores,
     // eliminando o duplo escalonamento que causava texto pontilhado e linhas tremidas.
-    const buildHTMLLabel = (): string => {
+    const loteCode = `ETQ-${(() => { const d = new Date(); return String(d.getDate()).padStart(2,'0') + String(d.getMonth()+1).padStart(2,'0') + String(d.getFullYear()).slice(-2); })()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const buildHTMLLabel = (code: string): string => {
       const marcaVal = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
       const badge = conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO';
       const footLine = [
@@ -4121,6 +4150,7 @@ function EtiquetasTab() {
         <div class="ftr">
           <div class="ftr-name">${(empresa.nome || 'FATTORIA').toUpperCase()}</div>
           ${footLine ? `<div class="ftr-info">${footLine}</div>` : ''}
+          <div class="ftr-info" style="margin-top:0.5mm;letter-spacing:0.1mm;color:#555">${code}</div>
         </div>
       </body></html>`;
     };
@@ -4140,7 +4170,7 @@ function EtiquetasTab() {
         await qz.websocket.connect();
       }
 
-      const htmlContent = buildHTMLLabel();
+      const htmlContent = buildHTMLLabel(loteCode);
 
       // Um único qz.print() com N itens no array — uma chamada, um job, N etiquetas.
       // Mais rápido que loop com await e evita o erro de "copies" em pixel/HTML mode.
@@ -4152,6 +4182,26 @@ function EtiquetasTab() {
 
       const labelItem = { type: 'pixel', format: 'html', flavor: 'plain', data: htmlContent };
       await qz.print(config, Array.from({ length: qtdEtiquetas }, () => labelItem));
+
+      // Registra o lote no estoque
+      if (SYNC_ENDPOINT && validadeDT) {
+        fetch(SYNC_ENDPOINT, {
+          method: 'POST', mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'registrar_lote',
+            id: loteCode,
+            insumo: insumoSel,
+            conservacao,
+            validade_dt: validadeDT.toISOString(),
+            manip_dt: `${manipData}T${manipHora}`,
+            responsavel,
+            porcoes,
+            peso,
+            qtd: qtdEtiquetas,
+          }),
+        }).catch(() => {});
+      }
 
     } catch (err: any) {
       alert(`Erro ao imprimir: ${String(err)}`);
@@ -4230,10 +4280,10 @@ function EtiquetasTab() {
     <div className="space-y-4">
       {/* sub-abas */}
       <div className="flex gap-2 border-b pb-2">
-        {(['gerar','categorias','empresa'] as const).map(a => (
-          <button key={a} onClick={() => setSubAba(a)}
+        {(['gerar','estoque','categorias','empresa'] as const).map(a => (
+          <button key={a} onClick={() => { setSubAba(a); if (a === 'estoque') loadEstoque(); }}
             className={`text-sm px-3 py-1 rounded-md ${subAba===a ? 'bg-[#233253] text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
-            {a === 'gerar' ? 'Gerar Etiqueta' : a === 'categorias' ? 'Categorias de Validade' : 'Config. Empresa'}
+            {a === 'gerar' ? 'Gerar Etiqueta' : a === 'estoque' ? '📦 Estoque Ativo' : a === 'categorias' ? 'Categorias de Validade' : 'Config. Empresa'}
           </button>
         ))}
       </div>
@@ -4433,6 +4483,120 @@ function EtiquetasTab() {
           </div>
         </div>
       )}
+
+      {/* ── ESTOQUE ATIVO ── */}
+      {subAba === 'estoque' && (() => {
+        const now = Date.now();
+        const h24 = 24 * 60 * 60 * 1000;
+        const h48 = 48 * 60 * 60 * 1000;
+
+        const classify = (validade_dt: string) => {
+          const ms = new Date(validade_dt).getTime() - now;
+          if (ms < 0) return 'vencido';
+          if (ms < h48) return 'proximo';
+          return 'ok';
+        };
+
+        const grupos = {
+          vencido: estoqueItens.filter(i => classify(i.validade_dt) === 'vencido'),
+          proximo: estoqueItens.filter(i => classify(i.validade_dt) === 'proximo'),
+          ok:      estoqueItens.filter(i => classify(i.validade_dt) === 'ok'),
+        };
+
+        const fmtValidade = (iso: string) => {
+          const d = new Date(iso);
+          return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+        };
+
+        const Card = ({ item }: { item: any }) => {
+          const status = classify(item.validade_dt);
+          const colors = {
+            ok:      { bar: '#009249', bg: '#f0fdf4', border: '#bbf7d0', text: '#166534' },
+            proximo: { bar: '#d97706', bg: '#fffbeb', border: '#fde68a', text: '#92400e' },
+            vencido: { bar: '#cf2a39', bg: '#fff1f2', border: '#fecdd3', text: '#9f1239' },
+          }[status];
+          const label = { ok: '✅ Na validade', proximo: '⚠️ Próximo ao vencimento', vencido: '🔴 Vencido' }[status];
+          return (
+            <div style={{ display:'flex', border:`1px solid ${colors.border}`, borderRadius:10, overflow:'hidden', background:colors.bg, marginBottom:8 }}>
+              <div style={{ width:5, background:colors.bar, flexShrink:0 }} />
+              <div style={{ flex:1, padding:'10px 12px', display:'flex', flexDirection:'column', gap:4 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                  <div>
+                    <span style={{ fontWeight:'bold', fontSize:13, color:'#1a1a1a' }}>{item.insumo}</span>
+                    <span style={{ marginLeft:8, fontSize:11, background:'#e5e7eb', borderRadius:4, padding:'1px 6px', color:'#374151', textTransform:'uppercase', fontWeight:600 }}>{item.conservacao}</span>
+                  </div>
+                  <span style={{ fontSize:10, color:colors.text, fontWeight:600 }}>{label}</span>
+                </div>
+                <div style={{ display:'flex', gap:16, fontSize:11, color:'#555' }}>
+                  <span>🏷 <strong style={{color:'#1a1a1a'}}>{item.id}</strong></span>
+                  {item.responsavel && <span>👤 {item.responsavel}</span>}
+                  {item.qtd && item.qtd > 1 && <span>📋 {item.qtd} etiquetas</span>}
+                  {item.peso && <span>⚖️ {item.peso}</span>}
+                </div>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                  <div style={{ fontSize:12 }}>
+                    <span style={{ color:'#888' }}>Validade: </span>
+                    <strong style={{ color: status === 'vencido' ? colors.bar : '#1a1a1a' }}>{fmtValidade(item.validade_dt)}</strong>
+                  </div>
+                  <button
+                    onClick={() => handleDarBaixa(item.id)}
+                    disabled={baixandoId === item.id}
+                    style={{ fontSize:12, padding:'5px 12px', borderRadius:6, border:'1px solid #d1d5db', background: baixandoId === item.id ? '#e5e7eb' : '#fff', cursor: baixandoId === item.id ? 'not-allowed' : 'pointer', fontWeight:600, color:'#374151' }}
+                  >
+                    {baixandoId === item.id ? '...' : '✓ Dar Baixa'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        };
+
+        return (
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <div className="flex gap-4 text-sm">
+                <span className="text-red-600 font-semibold">🔴 Vencidos: {grupos.vencido.length}</span>
+                <span className="text-amber-600 font-semibold">⚠️ Próximos: {grupos.proximo.length}</span>
+                <span className="text-green-700 font-semibold">✅ OK: {grupos.ok.length}</span>
+              </div>
+              <button className="text-xs text-blue-500 hover:underline" onClick={loadEstoque} disabled={loadingEstoque}>
+                {loadingEstoque ? 'Atualizando...' : '↻ Atualizar'}
+              </button>
+            </div>
+
+            {loadingEstoque && <div className="text-sm text-gray-400 text-center py-8">Carregando estoque...</div>}
+
+            {!loadingEstoque && estoqueItens.length === 0 && (
+              <div className="text-sm text-gray-400 text-center py-12 border rounded-xl bg-gray-50">
+                Nenhum item no estoque. Imprima etiquetas para registrá-las aqui.
+              </div>
+            )}
+
+            {!loadingEstoque && (
+              <div>
+                {grupos.vencido.length > 0 && (
+                  <div className="mb-4">
+                    <p className="text-xs font-semibold text-red-600 uppercase tracking-wider mb-2">Vencidos</p>
+                    {grupos.vencido.map(i => <Card key={i.id} item={i} />)}
+                  </div>
+                )}
+                {grupos.proximo.length > 0 && (
+                  <div className="mb-4">
+                    <p className="text-xs font-semibold text-amber-600 uppercase tracking-wider mb-2">Próximos ao vencimento (48h)</p>
+                    {grupos.proximo.map(i => <Card key={i.id} item={i} />)}
+                  </div>
+                )}
+                {grupos.ok.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-green-700 uppercase tracking-wider mb-2">Na validade</p>
+                    {grupos.ok.map(i => <Card key={i.id} item={i} />)}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── CATEGORIAS DE VALIDADE ── */}
       {subAba === 'categorias' && (
