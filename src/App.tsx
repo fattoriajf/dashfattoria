@@ -4047,8 +4047,8 @@ function EtiquetasTab() {
         @page { size: 60mm 60mm; margin: 0; }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-          width: 59mm; height: 59mm; overflow: hidden;
-          margin: 0.3mm 0.5mm;
+          width: 58mm; height: 59mm; overflow: hidden;
+          margin: 0.3mm 0.5mm 0.3mm 1.5mm;
           font-family: Arial, Helvetica, sans-serif;
           border: 0.45mm solid #000;
           display: flex; flex-direction: column;
