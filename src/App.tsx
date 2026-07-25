@@ -4115,6 +4115,7 @@ function EtiquetasTab() {
         .ftr-info { font-size: 1.55mm; margin-top: 0.3mm; }
       </style></head><body>
         <div class="hdr">${insumoSel.toUpperCase()}</div>
+        <div style="text-align:center;font-size:1.4mm;font-weight:bold;letter-spacing:0.3mm;padding:0.3mm 0;border-bottom:0.3mm solid #ccc;color:#000">${code}</div>
         <div class="body">
           <div class="row">
             <span class="lbl">Marca/Fornecedor</span>
@@ -4150,7 +4151,6 @@ function EtiquetasTab() {
         <div class="ftr">
           <div class="ftr-name">${(empresa.nome || 'FATTORIA').toUpperCase()}</div>
           ${footLine ? `<div class="ftr-info">${footLine}</div>` : ''}
-          <div class="ftr-info" style="margin-top:0.4mm;letter-spacing:0.2mm;color:#000;font-weight:bold">${code}</div>
         </div>
       </body></html>`;
     };
@@ -4420,67 +4420,73 @@ function EtiquetasTab() {
             </div>
           </div>
 
-          {/* preview */}
-          <div className="flex flex-col items-center gap-2">
-            <p className="text-xs text-gray-500">Prévia da etiqueta (igual à impressão)</p>
-            <div style={{
-              width: 227, height: 227,
-              background: '#fff',
-              border: '1.5px solid #000',
-              borderRadius: 6,
-              display: 'flex', flexDirection: 'column',
-              fontFamily: 'Arial, sans-serif',
-              overflow: 'hidden',
-              boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
-            }}>
-              <div style={{ borderBottom: '1.5px solid #000', textAlign: 'center', padding: '5px 6px 4px', fontSize: 13, fontWeight: 'bold', letterSpacing: 0.3, lineHeight: 1.2, color: '#000' }}>
-                {insumoSel ? insumoSel.toUpperCase() : 'NOME DO INSUMO'}
-              </div>
-              <div style={{ flex: 1, padding: '6px 8px 4px', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '0.5px solid #999', paddingBottom: 3 }}>
-                  <span style={{ fontSize: 9, color: '#000', textTransform: 'uppercase', letterSpacing: 0.4 }}>Marca/Fornecedor</span>
-                  <span style={{ fontSize: 10, fontWeight: 'bold', color: '#000' }}>
-                    {insumoAtual?.marca_fornecedor || '—'}{insumoAtual?.sif ? ` · SIF ${insumoAtual.sif}` : ''}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'center', padding: '2px 0 3px', borderBottom: '0.5px solid #999' }}>
-                  <span style={{ fontSize: 9, fontWeight: 'bold', color: '#000', borderRadius: 3, padding: '2px 8px', letterSpacing: 0.5, textTransform: 'uppercase', border: '1px solid #000' }}>
-                    {conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO'}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '2px 0' }}>
-                  <span style={{ fontSize: 9, color: '#000', textTransform: 'uppercase', letterSpacing: 0.4 }}>Manipulação</span>
-                  <span style={{ fontSize: 10, fontWeight: 'bold', color: '#000' }}>{fmtManip()}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderRadius: 3, padding: '3px 5px', border: '1.5px solid #000' }}>
-                  <span style={{ fontSize: 9, color: '#000', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 'bold' }}>Validade</span>
-                  <span style={{ fontSize: 11, fontWeight: 'bold', color: '#000' }}>{fmtDT(validadeDT)}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '2px 0', borderTop: '0.5px solid #999', marginTop: 2 }}>
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontSize: 8, color: '#000', textTransform: 'uppercase', letterSpacing: 0.4 }}>Responsável</span>
-                    <span style={{ fontSize: 10, fontWeight: 'bold', color: '#000' }}>{responsavel || '—'}</span>
+          {/* preview — espelha exatamente o HTML impresso (escala: 3.9px/mm) */}
+          {(() => {
+            const S = 3.9; // px por mm
+            const today = new Date();
+            const previewCode = `ETQ-${String(today.getDate()).padStart(2,'0')}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getFullYear()).slice(-2)}-XXXX`;
+            const marcaVal = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
+            const footLine = [empresa.cnpj ? `CNPJ ${empresa.cnpj}` : '', empresa.endereco || ''].filter(Boolean).join(' · ');
+            return (
+              <div className="flex flex-col items-center gap-2">
+                <p className="text-xs text-gray-500">Prévia da etiqueta (igual à impressão)</p>
+                <div style={{ width: 58*S, height: 59*S, background:'#fff', border:`${0.45*S}px solid #000`, display:'flex', flexDirection:'column', fontFamily:'Arial, Helvetica, sans-serif', overflow:'hidden', boxShadow:'0 2px 12px rgba(0,0,0,0.15)' }}>
+                  {/* header */}
+                  <div style={{ textAlign:'center', fontWeight:'bold', fontSize:4.2*S, padding:`${1*S}px ${1.5*S}px ${0.9*S}px`, borderBottom:`${0.4*S}px solid #000`, letterSpacing:0.2, lineHeight:1.15, color:'#000' }}>
+                    {insumoSel ? insumoSel.toUpperCase() : 'NOME DO INSUMO'}
                   </div>
-                  {porcoes && (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                      <span style={{ fontSize: 8, color: '#000', textTransform: 'uppercase', letterSpacing: 0.4 }}>Porções</span>
-                      <span style={{ fontSize: 10, fontWeight: 'bold', color: '#000' }}>{porcoes}</span>
+                  {/* código do lote */}
+                  <div style={{ textAlign:'center', fontSize:1.4*S, fontWeight:'bold', letterSpacing:1.2, padding:`${0.3*S}px 0`, borderBottom:`${0.3*S}px solid #ccc`, color:'#000' }}>
+                    {previewCode}
+                  </div>
+                  {/* body */}
+                  <div style={{ flex:1, display:'flex', flexDirection:'column', justifyContent:'space-between', padding:`${0.7*S}px ${1.8*S}px ${0.5*S}px` }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <span style={{ fontSize:1.9*S, textTransform:'uppercase', letterSpacing:0.6, color:'#000' }}>Marca/Fornecedor</span>
+                      <span style={{ fontSize:2.5*S, fontWeight:'bold', color:'#000' }}>{marcaVal}</span>
                     </div>
-                  )}
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                    <span style={{ fontSize: 8, color: '#000', textTransform: 'uppercase', letterSpacing: 0.4 }}>Peso</span>
-                    <span style={{ fontSize: 10, fontWeight: 'bold', color: '#000' }}>{peso || '—'}</span>
+                    <div style={{ height:0.15*S, background:'#888' }} />
+                    <div style={{ display:'flex', justifyContent:'center', padding:`${0.2*S}px 0` }}>
+                      <span style={{ border:`${0.35*S}px solid #000`, fontSize:2.5*S, fontWeight:'bold', padding:`${0.5*S}px ${3*S}px`, letterSpacing:1.2, color:'#000' }}>
+                        {conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO'}
+                      </span>
+                    </div>
+                    <div style={{ height:0.15*S, background:'#888' }} />
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <span style={{ fontSize:1.9*S, textTransform:'uppercase', letterSpacing:0.6, color:'#000' }}>Manipulação</span>
+                      <span style={{ fontSize:2.8*S, fontWeight:'bold', color:'#000' }}>{fmtManip()}</span>
+                    </div>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', border:`${0.4*S}px solid #000`, padding:`${0.8*S}px ${1*S}px`, margin:`${0.2*S}px 0` }}>
+                      <span style={{ fontSize:2.6*S, fontWeight:'bold', letterSpacing:0.4, color:'#000' }}>VALIDADE</span>
+                      <span style={{ fontSize:3.4*S, fontWeight:'bold', color:'#000' }}>{fmtDT(validadeDT)}</span>
+                    </div>
+                    <div style={{ height:0.15*S, background:'#888' }} />
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                      <div style={{ display:'flex', flexDirection:'column' }}>
+                        <span style={{ fontSize:1.9*S, textTransform:'uppercase', letterSpacing:0.6, color:'#000' }}>Responsável</span>
+                        <span style={{ fontSize:2.8*S, fontWeight:'bold', color:'#000' }}>{responsavel || '—'}</span>
+                      </div>
+                      {porcoes && (
+                        <div style={{ display:'flex', flexDirection:'column', alignItems:'center' }}>
+                          <span style={{ fontSize:1.9*S, textTransform:'uppercase', letterSpacing:0.6, color:'#000' }}>Porções</span>
+                          <span style={{ fontSize:2.8*S, fontWeight:'bold', color:'#000' }}>{porcoes}</span>
+                        </div>
+                      )}
+                      <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end' }}>
+                        <span style={{ fontSize:1.9*S, textTransform:'uppercase', letterSpacing:0.6, color:'#000' }}>Peso</span>
+                        <span style={{ fontSize:2.8*S, fontWeight:'bold', color:'#000' }}>{peso || '—'}</span>
+                      </div>
+                    </div>
+                  </div>
+                  {/* footer */}
+                  <div style={{ borderTop:`${0.4*S}px solid #000`, padding:`${0.7*S}px ${1*S}px`, textAlign:'center' }}>
+                    <div style={{ fontSize:2.7*S, fontWeight:'bold', letterSpacing:1.6, color:'#000' }}>{(empresa.nome || 'FATTORIA').toUpperCase()}</div>
+                    {footLine && <div style={{ fontSize:1.55*S, marginTop:0.3*S, color:'#000' }}>{footLine}</div>}
                   </div>
                 </div>
               </div>
-              <div style={{ borderTop: '1.5px solid #000', padding: '4px 6px 5px', textAlign: 'center' }}>
-                <div style={{ color: '#000', fontSize: 10, fontWeight: 'bold', letterSpacing: 1.5 }}>{empresa.nome || 'FATTORIA'}</div>
-                <div style={{ color: '#000', fontSize: 6.5, marginTop: 1 }}>
-                  {empresa.cnpj ? `CNPJ ${empresa.cnpj} · ` : ''}{empresa.endereco || ''}
-                </div>
-              </div>
-            </div>
-          </div>
+            );
+          })()}
         </div>
       )}
 
