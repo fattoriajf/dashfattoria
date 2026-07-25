@@ -14,7 +14,7 @@ import {
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet, Menu, X, Package, TrendingUp, Tag, BarChart2 } from "lucide-react";
+import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet, Menu, X, Package, TrendingUp, Tag, BarChart2, Maximize2, Minimize2 } from "lucide-react";
 import {
 Calendar as Cal,
   RefreshCw,
@@ -104,7 +104,7 @@ const LS_KEY = "escala_fattoria_state_v5";
 try { localStorage.removeItem("escala_fattoria_state_v4"); } catch {}
 try { localStorage.removeItem("escala_fattoria_state_v3"); } catch {}
 const SYNC_ENDPOINT =
-  "https://script.google.com/macros/s/AKfycbwjUWRjZpTxEjN_EBq14ZjJrtkk-tt-UBPOX1kuiDD18miZYGzGrdncNreln-SVNbid2w/exec";
+  "https://script.google.com/macros/s/AKfycbzFnPd7qVe6Rdhpc5BCqFY2zF-9070KQAOfpeXyDwYBxRNeAOtUHBw35Q3vSZK-QefZAg/exec";
 
 function id() {
   return Math.random().toString(36).slice(2, 10);
@@ -316,6 +316,13 @@ export default function App() {
   });
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
 
   const podeVer = (aba: string): boolean => {
     if (isColab) return true;
@@ -407,7 +414,22 @@ export default function App() {
           </button>
           <img src="/logo.png" alt="Fattoria" className="h-14 sm:h-9 w-auto" />
         </div>
-        <span className="text-xs text-gray-400 hidden sm:block">Gestão Interna</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400 hidden sm:block">Gestão Interna</span>
+          <button
+            onClick={() => {
+              if (!isFullscreen) {
+                document.documentElement.requestFullscreen().catch(() => {});
+              } else {
+                document.exitFullscreen().catch(() => {});
+              }
+            }}
+            title={isFullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
+            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"
+          >
+            {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+          </button>
+        </div>
       </header>
 
       {/* Mobile menu overlay */}
