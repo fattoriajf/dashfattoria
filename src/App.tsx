@@ -4047,7 +4047,8 @@ function EtiquetasTab() {
         @page { size: 60mm 60mm; margin: 0; }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-          width: 60mm; height: 60mm; overflow: hidden;
+          width: 59mm; height: 59mm; overflow: hidden;
+          margin: 0.3mm 0.5mm;
           font-family: Arial, Helvetica, sans-serif;
           border: 0.45mm solid #000;
           display: flex; flex-direction: column;
@@ -4057,7 +4058,7 @@ function EtiquetasTab() {
           padding: 1mm 1.5mm 0.9mm; border-bottom: 0.4mm solid #000;
           letter-spacing: 0.05mm; line-height: 1.15;
         }
-        .body { flex: 1; display: flex; flex-direction: column; padding: 0.7mm 1.8mm 0.5mm; gap: 0.5mm; }
+        .body { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 0.7mm 1.8mm 0.5mm; }
         .row { display: flex; justify-content: space-between; align-items: center; }
         .lbl { font-size: 1.9mm; text-transform: uppercase; letter-spacing: 0.15mm; }
         .val { font-size: 2.8mm; font-weight: bold; text-align: right; }
