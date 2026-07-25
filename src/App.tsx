@@ -4001,132 +4001,95 @@ function EtiquetasTab() {
     if (!insumoSel) { alert('Selecione um insumo.'); return; }
     if (!responsavel.trim()) { alert('Informe o responsável.'); return; }
 
-    // Gera imagem PNG nativa 480×480px (60mm × 203 DPI) via Canvas
-    // Enviada diretamente ao driver como image/base64 — sem re-escalonamento pelo browser
-    const buildCanvasLabel = (): Promise<string> => new Promise((resolve) => {
-      const W = 480, H = 480;
-      const canvas = document.createElement('canvas');
-      canvas.width = W; canvas.height = H;
-      const ctx = canvas.getContext('2d')!;
-
-      // Fundo branco
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(0, 0, W, H);
-
-      // BORD = 24 dots ≈ 3mm — garante que a borda entra na área imprimível em todos os lados
-      const BORD = 24;
-      const PAD  = 14;  // padding horizontal interno (entre borda e texto)
-      const L = BORD + PAD;          // margem esquerda do texto
-      const R = W - BORD - PAD;      // margem direita do texto
-      const maxTW = R - L;
-
-      // Borda externa (linha dupla para mais presença visual)
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 3;
-      ctx.strokeRect(BORD, BORD, W - BORD * 2, H - BORD * 2);
-
-      // Divisórias Y
-      const HEADER_H = 68;
-      const FOOTER_Y = 392;
-
-      // ── CABEÇALHO ──
-      ctx.fillStyle = '#000';
-      ctx.font = 'bold 28px Arial';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(insumoSel.toUpperCase(), W / 2, (BORD + HEADER_H) / 2, maxTW);
-
-      ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(BORD, HEADER_H); ctx.lineTo(W - BORD, HEADER_H); ctx.stroke();
-
-      // ── CONTEÚDO ──
-      let cy = HEADER_H + 16;
-
-      const thinLine = (y: number) => {
-        ctx.save();
-        ctx.strokeStyle = '#999'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(R, y); ctx.stroke();
-        ctx.restore();
-      };
-
-      // Marca/Fornecedor
-      ctx.fillStyle = '#000';
-      ctx.font = '16px Arial';
-      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.fillText('MARCA/FORNECEDOR', L, cy, maxTW * 0.44);
+    // HTML puro — sem canvas. O WebView do QZ renderiza texto e bordas como vetores,
+    // eliminando o duplo escalonamento que causava texto pontilhado e linhas tremidas.
+    const buildHTMLLabel = (): string => {
       const marcaVal = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
-      ctx.font = 'bold 18px Arial';
-      ctx.textAlign = 'right';
-      ctx.fillText(marcaVal, R, cy, maxTW * 0.56);
-      cy += 30;
-      thinLine(cy); cy += 12;
-
-      // Badge conservação
       const badge = conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO';
-      ctx.font = 'bold 18px Arial';
-      const bW = ctx.measureText(badge).width + 40;
-      const bH = 32;
-      const bX = (W - bW) / 2;
-      ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-      ctx.strokeRect(bX, cy, bW, bH);
-      ctx.fillStyle = '#000'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(badge, W / 2, cy + bH / 2);
-      cy += bH + 12;
-      thinLine(cy); cy += 12;
+      const footLine = [
+        empresa.cnpj ? `CNPJ ${empresa.cnpj}` : '',
+        empresa.endereco || '',
+      ].filter(Boolean).join(' · ');
 
-      // Manipulação
-      ctx.fillStyle = '#000';
-      ctx.font = '16px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.fillText('MANIPULAÇÃO', L, cy, maxTW * 0.44);
-      ctx.font = 'bold 18px Arial'; ctx.textAlign = 'right';
-      ctx.fillText(fmtManip(), R, cy, maxTW * 0.56);
-      cy += 36;
-
-      // Caixa Validade
-      const vH = 54;
-      ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-      ctx.strokeRect(BORD + 4, cy, W - (BORD + 4) * 2, vH);
-      ctx.fillStyle = '#000';
-      ctx.font = 'bold 18px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.fillText('VALIDADE', L + 2, cy + vH / 2);
-      ctx.font = 'bold 22px Arial'; ctx.textAlign = 'right';
-      ctx.fillText(fmtDT(validadeDT), R - 2, cy + vH / 2, maxTW * 0.62);
-      cy += vH + 10;
-      thinLine(cy); cy += 10;
-
-      // Responsável / Porções / Peso — labels
-      ctx.fillStyle = '#000';
-      ctx.font = '14px Arial'; ctx.textBaseline = 'top';
-      ctx.textAlign = 'left';
-      ctx.fillText('RESPONSÁVEL', L, cy, maxTW / 3);
-      if (porcoes) { ctx.textAlign = 'center'; ctx.fillText('PORÇÕES', W / 2, cy); }
-      ctx.textAlign = 'right';
-      ctx.fillText('PESO', R, cy, maxTW / 3);
-      cy += 20;
-
-      // Responsável / Porções / Peso — valores
-      ctx.font = 'bold 19px Arial';
-      ctx.textAlign = 'left';
-      ctx.fillText(responsavel, L, cy, maxTW / 3);
-      if (porcoes) { ctx.textAlign = 'center'; ctx.fillText(String(porcoes), W / 2, cy); }
-      ctx.textAlign = 'right';
-      ctx.fillText(peso || '—', R, cy, maxTW / 3);
-
-      // ── RODAPÉ ──
-      ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(BORD, FOOTER_Y); ctx.lineTo(W - BORD, FOOTER_Y); ctx.stroke();
-
-      ctx.fillStyle = '#000';
-      ctx.font = 'bold 19px Arial';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText((empresa.nome || 'FATTORIA').toUpperCase(), W / 2, FOOTER_Y + 26, maxTW);
-
-      ctx.font = '13px Arial';
-      const footLine = `${empresa.cnpj ? 'CNPJ ' + empresa.cnpj + ' · ' : ''}${empresa.endereco || ''}`;
-      if (footLine.trim()) ctx.fillText(footLine, W / 2, FOOTER_Y + 52, maxTW);
-
-      resolve(canvas.toDataURL('image/png').split(',')[1]);
-    });
+      return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+        @page { size: 60mm 60mm; margin: 0; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+          width: 60mm; height: 60mm; overflow: hidden;
+          font-family: Arial, Helvetica, sans-serif;
+          border: 0.45mm solid #000;
+          display: flex; flex-direction: column;
+        }
+        .hdr {
+          text-align: center; font-weight: bold; font-size: 4.2mm;
+          padding: 1mm 1.5mm 0.9mm; border-bottom: 0.4mm solid #000;
+          letter-spacing: 0.05mm; line-height: 1.15;
+        }
+        .body { flex: 1; display: flex; flex-direction: column; padding: 0.7mm 1.8mm 0.5mm; gap: 0.5mm; }
+        .row { display: flex; justify-content: space-between; align-items: center; }
+        .lbl { font-size: 1.9mm; text-transform: uppercase; letter-spacing: 0.15mm; }
+        .val { font-size: 2.8mm; font-weight: bold; text-align: right; }
+        .sep { height: 0.15mm; background: #888; }
+        .badge-wrap { display: flex; justify-content: center; padding: 0.2mm 0; }
+        .badge {
+          border: 0.35mm solid #000; font-size: 2.5mm; font-weight: bold;
+          padding: 0.5mm 3mm; letter-spacing: 0.3mm;
+        }
+        .vbox {
+          display: flex; justify-content: space-between; align-items: center;
+          border: 0.4mm solid #000; padding: 0.8mm 1mm; margin: 0.2mm 0;
+        }
+        .vbox-lbl { font-size: 2.6mm; font-weight: bold; letter-spacing: 0.1mm; }
+        .vbox-val { font-size: 3.4mm; font-weight: bold; }
+        .resp { display: flex; justify-content: space-between; align-items: flex-start; }
+        .resp-col { display: flex; flex-direction: column; }
+        .resp-col.mid { align-items: center; }
+        .resp-col.right { align-items: flex-end; }
+        .ftr {
+          border-top: 0.4mm solid #000; padding: 0.7mm 1mm; text-align: center;
+        }
+        .ftr-name { font-size: 2.7mm; font-weight: bold; letter-spacing: 0.4mm; }
+        .ftr-info { font-size: 1.55mm; margin-top: 0.3mm; }
+      </style></head><body>
+        <div class="hdr">${insumoSel.toUpperCase()}</div>
+        <div class="body">
+          <div class="row">
+            <span class="lbl">Marca/Fornecedor</span>
+            <span class="val" style="font-size:2.5mm">${marcaVal}</span>
+          </div>
+          <div class="sep"></div>
+          <div class="badge-wrap"><span class="badge">${badge}</span></div>
+          <div class="sep"></div>
+          <div class="row">
+            <span class="lbl">Manipulação</span>
+            <span class="val">${fmtManip()}</span>
+          </div>
+          <div class="vbox">
+            <span class="vbox-lbl">VALIDADE</span>
+            <span class="vbox-val">${fmtDT(validadeDT)}</span>
+          </div>
+          <div class="sep"></div>
+          <div class="resp">
+            <div class="resp-col">
+              <span class="lbl">Responsável</span>
+              <span class="val" style="text-align:left">${responsavel}</span>
+            </div>
+            ${porcoes ? `<div class="resp-col mid">
+              <span class="lbl">Porções</span>
+              <span class="val">${porcoes}</span>
+            </div>` : ''}
+            <div class="resp-col right">
+              <span class="lbl">Peso</span>
+              <span class="val">${peso || '—'}</span>
+            </div>
+          </div>
+        </div>
+        <div class="ftr">
+          <div class="ftr-name">${(empresa.nome || 'FATTORIA').toUpperCase()}</div>
+          ${footLine ? `<div class="ftr-info">${footLine}</div>` : ''}
+        </div>
+      </body></html>`;
+    };
 
     const qz = (window as any).qz;
 
@@ -4157,18 +4120,7 @@ function EtiquetasTab() {
         await qz.websocket.connect();
       }
 
-      const base64 = await buildCanvasLabel();
-
-      // HTML com dimensões em mm — mesma abordagem do código original que imprimia corretamente.
-      // O canvas de 480×480px é embutido como imagem; o QZ/driver cuida da escala.
-      const htmlContent = `<!DOCTYPE html><html><head>
-<style>
-  @page { size: 60mm 60mm; margin: 0; }
-  body { margin: 0; padding: 0; }
-  img { width: 60mm; height: 60mm; display: block; }
-</style></head>
-<body><img src="data:image/png;base64,${base64}" /></body>
-</html>`;
+      const htmlContent = buildHTMLLabel();
 
       const config = qz.configs.create('ELGIN L42PRO FULL', {
         size: { width: 60, height: 60 },
