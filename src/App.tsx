@@ -3912,6 +3912,7 @@ function EtiquetasTab() {
     return `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`;
   });
   const [qtdEtiquetas, setQtdEtiquetas] = useState(1);
+  const [isPrinting, setIsPrinting] = useState(false);
   const [porcoes, setPorcoes] = useState('');
 
   // ── form categorias ──
@@ -4131,6 +4132,7 @@ function EtiquetasTab() {
       return;
     }
 
+    setIsPrinting(true);
     try {
       // Certificado e conexão já foram inicializados no useEffect ao montar o componente.
       // Reconecta só se a conexão tiver caído (ex.: QZ Tray reiniciado pelo usuário).
@@ -4153,6 +4155,8 @@ function EtiquetasTab() {
 
     } catch (err: any) {
       alert(`Erro ao imprimir: ${String(err)}`);
+    } finally {
+      setIsPrinting(false);
     }
   };
 
@@ -4340,10 +4344,27 @@ function EtiquetasTab() {
               <div className="flex gap-3 items-center pt-1">
                 <div className="space-y-1">
                   <label className="text-xs text-gray-600">Qtd de etiquetas</label>
-                  <input type="number" min={1} max={20} className="input w-20" value={qtdEtiquetas} onChange={e => setQtdEtiquetas(Math.max(1, parseInt(e.target.value)||1))} />
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="w-9 h-9 rounded-lg border border-gray-300 text-xl font-bold flex items-center justify-center bg-white hover:bg-gray-100 active:bg-gray-200"
+                      onClick={() => setQtdEtiquetas(q => Math.max(1, q - 1))}
+                    >−</button>
+                    <span className="w-8 text-center text-lg font-bold">{qtdEtiquetas}</span>
+                    <button
+                      className="w-9 h-9 rounded-lg border border-gray-300 text-xl font-bold flex items-center justify-center bg-white hover:bg-gray-100 active:bg-gray-200"
+                      onClick={() => setQtdEtiquetas(q => Math.min(20, q + 1))}
+                    >+</button>
+                  </div>
                 </div>
-                <button className="btn btn-primary flex-1 mt-4" onClick={handlePrint} style={{background: BRAND.primary}}>
-                  🖨 Imprimir {qtdEtiquetas > 1 ? `${qtdEtiquetas} etiquetas` : 'etiqueta'}
+                <button
+                  className="btn btn-primary flex-1 mt-4"
+                  onClick={handlePrint}
+                  disabled={isPrinting}
+                  style={{background: isPrinting ? '#888' : BRAND.primary}}
+                >
+                  {isPrinting
+                    ? '⏳ Imprimindo etiquetas...'
+                    : `🖨 Imprimir ${qtdEtiquetas > 1 ? `${qtdEtiquetas} etiquetas` : 'etiqueta'}`}
                 </button>
               </div>
             </div>
