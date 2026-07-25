@@ -3963,29 +3963,56 @@ function EtiquetasTab() {
   useEffect(() => { loadAll(); }, []);
 
   // ── QZ Tray: inicializa certificado UMA vez ao montar o componente ──
-  // Mover o setup para fora do handlePrint evita o diálogo de confirmação a cada impressão.
+  // "Remember this decision" só fica disponível no QZ quando a assinatura RSA valida.
+  // Usamos Web Crypto API nativa (sem KJUR/CDN) para maior confiabilidade.
   useEffect(() => {
     const qz = (window as any).qz;
     if (!qz) return;
 
+    // 1. Fornece o certificado público (deve estar em /public/digital-certificate.txt)
     qz.security.setCertificatePromise((resolve: any, reject: any) => {
       fetch('/digital-certificate.txt', { cache: 'no-store' })
-        .then((r) => r.ok ? resolve(r.text()) : reject(r.text()));
-    });
-    qz.security.setSignatureAlgorithm('SHA512');
-    qz.security.setSignaturePromise((toSign: any) => async (resolve: any, reject: any) => {
-      try {
-        const keyRes = await fetch('/private-key.pem', { cache: 'no-store' });
-        const privateKey = await keyRes.text();
-        const KJUR = (window as any).KJUR;
-        const sig = new KJUR.crypto.Signature({ alg: 'SHA512withRSA' });
-        sig.init(privateKey.trim());
-        sig.updateString(toSign);
-        resolve((window as any).hex2b64(sig.sign()));
-      } catch (e) { reject(e); }
+        .then(r => r.ok ? resolve(r.text()) : reject('digital-certificate.txt não encontrado em /public'));
     });
 
-    // Conecta uma vez; mantém a conexão aberta para todos os prints da sessão
+    qz.security.setSignatureAlgorithm('SHA512');
+
+    // 2. Assina o toSign com a chave privada (deve estar em /public/private-key.pem)
+    //    Usa Web Crypto API nativa — não depende de KJUR carregado externamente.
+    //    Se a chave estiver em PKCS#1 (RSA PRIVATE KEY) e não PKCS#8, o importKey falha;
+    //    nesse caso usa KJUR como fallback.
+    qz.security.setSignaturePromise((toSign: any) => new Promise(async (resolve: any, reject: any) => {
+      try {
+        const r = await fetch('/private-key.pem', { cache: 'no-store' });
+        if (!r.ok) throw new Error('private-key.pem não encontrado em /public');
+        const pem = await r.text();
+
+        try {
+          // Web Crypto API — requer chave PKCS#8 (-----BEGIN PRIVATE KEY-----)
+          const b64 = pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
+          const keyBytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+          const cryptoKey = await crypto.subtle.importKey(
+            'pkcs8', keyBytes.buffer,
+            { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-512' },
+            false, ['sign']
+          );
+          const sigBytes = await crypto.subtle.sign(
+            'RSASSA-PKCS1-v1_5', cryptoKey,
+            new TextEncoder().encode(toSign)
+          );
+          resolve(btoa(String.fromCharCode(...new Uint8Array(sigBytes))));
+        } catch {
+          // Fallback KJUR — chave PKCS#1 (-----BEGIN RSA PRIVATE KEY-----)
+          const KJUR = (window as any).KJUR;
+          const sig = new KJUR.crypto.Signature({ alg: 'SHA512withRSA' });
+          sig.init(pem.trim());
+          sig.updateString(toSign);
+          resolve((window as any).hex2b64(sig.sign()));
+        }
+      } catch (e) { reject(e); }
+    }));
+
+    // 3. Conecta uma vez; mantém aberto para todos os prints da sessão
     if (!qz.websocket.isActive()) {
       qz.websocket.connect().catch(() => {});
     }
@@ -4136,20 +4163,21 @@ function EtiquetasTab() {
 
       const htmlContent = buildHTMLLabel();
 
+      // copies no config: um único job, o driver da impressora faz as cópias nativamente.
+      // Muito mais rápido que looping com await — renderiza o HTML uma vez só.
       const config = qz.configs.create('ELGIN L42PRO FULL', {
         size: { width: 60, height: 60 },
         units: 'mm',
         density: 203,
+        copies: qtdEtiquetas,
       });
 
-      for (let i = 0; i < qtdEtiquetas; i++) {
-        await qz.print(config, [{
-          type: 'pixel',
-          format: 'html',
-          flavor: 'plain',
-          data: htmlContent,
-        }]);
-      }
+      await qz.print(config, [{
+        type: 'pixel',
+        format: 'html',
+        flavor: 'plain',
+        data: htmlContent,
+      }]);
 
     } catch (err: any) {
       alert(`Erro ao imprimir: ${String(err)}`);
