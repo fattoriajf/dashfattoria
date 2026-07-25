@@ -4115,13 +4115,12 @@ function EtiquetasTab() {
         .ftr-info { font-size: 1.55mm; margin-top: 0.3mm; }
       </style></head><body>
         <div class="hdr">${insumoSel.toUpperCase()}</div>
-        <div style="text-align:center;font-size:1.4mm;font-weight:bold;letter-spacing:0.3mm;padding:0.3mm 0;border-bottom:0.3mm solid #ccc;color:#000">${code}</div>
         <div class="body">
           <div class="row">
             <span class="lbl">Marca/Fornecedor</span>
             <span class="val" style="font-size:2.5mm">${marcaVal}</span>
           </div>
-          <div class="sep"></div>
+          <div style="text-align:center;font-size:2.2mm;font-weight:bold;letter-spacing:0.4mm;padding:0.4mm 0;color:#000;border-top:0.15mm solid #ccc;border-bottom:0.15mm solid #ccc">${code}</div>
           <div class="badge-wrap"><span class="badge">${badge}</span></div>
           <div class="sep"></div>
           <div class="row">
@@ -4435,17 +4434,16 @@ function EtiquetasTab() {
                   <div style={{ textAlign:'center', fontWeight:'bold', fontSize:4.2*S, padding:`${1*S}px ${1.5*S}px ${0.9*S}px`, borderBottom:`${0.4*S}px solid #000`, letterSpacing:0.2, lineHeight:1.15, color:'#000' }}>
                     {insumoSel ? insumoSel.toUpperCase() : 'NOME DO INSUMO'}
                   </div>
-                  {/* código do lote */}
-                  <div style={{ textAlign:'center', fontSize:1.4*S, fontWeight:'bold', letterSpacing:1.2, padding:`${0.3*S}px 0`, borderBottom:`${0.3*S}px solid #ccc`, color:'#000' }}>
-                    {previewCode}
-                  </div>
                   {/* body */}
                   <div style={{ flex:1, display:'flex', flexDirection:'column', justifyContent:'space-between', padding:`${0.7*S}px ${1.8*S}px ${0.5*S}px` }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                       <span style={{ fontSize:1.9*S, textTransform:'uppercase', letterSpacing:0.6, color:'#000' }}>Marca/Fornecedor</span>
                       <span style={{ fontSize:2.5*S, fontWeight:'bold', color:'#000' }}>{marcaVal}</span>
                     </div>
-                    <div style={{ height:0.15*S, background:'#888' }} />
+                    {/* código do lote */}
+                    <div style={{ textAlign:'center', fontSize:2.2*S, fontWeight:'bold', letterSpacing:1.6, padding:`${0.4*S}px 0`, color:'#000', borderTop:`${0.15*S}px solid #ccc`, borderBottom:`${0.15*S}px solid #ccc` }}>
+                      {previewCode}
+                    </div>
                     <div style={{ display:'flex', justifyContent:'center', padding:`${0.2*S}px 0` }}>
                       <span style={{ border:`${0.35*S}px solid #000`, fontSize:2.5*S, fontWeight:'bold', padding:`${0.5*S}px ${3*S}px`, letterSpacing:1.2, color:'#000' }}>
                         {conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO'}
