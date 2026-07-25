@@ -3963,13 +3963,43 @@ function EtiquetasTab() {
   useEffect(() => { loadAll(); }, []);
 
   // ── QZ Tray: inicializa certificado UMA vez ao montar o componente ──
-  // "Remember this decision" só fica disponível no QZ quando a assinatura RSA valida.
-  // Usamos Web Crypto API nativa (sem KJUR/CDN) para maior confiabilidade.
   useEffect(() => {
     const qz = (window as any).qz;
     if (!qz) return;
 
-    // 1. Fornece o certificado público (deve estar em /public/digital-certificate.txt)
+    // Converte chave PKCS#1 (BEGIN RSA PRIVATE KEY) para PKCS#8 que o Web Crypto aceita.
+    // Necessário pois o QZ Tray "Create New" gera chaves PKCS#1 por padrão.
+    const pkcs1ToPkcs8 = (pkcs1: Uint8Array): ArrayBuffer => {
+      const encLen = (n: number): Uint8Array =>
+        n < 128 ? new Uint8Array([n]) :
+        n < 256 ? new Uint8Array([0x81, n]) :
+        new Uint8Array([0x82, (n >> 8) & 0xff, n & 0xff]);
+
+      const tlv = (tag: number, data: Uint8Array): Uint8Array => {
+        const len = encLen(data.length);
+        const out = new Uint8Array(1 + len.length + data.length);
+        out[0] = tag; out.set(len, 1); out.set(data, 1 + len.length);
+        return out;
+      };
+
+      const cat = (...arrays: Uint8Array[]): Uint8Array => {
+        const total = arrays.reduce((s, a) => s + a.length, 0);
+        const r = new Uint8Array(total); let o = 0;
+        arrays.forEach(a => { r.set(a, o); o += a.length; });
+        return r;
+      };
+
+      // AlgorithmIdentifier: SEQUENCE { OID rsaEncryption, NULL }
+      const algId = new Uint8Array([
+        0x30, 0x0d,
+        0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01,
+        0x05, 0x00
+      ]);
+      const version = new Uint8Array([0x02, 0x01, 0x00]); // INTEGER 0
+      return tlv(0x30, cat(version, algId, tlv(0x04, pkcs1))).buffer;
+    };
+
+    // 1. Certificado público
     qz.security.setCertificatePromise((resolve: any, reject: any) => {
       fetch('/digital-certificate.txt', { cache: 'no-store' })
         .then(r => r.ok ? resolve(r.text()) : reject('digital-certificate.txt não encontrado em /public'));
@@ -3977,40 +4007,29 @@ function EtiquetasTab() {
 
     qz.security.setSignatureAlgorithm('SHA512');
 
-    // 2. Assina o toSign com a chave privada (deve estar em /public/private-key.pem)
-    //    Usa Web Crypto API nativa — não depende de KJUR carregado externamente.
-    //    Se a chave estiver em PKCS#1 (RSA PRIVATE KEY) e não PKCS#8, o importKey falha;
-    //    nesse caso usa KJUR como fallback.
-    qz.security.setSignaturePromise((toSign: any) => new Promise(async (resolve: any, reject: any) => {
-      try {
-        const r = await fetch('/private-key.pem', { cache: 'no-store' });
-        if (!r.ok) throw new Error('private-key.pem não encontrado em /public');
+    // 2. Pré-carrega e cacheia a CryptoKey uma vez — signing fica instantâneo
+    const cryptoKeyPromise: Promise<CryptoKey> = fetch('/private-key.pem', { cache: 'no-store' })
+      .then(async r => {
+        if (!r.ok) throw new Error(`private-key.pem não encontrado (HTTP ${r.status})`);
         const pem = await r.text();
+        const b64 = pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
+        const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+        // PKCS#8 = "BEGIN PRIVATE KEY" (sem RSA); PKCS#1 = "BEGIN RSA PRIVATE KEY"
+        const buf = pem.includes('BEGIN RSA PRIVATE KEY') ? pkcs1ToPkcs8(raw) : raw.buffer;
+        return crypto.subtle.importKey(
+          'pkcs8', buf,
+          { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-512' },
+          false, ['sign']
+        );
+      });
 
-        try {
-          // Web Crypto API — requer chave PKCS#8 (-----BEGIN PRIVATE KEY-----)
-          const b64 = pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
-          const keyBytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-          const cryptoKey = await crypto.subtle.importKey(
-            'pkcs8', keyBytes.buffer,
-            { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-512' },
-            false, ['sign']
-          );
-          const sigBytes = await crypto.subtle.sign(
-            'RSASSA-PKCS1-v1_5', cryptoKey,
-            new TextEncoder().encode(toSign)
-          );
-          resolve(btoa(String.fromCharCode(...new Uint8Array(sigBytes))));
-        } catch {
-          // Fallback KJUR — chave PKCS#1 (-----BEGIN RSA PRIVATE KEY-----)
-          const KJUR = (window as any).KJUR;
-          const sig = new KJUR.crypto.Signature({ alg: 'SHA512withRSA' });
-          sig.init(pem.trim());
-          sig.updateString(toSign);
-          resolve((window as any).hex2b64(sig.sign()));
-        }
-      } catch (e) { reject(e); }
-    }));
+    qz.security.setSignaturePromise((toSign: any) =>
+      cryptoKeyPromise.then(key =>
+        crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(toSign))
+      ).then(sigBytes =>
+        btoa(String.fromCharCode(...new Uint8Array(sigBytes)))
+      )
+    );
 
     // 3. Conecta uma vez; mantém aberto para todos os prints da sessão
     if (!qz.websocket.isActive()) {
