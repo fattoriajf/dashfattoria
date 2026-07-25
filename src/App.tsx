@@ -3962,6 +3962,35 @@ function EtiquetasTab() {
 
   useEffect(() => { loadAll(); }, []);
 
+  // ── QZ Tray: inicializa certificado UMA vez ao montar o componente ──
+  // Mover o setup para fora do handlePrint evita o diálogo de confirmação a cada impressão.
+  useEffect(() => {
+    const qz = (window as any).qz;
+    if (!qz) return;
+
+    qz.security.setCertificatePromise((resolve: any, reject: any) => {
+      fetch('/digital-certificate.txt', { cache: 'no-store' })
+        .then((r) => r.ok ? resolve(r.text()) : reject(r.text()));
+    });
+    qz.security.setSignatureAlgorithm('SHA512');
+    qz.security.setSignaturePromise((toSign: any) => async (resolve: any, reject: any) => {
+      try {
+        const keyRes = await fetch('/private-key.pem', { cache: 'no-store' });
+        const privateKey = await keyRes.text();
+        const KJUR = (window as any).KJUR;
+        const sig = new KJUR.crypto.Signature({ alg: 'SHA512withRSA' });
+        sig.init(privateKey.trim());
+        sig.updateString(toSign);
+        resolve((window as any).hex2b64(sig.sign()));
+      } catch (e) { reject(e); }
+    });
+
+    // Conecta uma vez; mantém a conexão aberta para todos os prints da sessão
+    if (!qz.websocket.isActive()) {
+      qz.websocket.connect().catch(() => {});
+    }
+  }, []);
+
   // ── derivados ──
   const insumoAtual = insumos.find(i => i.nome === insumoSel);
   const categoriaAtual = categorias.find(c => c.nome === insumoAtual?.categoria_validade);
@@ -4099,23 +4128,8 @@ function EtiquetasTab() {
     }
 
     try {
-      qz.security.setCertificatePromise((resolve: any, reject: any) => {
-        fetch('/digital-certificate.txt', { cache: 'no-store' })
-          .then((r) => r.ok ? resolve(r.text()) : reject(r.text()));
-      });
-      qz.security.setSignatureAlgorithm('SHA512');
-      qz.security.setSignaturePromise((toSign: any) => async (resolve: any, reject: any) => {
-        try {
-          const keyRes = await fetch('/private-key.pem', { cache: 'no-store' });
-          const privateKey = await keyRes.text();
-          const KJUR = (window as any).KJUR;
-          const sig = new KJUR.crypto.Signature({ alg: 'SHA512withRSA' });
-          sig.init(privateKey.trim());
-          sig.updateString(toSign);
-          resolve((window as any).hex2b64(sig.sign()));
-        } catch (e) { reject(e); }
-      });
-
+      // Certificado e conexão já foram inicializados no useEffect ao montar o componente.
+      // Reconecta só se a conexão tiver caído (ex.: QZ Tray reiniciado pelo usuário).
       if (!qz.websocket.isActive()) {
         await qz.websocket.connect();
       }
