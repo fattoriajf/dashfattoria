@@ -4163,21 +4163,16 @@ function EtiquetasTab() {
 
       const htmlContent = buildHTMLLabel();
 
-      // copies no config: um único job, o driver da impressora faz as cópias nativamente.
-      // Muito mais rápido que looping com await — renderiza o HTML uma vez só.
+      // Um único qz.print() com N itens no array — uma chamada, um job, N etiquetas.
+      // Mais rápido que loop com await e evita o erro de "copies" em pixel/HTML mode.
       const config = qz.configs.create('ELGIN L42PRO FULL', {
         size: { width: 60, height: 60 },
         units: 'mm',
         density: 203,
-        copies: qtdEtiquetas,
       });
 
-      await qz.print(config, [{
-        type: 'pixel',
-        format: 'html',
-        flavor: 'plain',
-        data: htmlContent,
-      }]);
+      const labelItem = { type: 'pixel', format: 'html', flavor: 'plain', data: htmlContent };
+      await qz.print(config, Array.from({ length: qtdEtiquetas }, () => labelItem));
 
     } catch (err: any) {
       alert(`Erro ao imprimir: ${String(err)}`);
