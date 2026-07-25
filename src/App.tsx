@@ -3963,16 +3963,19 @@ function EtiquetasTab() {
   useEffect(() => { loadAll(); }, []);
 
   // ── QZ Tray: inicializa certificado UMA vez ao montar o componente ──
-  // Mover o setup para fora do handlePrint evita o diálogo de confirmação a cada impressão.
   useEffect(() => {
     const qz = (window as any).qz;
     if (!qz) return;
 
+    // 1. Certificado público
     qz.security.setCertificatePromise((resolve: any, reject: any) => {
       fetch('/digital-certificate.txt', { cache: 'no-store' })
-        .then((r) => r.ok ? resolve(r.text()) : reject(r.text()));
+        .then(r => r.ok ? resolve(r.text()) : reject(r.text()));
     });
+
     qz.security.setSignatureAlgorithm('SHA512');
+
+    // 2. Assina com KJUR (biblioteca carregada via <script> no index.html)
     qz.security.setSignaturePromise((toSign: any) => async (resolve: any, reject: any) => {
       try {
         const keyRes = await fetch('/private-key.pem', { cache: 'no-store' });
@@ -3985,7 +3988,7 @@ function EtiquetasTab() {
       } catch (e) { reject(e); }
     });
 
-    // Conecta uma vez; mantém a conexão aberta para todos os prints da sessão
+    // 3. Conecta uma vez; mantém aberto para todos os prints da sessão
     if (!qz.websocket.isActive()) {
       qz.websocket.connect().catch(() => {});
     }
@@ -4136,20 +4139,16 @@ function EtiquetasTab() {
 
       const htmlContent = buildHTMLLabel();
 
+      // Um único qz.print() com N itens no array — uma chamada, um job, N etiquetas.
+      // Mais rápido que loop com await e evita o erro de "copies" em pixel/HTML mode.
       const config = qz.configs.create('ELGIN L42PRO FULL', {
         size: { width: 60, height: 60 },
         units: 'mm',
         density: 203,
       });
 
-      for (let i = 0; i < qtdEtiquetas; i++) {
-        await qz.print(config, [{
-          type: 'pixel',
-          format: 'html',
-          flavor: 'plain',
-          data: htmlContent,
-        }]);
-      }
+      const labelItem = { type: 'pixel', format: 'html', flavor: 'plain', data: htmlContent };
+      await qz.print(config, Array.from({ length: qtdEtiquetas }, () => labelItem));
 
     } catch (err: any) {
       alert(`Erro ao imprimir: ${String(err)}`);
