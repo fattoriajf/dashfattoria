@@ -332,7 +332,7 @@ export default function App() {
 
   // Aba efetiva: se a aba ativa não tem permissão, usa a primeira permitida
   const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv","insumos","compras","markup","etiquetas","dre"];
-  const abaEfetiva: typeof activeTab = podeVer(activeTab) ? activeTab : (todasAbas.find(t => podeVer(t)) ?? "disponibilidade");
+  const abaEfetiva: typeof activeTab = isFullscreen ? "etiquetas" : (podeVer(activeTab) ? activeTab : (todasAbas.find(t => podeVer(t)) ?? "disponibilidade"));
 
   if (mode === "admin" && !adminLogado) {
     return (
@@ -404,7 +404,7 @@ export default function App() {
   return (
     <div className="app-layout">
       {/* Top bar */}
-      <header className="app-topbar">
+      <header className="app-topbar" style={isFullscreen ? { display: 'none' } : {}}>
         <div className="flex items-center gap-3">
           <button
             className="hamburger-btn p-1.5 rounded-lg hover:bg-gray-100 text-gray-600"
@@ -433,7 +433,7 @@ export default function App() {
       </header>
 
       {/* Mobile menu overlay */}
-      {mobileMenuOpen && (
+      {mobileMenuOpen && !isFullscreen && (
         <>
           <div className="mobile-menu-overlay" onClick={() => setMobileMenuOpen(false)} />
           <div className="mobile-sidebar">
@@ -450,9 +450,29 @@ export default function App() {
 
       <div className="app-body">
         {/* Desktop sidebar */}
-        <aside className="sidebar">
-          {sidebarJSX}
-        </aside>
+        {!isFullscreen && (
+          <aside className="sidebar">
+            {sidebarJSX}
+          </aside>
+        )}
+
+        {/* Botão flutuante de sair da tela cheia */}
+        {isFullscreen && (
+          <button
+            onClick={() => document.exitFullscreen().catch(() => {})}
+            title="Sair da tela cheia"
+            style={{
+              position: 'fixed', top: 12, right: 12, zIndex: 9999,
+              background: '#fff', border: '1px solid #e5e7eb',
+              borderRadius: 8, padding: '6px 10px',
+              display: 'flex', alignItems: 'center', gap: 6,
+              fontSize: 12, color: '#374151', fontWeight: 600,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.12)', cursor: 'pointer',
+            }}
+          >
+            <Minimize2 style={{ width: 14, height: 14 }} /> Sair
+          </button>
+        )}
 
         {/* Main content */}
         <main className="main-content">
