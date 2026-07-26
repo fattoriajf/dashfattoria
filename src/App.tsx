@@ -3960,6 +3960,7 @@ function EtiquetasTab() {
   });
   const [qtdEtiquetas, setQtdEtiquetas] = useState(1);
   const [isPrinting, setIsPrinting] = useState(false);
+  const [erroForm, setErroForm] = useState('');
   const [porcoes, setPorcoes] = useState('');
 
   // ── form categorias ──
@@ -4140,8 +4141,9 @@ function EtiquetasTab() {
 
   // ── Impressão ──
   const handlePrint = async () => {
-    if (!insumoSel) { alert('Selecione um insumo.'); return; }
-    if (!responsavel.trim()) { alert('Informe o responsável.'); return; }
+    if (!insumoSel) { setErroForm('Selecione um insumo antes de imprimir.'); return; }
+    if (!responsavel.trim()) { setErroForm('Informe o responsável antes de imprimir.'); return; }
+    setErroForm('');
 
     // HTML puro — sem canvas. O WebView do QZ renderiza texto e bordas como vetores,
     // eliminando o duplo escalonamento que causava texto pontilhado e linhas tremidas.
@@ -4239,7 +4241,7 @@ function EtiquetasTab() {
     const qz = (window as any).qz;
 
     if (!qz) {
-      alert('QZ Tray não encontrado. Verifique se está instalado e rodando no tablet.');
+      setErroForm('QZ Tray não encontrado. Verifique se está instalado e rodando no tablet.');
       return;
     }
 
@@ -4285,7 +4287,7 @@ function EtiquetasTab() {
       }
 
     } catch (err: any) {
-      alert(`Erro ao imprimir: ${String(err)}`);
+      setErroForm(`Erro ao imprimir: ${String(err)}`);
     } finally {
       setIsPrinting(false);
     }
@@ -4491,6 +4493,17 @@ function EtiquetasTab() {
                     >+</button>
                   </div>
                 </div>
+                {erroForm && (
+                  <div style={{
+                    background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8,
+                    padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8,
+                    marginTop: 12,
+                  }}>
+                    <span style={{ fontSize: 16 }}>⚠️</span>
+                    <span style={{ fontSize: 12, color: '#b91c1c', flex: 1 }}>{erroForm}</span>
+                    <button onClick={() => setErroForm('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', fontSize: 14, fontWeight: 'bold' }}>✕</button>
+                  </div>
+                )}
                 <button
                   className="btn btn-primary flex-1 mt-4"
                   onClick={handlePrint}
@@ -4532,7 +4545,7 @@ function EtiquetasTab() {
                     </div>
                     <div style={{ display:'flex', justifyContent:'center', padding:`${0.2*S}px 0` }}>
                       <span style={{ border:`${0.35*S}px solid #000`, fontSize:2.5*S, fontWeight:'bold', padding:`${0.5*S}px ${3*S}px`, letterSpacing:1.2, color:'#000' }}>
-                        {conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO'}
+                        {conservacao === 'resfriado' ? 'RESFRIADO' : conservacao === 'congelado' ? 'CONGELADO' : 'TEMP. AMBIENTE'}
                       </span>
                     </div>
                     <div style={{ height:0.15*S, background:'#888' }} />
