@@ -3932,7 +3932,7 @@ function DRETab() {
 function EtiquetasTab() {
   const BRAND = { primary: '#233253', green: '#009249', red: '#cf2a39' };
 
-  const [subAba, setSubAba] = useState<'gerar'|'estoque'|'categorias'|'empresa'>('gerar');
+  const [subAba, setSubAba] = useState<'gerar'|'estoque'|'categorias'|'responsaveis'|'empresa'>('gerar');
   const [estoqueItens, setEstoqueItens] = useState<any[]>([]);
   const [loadingEstoque, setLoadingEstoque] = useState(false);
   const [baixandoId, setBaixandoId] = useState<string|null>(null);
@@ -3946,8 +3946,9 @@ function EtiquetasTab() {
 
   // ── form gerar etiqueta ──
   const [insumoSel, setInsumoSel] = useState('');
-  const [conservacao, setConservacao] = useState<'resfriado'|'congelado'>('resfriado');
+  const [conservacao, setConservacao] = useState<'resfriado'|'congelado'|'ambiente'>('resfriado');
   const [responsavel, setResponsavel] = useState('');
+  const [staff, setStaff] = useState<string[]>([]);
   const [peso, setPeso] = useState('');
   const [manipData, setManipData] = useState(() => {
     const n = new Date();
@@ -3979,6 +3980,40 @@ function EtiquetasTab() {
   const [empEnd, setEmpEnd] = useState('');
   const [savingEmp, setSavingEmp] = useState(false);
 
+  // ── responsáveis de produção ──
+  const [novoResp, setNovoResp] = useState('');
+  const [savingResp, setSavingResp] = useState(false);
+  const [deletingResp, setDeletingResp] = useState<string|null>(null);
+
+  const handleAddResp = async () => {
+    const nome = novoResp.trim();
+    if (!nome) return;
+    setSavingResp(true);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method:'POST', mode:'no-cors',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action:'save_responsavel_etiqueta', nome }),
+      });
+      setNovoResp('');
+      setTimeout(() => loadAll(), 1500);
+    } catch { alert('Erro ao adicionar.'); }
+    finally { setSavingResp(false); }
+  };
+
+  const handleDeleteResp = async (nome: string) => {
+    setDeletingResp(nome);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method:'POST', mode:'no-cors',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action:'delete_responsavel_etiqueta', nome }),
+      });
+      setTimeout(() => loadAll(), 1500);
+    } catch { alert('Erro ao remover.'); }
+    finally { setDeletingResp(null); }
+  };
+
   // ── edição de insumo (categoria/marca/sif) ──
   const [editingInsumo, setEditingInsumo] = useState<string|null>(null);
   const [editInsCat, setEditInsCat] = useState('');
@@ -3990,13 +4025,15 @@ function EtiquetasTab() {
     if (!SYNC_ENDPOINT) return;
     setLoading(true);
     try {
-      const [ri, rc, re] = await Promise.all([
+      const [ri, rc, re, rs] = await Promise.all([
         fetch(`${SYNC_ENDPOINT}?action=insumos_etiqueta&_ts=${Date.now()}`).then(r=>r.json()),
         fetch(`${SYNC_ENDPOINT}?action=categorias_validade&_ts=${Date.now()}`).then(r=>r.json()),
         fetch(`${SYNC_ENDPOINT}?action=empresa_config&_ts=${Date.now()}`).then(r=>r.json()),
+        fetch(`${SYNC_ENDPOINT}?action=responsaveis_etiqueta&_ts=${Date.now()}`).then(r=>r.json()),
       ]);
       if (ri.ok) setInsumos(ri.insumos || []);
       if (rc.ok) setCategorias(rc.categorias || []);
+      if (rs.ok) setStaff(rs.nomes || []);
       if (re.ok) {
         setEmpresa(re);
         setEmpNome(re.nome || '');
@@ -4076,7 +4113,9 @@ function EtiquetasTab() {
     const dt = new Date(y, m-1, d, h, min);
     const dias = conservacao === 'resfriado'
       ? (categoriaAtual?.prazo_resfriado_dias ?? 3)
-      : (categoriaAtual?.prazo_congelado_dias ?? 30);
+      : conservacao === 'congelado'
+      ? (categoriaAtual?.prazo_congelado_dias ?? 30)
+      : (categoriaAtual?.prazo_resfriado_dias ?? 1);
     dt.setDate(dt.getDate() + dias);
     return dt;
   };
@@ -4110,7 +4149,7 @@ function EtiquetasTab() {
 
     const buildHTMLLabel = (code: string): string => {
       const marcaVal = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
-      const badge = conservacao === 'resfriado' ? 'RESFRIADO' : 'CONGELADO';
+      const badge = conservacao === 'resfriado' ? 'RESFRIADO' : conservacao === 'congelado' ? 'CONGELADO' : 'TEMP. AMBIENTE';
       const footLine = [
         empresa.cnpj ? `CNPJ ${empresa.cnpj}` : '',
         empresa.endereco || '',
@@ -4322,10 +4361,10 @@ function EtiquetasTab() {
     <div className="space-y-4">
       {/* sub-abas */}
       <div className="flex gap-2 border-b pb-2">
-        {(['gerar','estoque','categorias','empresa'] as const).map(a => (
+        {(['gerar','estoque','categorias','responsaveis','empresa'] as const).map(a => (
           <button key={a} onClick={() => { setSubAba(a); if (a === 'estoque') loadEstoque(); }}
             className={`text-sm px-3 py-1 rounded-md ${subAba===a ? 'bg-[#233253] text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
-            {a === 'gerar' ? 'Gerar Etiqueta' : a === 'estoque' ? '📦 Estoque Ativo' : a === 'categorias' ? 'Categorias de Validade' : 'Config. Empresa'}
+            {a === 'gerar' ? 'Gerar Etiqueta' : a === 'estoque' ? '📦 Estoque Ativo' : a === 'categorias' ? 'Categorias de Validade' : a === 'responsaveis' ? '👷 Responsáveis' : 'Config. Empresa'}
           </button>
         ))}
       </div>
@@ -4399,6 +4438,7 @@ function EtiquetasTab() {
                   <select className="input w-full" value={conservacao} onChange={e => setConservacao(e.target.value as any)}>
                     <option value="resfriado">Resfriado</option>
                     <option value="congelado">Congelado</option>
+                    <option value="ambiente">Temp. ambiente</option>
                   </select>
                 </div>
                 <div className="space-y-1">
@@ -4424,12 +4464,15 @@ function EtiquetasTab() {
 
               <div className="space-y-1">
                 <label className="text-xs text-gray-600">Responsável</label>
-                <input className="input w-full" placeholder="Nome do colaborador" value={responsavel} onChange={e => setResponsavel(e.target.value)} />
+                <select className="input w-full" value={responsavel} onChange={e => setResponsavel(e.target.value)}>
+                  <option value="">Selecione o responsável...</option>
+                  {staff.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
               </div>
 
               {categoriaAtual && (
                 <div className="text-xs text-gray-500 bg-gray-50 rounded p-2">
-                  Prazo ANVISA ({categoriaAtual.nome}): <strong>{conservacao === 'resfriado' ? categoriaAtual.prazo_resfriado_dias : categoriaAtual.prazo_congelado_dias} dias</strong> {conservacao} · {categoriaAtual.referencia}
+                  Prazo ANVISA ({categoriaAtual.nome}): <strong>{conservacao === 'resfriado' ? categoriaAtual.prazo_resfriado_dias : conservacao === 'congelado' ? categoriaAtual.prazo_congelado_dias : categoriaAtual.prazo_resfriado_dias} dias</strong> {conservacao} · {categoriaAtual.referencia}
                 </div>
               )}
 
@@ -4734,6 +4777,52 @@ function EtiquetasTab() {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── RESPONSÁVEIS ── */}
+      {subAba === 'responsaveis' && (
+        <div className="max-w-md space-y-4">
+          <div>
+            <h3 className="font-semibold text-sm text-gray-700 mb-1">Responsáveis de produção</h3>
+            <p className="text-xs text-gray-500">Esses nomes aparecerão no campo "Responsável" ao gerar etiquetas.</p>
+          </div>
+          {/* Adicionar */}
+          <div className="flex gap-2">
+            <input
+              className="input flex-1"
+              placeholder="Nome do responsável..."
+              value={novoResp}
+              onChange={e => setNovoResp(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleAddResp(); }}
+            />
+            <button
+              className="btn btn-primary px-4"
+              style={{ background: BRAND.primary }}
+              onClick={handleAddResp}
+              disabled={savingResp || !novoResp.trim()}
+            >
+              {savingResp ? '...' : '+ Adicionar'}
+            </button>
+          </div>
+          {/* Lista */}
+          <div className="border rounded-xl bg-white divide-y">
+            {staff.length === 0 && (
+              <p className="text-xs text-gray-400 p-4 text-center">Nenhum responsável cadastrado ainda.</p>
+            )}
+            {staff.map(nome => (
+              <div key={nome} className="flex items-center justify-between px-4 py-2">
+                <span className="text-sm text-gray-800">{nome}</span>
+                <button
+                  onClick={() => handleDeleteResp(nome)}
+                  disabled={deletingResp === nome}
+                  style={{ fontSize:12, color:'#dc2626', background:'none', border:'none', cursor:'pointer', padding:'2px 6px' }}
+                >
+                  {deletingResp === nome ? '...' : '✕'}
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       )}
