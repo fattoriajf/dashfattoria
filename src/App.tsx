@@ -3936,6 +3936,7 @@ function EtiquetasTab() {
   const [estoqueItens, setEstoqueItens] = useState<any[]>([]);
   const [loadingEstoque, setLoadingEstoque] = useState(false);
   const [baixandoId, setBaixandoId] = useState<string|null>(null);
+  const [confirmandoId, setConfirmandoId] = useState<string|null>(null);
 
   // ── dados carregados ──
   const [insumos, setInsumos] = useState<any[]>([]);
@@ -4019,8 +4020,8 @@ function EtiquetasTab() {
   };
 
   const handleDarBaixa = async (id: string) => {
-    if (!confirm('Confirmar baixa deste item? Isso indica que ele foi para produção.')) return;
     setBaixandoId(id);
+    setConfirmandoId(null);
     try {
       await fetch(SYNC_ENDPOINT, {
         method: 'POST', mode: 'no-cors',
@@ -4585,13 +4586,27 @@ function EtiquetasTab() {
                     <span style={{ color:'#888' }}>Validade: </span>
                     <strong style={{ color: status === 'vencido' ? colors.bar : '#1a1a1a' }}>{fmtValidade(item.validade_dt)}</strong>
                   </div>
-                  <button
-                    onClick={() => handleDarBaixa(item.id)}
-                    disabled={baixandoId === item.id}
-                    style={{ fontSize:12, padding:'5px 12px', borderRadius:6, border:'1px solid #d1d5db', background: baixandoId === item.id ? '#e5e7eb' : '#fff', cursor: baixandoId === item.id ? 'not-allowed' : 'pointer', fontWeight:600, color:'#374151' }}
-                  >
-                    {baixandoId === item.id ? '...' : '✓ Dar Baixa'}
-                  </button>
+                  {confirmandoId === item.id ? (
+                    <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                      <span style={{ fontSize:11, color:'#374151', fontWeight:600 }}>Confirmar?</span>
+                      <button
+                        onClick={() => handleDarBaixa(item.id)}
+                        style={{ fontSize:12, padding:'5px 10px', borderRadius:6, border:'none', background:'#009249', color:'#fff', cursor:'pointer', fontWeight:700 }}
+                      >Sim</button>
+                      <button
+                        onClick={() => setConfirmandoId(null)}
+                        style={{ fontSize:12, padding:'5px 10px', borderRadius:6, border:'1px solid #d1d5db', background:'#fff', color:'#374151', cursor:'pointer', fontWeight:600 }}
+                      >Não</button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmandoId(item.id)}
+                      disabled={baixandoId === item.id}
+                      style={{ fontSize:12, padding:'5px 12px', borderRadius:6, border:'1px solid #d1d5db', background: baixandoId === item.id ? '#e5e7eb' : '#fff', cursor: baixandoId === item.id ? 'not-allowed' : 'pointer', fontWeight:600, color:'#374151' }}
+                    >
+                      {baixandoId === item.id ? '...' : '✓ Dar Baixa'}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
