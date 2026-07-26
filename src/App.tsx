@@ -4145,9 +4145,16 @@ function EtiquetasTab() {
     if (!responsavel.trim()) { setErroForm('Informe o responsável antes de imprimir.'); return; }
     setErroForm('');
 
-    // HTML puro — sem canvas. O WebView do QZ renderiza texto e bordas como vetores,
-    // eliminando o duplo escalonamento que causava texto pontilhado e linhas tremidas.
-    const loteCode = `ETQ-${(() => { const d = new Date(); return String(d.getDate()).padStart(2,'0') + String(d.getMonth()+1).padStart(2,'0') + String(d.getFullYear()).slice(-2); })()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    // Busca o próximo número sequencial do backend antes de montar a etiqueta.
+    let loteCode = 'ETQ-?';
+    try {
+      const seqResp = await fetch(`${SYNC_ENDPOINT}?action=next_lote_id&_ts=${Date.now()}`);
+      const seqData = await seqResp.json();
+      if (seqData?.ok && seqData?.codigo) loteCode = seqData.codigo;
+    } catch {
+      // fallback: nunca deve acontecer, mas evita travar
+      loteCode = `ETQ-${Date.now()}`;
+    }
 
     const buildHTMLLabel = (code: string): string => {
       const marcaVal = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
