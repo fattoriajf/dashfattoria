@@ -4144,15 +4144,15 @@ function EtiquetasTab() {
     if (!insumoSel) { setErroForm('Selecione um insumo antes de imprimir.'); return; }
     if (!responsavel.trim()) { setErroForm('Informe o responsável antes de imprimir.'); return; }
     setErroForm('');
+    setIsPrinting(true); // ativa imediatamente, antes de qualquer fetch
 
-    // Busca o próximo número sequencial do backend antes de montar a etiqueta.
-    let loteCode = 'ETQ-?';
+    // Busca o próximo número sequencial do backend.
+    let loteCode = '';
     try {
       const seqResp = await fetch(`${SYNC_ENDPOINT}?action=next_lote_id&_ts=${Date.now()}`);
       const seqData = await seqResp.json();
-      if (seqData?.ok && seqData?.codigo) loteCode = seqData.codigo;
+      loteCode = (seqData?.ok && seqData?.codigo) ? seqData.codigo : `ETQ-${Date.now()}`;
     } catch {
-      // fallback: nunca deve acontecer, mas evita travar
       loteCode = `ETQ-${Date.now()}`;
     }
 
@@ -4249,10 +4249,10 @@ function EtiquetasTab() {
 
     if (!qz) {
       setErroForm('QZ Tray não encontrado. Verifique se está instalado e rodando no tablet.');
+      setIsPrinting(false);
       return;
     }
 
-    setIsPrinting(true);
     try {
       // Certificado e conexão já foram inicializados no useEffect ao montar o componente.
       // Reconecta só se a conexão tiver caído (ex.: QZ Tray reiniciado pelo usuário).
