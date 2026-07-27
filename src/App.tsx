@@ -3936,6 +3936,8 @@ function EtiquetasTab() {
   const [estoqueItens, setEstoqueItens] = useState<any[]>([]);
   const [loadingEstoque, setLoadingEstoque] = useState(false);
   const [baixandoId, setBaixandoId] = useState<string|null>(null);
+  const [filtroConserv, setFiltroConserv] = useState<string>('');
+  const [filtroCategoria, setFiltroCategoria] = useState<string>('');
   const [confirmandoId, setConfirmandoId] = useState<string|null>(null);
 
   // ── dados carregados ──
@@ -4597,7 +4599,6 @@ function EtiquetasTab() {
       {/* ── ESTOQUE ATIVO ── */}
       {subAba === 'estoque' && (() => {
         const now = Date.now();
-        const h24 = 24 * 60 * 60 * 1000;
         const h48 = 48 * 60 * 60 * 1000;
 
         const classify = (validade_dt: string) => {
@@ -4607,18 +4608,46 @@ function EtiquetasTab() {
           return 'ok';
         };
 
+        // mapa insumo → categoria_validade
+        const catDeInsumo = (nome: string) =>
+          insumos.find((i: any) => i.insumo === nome)?.categoria_validade || '';
+
+        // categorias únicas presentes no estoque
+        const categoriasNoEstoque = Array.from(
+          new Set(estoqueItens.map(i => catDeInsumo(i.insumo)).filter(Boolean))
+        ).sort();
+
+        // itens filtrados
+        const itensFiltrados = estoqueItens.filter(i => {
+          if (filtroConserv && i.conservacao !== filtroConserv) return false;
+          if (filtroCategoria && catDeInsumo(i.insumo) !== filtroCategoria) return false;
+          return true;
+        });
+
         const grupos = {
-          vencido: estoqueItens.filter(i => classify(i.validade_dt) === 'vencido'),
-          proximo: estoqueItens.filter(i => classify(i.validade_dt) === 'proximo'),
-          ok:      estoqueItens.filter(i => classify(i.validade_dt) === 'ok'),
+          vencido: itensFiltrados.filter(i => classify(i.validade_dt) === 'vencido'),
+          proximo: itensFiltrados.filter(i => classify(i.validade_dt) === 'proximo'),
+          ok:      itensFiltrados.filter(i => classify(i.validade_dt) === 'ok'),
         };
+
+        // dados para o painel de resumo (sobre todos os itens, sem filtro)
+        const total = estoqueItens.length;
+        const porConserv = [
+          { key: 'resfriado', label: 'Resfriado', color: '#0ea5e9', bg: '#e0f2fe' },
+          { key: 'congelado', label: 'Congelado', color: '#6366f1', bg: '#ede9fe' },
+          { key: 'ambiente',  label: 'Temp. Ambiente', color: '#f97316', bg: '#ffedd5' },
+        ].map(c => ({
+          ...c,
+          count: estoqueItens.filter(i => i.conservacao === c.key).length,
+          pct: total > 0 ? Math.round(estoqueItens.filter(i => i.conservacao === c.key).length / total * 100) : 0,
+        }));
 
         const fmtValidade = (iso: string) => {
           const d = new Date(iso);
           return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
         };
 
-        const Card = ({ item }: { item: any }) => {
+        const ItemCard = ({ item }: { item: any }) => {
           const status = classify(item.validade_dt);
           const colors = {
             ok:      { bar: '#009249', bg: '#f0fdf4', border: '#bbf7d0', text: '#166534' },
@@ -4626,18 +4655,20 @@ function EtiquetasTab() {
             vencido: { bar: '#cf2a39', bg: '#fff1f2', border: '#fecdd3', text: '#9f1239' },
           }[status];
           const label = { ok: '✅ Na validade', proximo: '⚠️ Próximo ao vencimento', vencido: '🔴 Vencido' }[status];
+          const cat = catDeInsumo(item.insumo);
           return (
             <div style={{ display:'flex', border:`1px solid ${colors.border}`, borderRadius:10, overflow:'hidden', background:colors.bg, marginBottom:8 }}>
               <div style={{ width:5, background:colors.bar, flexShrink:0 }} />
               <div style={{ flex:1, padding:'10px 12px', display:'flex', flexDirection:'column', gap:4 }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-                  <div>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
                     <span style={{ fontWeight:'bold', fontSize:13, color:'#1a1a1a' }}>{item.insumo}</span>
-                    <span style={{ marginLeft:8, fontSize:11, background:'#e5e7eb', borderRadius:4, padding:'1px 6px', color:'#374151', textTransform:'uppercase', fontWeight:600 }}>{item.conservacao}</span>
+                    <span style={{ fontSize:11, background:'#e5e7eb', borderRadius:4, padding:'1px 6px', color:'#374151', textTransform:'uppercase', fontWeight:600 }}>{item.conservacao}</span>
+                    {cat && <span style={{ fontSize:11, background:'#dbeafe', borderRadius:4, padding:'1px 6px', color:'#1d4ed8', fontWeight:600 }}>{cat}</span>}
                   </div>
-                  <span style={{ fontSize:10, color:colors.text, fontWeight:600 }}>{label}</span>
+                  <span style={{ fontSize:10, color:colors.text, fontWeight:600, whiteSpace:'nowrap', marginLeft:8 }}>{label}</span>
                 </div>
-                <div style={{ display:'flex', gap:16, fontSize:11, color:'#555' }}>
+                <div style={{ display:'flex', gap:16, fontSize:11, color:'#555', flexWrap:'wrap' }}>
                   <span>🏷 <strong style={{color:'#1a1a1a'}}>{item.id}</strong></span>
                   {item.responsavel && <span>👤 {item.responsavel}</span>}
                   {item.qtd && item.qtd > 1 && <span>📋 {item.qtd} etiquetas</span>}
@@ -4652,14 +4683,8 @@ function EtiquetasTab() {
                   {confirmandoId === item.id ? (
                     <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                       <span style={{ fontSize:11, color:'#374151', fontWeight:600 }}>Confirmar?</span>
-                      <button
-                        onClick={() => handleDarBaixa(item.id)}
-                        style={{ fontSize:12, padding:'5px 10px', borderRadius:6, border:'none', background:'#009249', color:'#fff', cursor:'pointer', fontWeight:700 }}
-                      >Sim</button>
-                      <button
-                        onClick={() => setConfirmandoId(null)}
-                        style={{ fontSize:12, padding:'5px 10px', borderRadius:6, border:'1px solid #d1d5db', background:'#fff', color:'#374151', cursor:'pointer', fontWeight:600 }}
-                      >Não</button>
+                      <button onClick={() => handleDarBaixa(item.id)} style={{ fontSize:12, padding:'5px 10px', borderRadius:6, border:'none', background:'#009249', color:'#fff', cursor:'pointer', fontWeight:700 }}>Sim</button>
+                      <button onClick={() => setConfirmandoId(null)} style={{ fontSize:12, padding:'5px 10px', borderRadius:6, border:'1px solid #d1d5db', background:'#fff', color:'#374151', cursor:'pointer', fontWeight:600 }}>Não</button>
                     </div>
                   ) : (
                     <button
@@ -4678,11 +4703,71 @@ function EtiquetasTab() {
 
         return (
           <div className="space-y-4">
+
+            {/* ── Painel de resumo ── */}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:10 }}>
+              {/* total */}
+              <div style={{ background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:10, padding:'12px 14px' }}>
+                <div style={{ fontSize:11, color:'#64748b', fontWeight:600, marginBottom:4 }}>TOTAL EMITIDAS</div>
+                <div style={{ fontSize:26, fontWeight:800, color:'#1e293b' }}>{total}</div>
+                <div style={{ fontSize:10, color:'#94a3b8' }}>etiquetas no estoque</div>
+              </div>
+              {/* por conservação */}
+              {porConserv.map(c => (
+                <div
+                  key={c.key}
+                  onClick={() => setFiltroConserv(filtroConserv === c.key ? '' : c.key)}
+                  style={{ background: filtroConserv === c.key ? c.bg : '#f8fafc', border:`2px solid ${filtroConserv === c.key ? c.color : '#e2e8f0'}`, borderRadius:10, padding:'12px 14px', cursor:'pointer', transition:'all .15s' }}
+                >
+                  <div style={{ fontSize:11, color: c.color, fontWeight:700, marginBottom:4, textTransform:'uppercase' }}>{c.label}</div>
+                  <div style={{ fontSize:26, fontWeight:800, color:'#1e293b' }}>{c.count}</div>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:4 }}>
+                    <div style={{ flex:1, height:4, background:'#e2e8f0', borderRadius:2, overflow:'hidden' }}>
+                      <div style={{ height:'100%', width:`${c.pct}%`, background:c.color, borderRadius:2 }} />
+                    </div>
+                    <span style={{ fontSize:11, fontWeight:700, color:c.color }}>{c.pct}%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* ── Filtros ── */}
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              {/* Filtro conservação */}
+              <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                <span style={{ fontSize:12, color:'#64748b', fontWeight:600, minWidth:90 }}>Conservação:</span>
+                {['resfriado','congelado','ambiente'].map(c => (
+                  <button key={c} onClick={() => setFiltroConserv(filtroConserv === c ? '' : c)}
+                    style={{ fontSize:12, padding:'4px 12px', borderRadius:20, border:`1.5px solid ${filtroConserv === c ? '#233253' : '#d1d5db'}`, background: filtroConserv === c ? '#233253' : '#fff', color: filtroConserv === c ? '#fff' : '#374151', cursor:'pointer', fontWeight:600, textTransform:'capitalize' }}>
+                    {c === 'ambiente' ? 'Temp. ambiente' : c.charAt(0).toUpperCase() + c.slice(1)}
+                  </button>
+                ))}
+                {filtroConserv && <button onClick={() => setFiltroConserv('')} style={{ fontSize:11, color:'#94a3b8', background:'none', border:'none', cursor:'pointer' }}>✕ limpar</button>}
+              </div>
+              {/* Filtro categoria */}
+              {categoriasNoEstoque.length > 0 && (
+                <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                  <span style={{ fontSize:12, color:'#64748b', fontWeight:600, minWidth:90 }}>Categoria:</span>
+                  {categoriasNoEstoque.map(cat => (
+                    <button key={cat} onClick={() => setFiltroCategoria(filtroCategoria === cat ? '' : cat)}
+                      style={{ fontSize:12, padding:'4px 12px', borderRadius:20, border:`1.5px solid ${filtroCategoria === cat ? '#1d4ed8' : '#d1d5db'}`, background: filtroCategoria === cat ? '#1d4ed8' : '#fff', color: filtroCategoria === cat ? '#fff' : '#374151', cursor:'pointer', fontWeight:600 }}>
+                      {cat}
+                    </button>
+                  ))}
+                  {filtroCategoria && <button onClick={() => setFiltroCategoria('')} style={{ fontSize:11, color:'#94a3b8', background:'none', border:'none', cursor:'pointer' }}>✕ limpar</button>}
+                </div>
+              )}
+            </div>
+
+            {/* ── Contagem e atualizar ── */}
             <div className="flex justify-between items-center">
               <div className="flex gap-4 text-sm">
                 <span className="text-red-600 font-semibold">🔴 Vencidos: {grupos.vencido.length}</span>
                 <span className="text-amber-600 font-semibold">⚠️ Próximos: {grupos.proximo.length}</span>
                 <span className="text-green-700 font-semibold">✅ OK: {grupos.ok.length}</span>
+                {(filtroConserv || filtroCategoria) && (
+                  <span className="text-gray-500">({itensFiltrados.length} de {total})</span>
+                )}
               </div>
               <button className="text-xs text-blue-500 hover:underline" onClick={loadEstoque} disabled={loadingEstoque}>
                 {loadingEstoque ? 'Atualizando...' : '↻ Atualizar'}
@@ -4697,24 +4782,30 @@ function EtiquetasTab() {
               </div>
             )}
 
-            {!loadingEstoque && (
+            {!loadingEstoque && itensFiltrados.length === 0 && estoqueItens.length > 0 && (
+              <div className="text-sm text-gray-400 text-center py-8 border rounded-xl bg-gray-50">
+                Nenhum item para os filtros selecionados.
+              </div>
+            )}
+
+            {!loadingEstoque && itensFiltrados.length > 0 && (
               <div>
                 {grupos.vencido.length > 0 && (
                   <div className="mb-4">
                     <p className="text-xs font-semibold text-red-600 uppercase tracking-wider mb-2">Vencidos</p>
-                    {grupos.vencido.map(i => <Card key={i.id} item={i} />)}
+                    {grupos.vencido.map(i => <ItemCard key={i.id} item={i} />)}
                   </div>
                 )}
                 {grupos.proximo.length > 0 && (
                   <div className="mb-4">
                     <p className="text-xs font-semibold text-amber-600 uppercase tracking-wider mb-2">Próximos ao vencimento (48h)</p>
-                    {grupos.proximo.map(i => <Card key={i.id} item={i} />)}
+                    {grupos.proximo.map(i => <ItemCard key={i.id} item={i} />)}
                   </div>
                 )}
                 {grupos.ok.length > 0 && (
                   <div>
                     <p className="text-xs font-semibold text-green-700 uppercase tracking-wider mb-2">Na validade</p>
-                    {grupos.ok.map(i => <Card key={i.id} item={i} />)}
+                    {grupos.ok.map(i => <ItemCard key={i.id} item={i} />)}
                   </div>
                 )}
               </div>
