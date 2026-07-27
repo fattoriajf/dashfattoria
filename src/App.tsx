@@ -3936,6 +3936,10 @@ function EtiquetasTab() {
   const [estoqueItens, setEstoqueItens] = useState<any[]>([]);
   const [loadingEstoque, setLoadingEstoque] = useState(false);
   const [baixandoId, setBaixandoId] = useState<string|null>(null);
+  const [historicoItens, setHistoricoItens] = useState<any[]>([]);
+  const [loadingHistorico, setLoadingHistorico] = useState(false);
+  const [restaurandoId, setRestaurandoId] = useState<string|null>(null);
+  const [modoEstoque, setModoEstoque] = useState<'ativo'|'historico'>('ativo');
   const [filtroConserv, setFiltroConserv] = useState<string>('');
   const [filtroCategoria, setFiltroCategoria] = useState<string>('');
   const [filtroDtInicio, setFiltroDtInicio] = useState<string>('');
@@ -4059,6 +4063,29 @@ function EtiquetasTab() {
       if (r.ok) setEstoqueItens(r.itens || []);
     } catch {}
     finally { setLoadingEstoque(false); }
+  };
+
+  const loadHistorico = async () => {
+    if (!SYNC_ENDPOINT) return;
+    setLoadingHistorico(true);
+    try {
+      const r = await fetch(`${SYNC_ENDPOINT}?action=listar_historico&_ts=${Date.now()}`).then(r => r.json());
+      if (r.ok) setHistoricoItens(r.itens || []);
+    } catch {}
+    finally { setLoadingHistorico(false); }
+  };
+
+  const handleRestaurar = async (id: string) => {
+    setRestaurandoId(id);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: 'POST', mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'restaurar_lote', id }),
+      });
+      setTimeout(() => { loadHistorico(); loadEstoque(); }, 1500);
+    } catch { alert('Erro ao restaurar.'); }
+    finally { setRestaurandoId(null); }
   };
 
   const handleDarBaixa = async (id: string) => {
@@ -4375,7 +4402,7 @@ function EtiquetasTab() {
       {/* sub-abas */}
       <div className="flex gap-2 border-b pb-2">
         {(['gerar','estoque','categorias','responsaveis','empresa'] as const).map(a => (
-          <button key={a} onClick={() => { setSubAba(a); if (a === 'estoque') loadEstoque(); }}
+          <button key={a} onClick={() => { setSubAba(a); if (a === 'estoque') { loadEstoque(); loadHistorico(); } }}
             className={`text-sm px-3 py-1 rounded-md ${subAba===a ? 'bg-[#233253] text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
             {a === 'gerar' ? 'Gerar Etiqueta' : a === 'estoque' ? '📦 Estoque Ativo' : a === 'categorias' ? 'Categorias de Validade' : a === 'responsaveis' ? '👷 Responsáveis' : 'Config. Empresa'}
           </button>
@@ -4598,7 +4625,7 @@ function EtiquetasTab() {
         </div>
       )}
 
-      {/* ── ESTOQUE ATIVO ── */}
+      {/* ── ESTOQUE ATIVO / HISTÓRICO ── */}
       {subAba === 'estoque' && (() => {
         const now = Date.now();
         const h48 = 48 * 60 * 60 * 1000;
@@ -4614,15 +4641,18 @@ function EtiquetasTab() {
         const catDeInsumo = (nome: string) =>
           insumos.find((i: any) => i.insumo === nome)?.categoria_validade || '';
 
-        // categorias únicas presentes no estoque
+        // fonte de dados conforme modo
+        const fonteItens = modoEstoque === 'ativo' ? estoqueItens : historicoItens;
+
+        // categorias únicas presentes na fonte atual
         const categoriasNoEstoque = Array.from(
-          new Set(estoqueItens.map(i => catDeInsumo(i.insumo)).filter(Boolean))
+          new Set(fonteItens.map(i => catDeInsumo(i.insumo)).filter(Boolean))
         ).sort();
 
         // itens filtrados
         const dtInicioMs = filtroDtInicio ? new Date(filtroDtInicio).getTime() : null;
         const dtFimMs    = filtroDtFim    ? new Date(filtroDtFim + 'T23:59:59').getTime() : null;
-        const itensFiltrados = estoqueItens.filter(i => {
+        const itensFiltrados = fonteItens.filter(i => {
           if (filtroConserv && i.conservacao !== filtroConserv) return false;
           if (filtroCategoria && catDeInsumo(i.insumo) !== filtroCategoria) return false;
           if (dtInicioMs || dtFimMs) {
@@ -4639,16 +4669,16 @@ function EtiquetasTab() {
           ok:      itensFiltrados.filter(i => classify(i.validade_dt) === 'ok'),
         };
 
-        // dados para o painel de resumo (sobre todos os itens, sem filtro)
-        const total = estoqueItens.length;
+        // dados para o painel de resumo (sobre fonte atual, sem filtro)
+        const total = fonteItens.length;
         const porConserv = [
           { key: 'resfriado', label: 'Resfriado', color: '#0ea5e9', bg: '#e0f2fe' },
           { key: 'congelado', label: 'Congelado', color: '#6366f1', bg: '#ede9fe' },
           { key: 'ambiente',  label: 'Temp. Ambiente', color: '#f97316', bg: '#ffedd5' },
         ].map(c => ({
           ...c,
-          count: estoqueItens.filter(i => i.conservacao === c.key).length,
-          pct: total > 0 ? Math.round(estoqueItens.filter(i => i.conservacao === c.key).length / total * 100) : 0,
+          count: fonteItens.filter(i => i.conservacao === c.key).length,
+          pct: total > 0 ? Math.round(fonteItens.filter(i => i.conservacao === c.key).length / total * 100) : 0,
         }));
 
         const fmtValidade = (iso: string) => {
@@ -4685,11 +4715,27 @@ function EtiquetasTab() {
                   {item.peso && <span>⚖️ {item.peso}</span>}
                 </div>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                  <div style={{ fontSize:12 }}>
-                    <span style={{ color:'#888' }}>Validade: </span>
-                    <strong style={{ color: status === 'vencido' ? colors.bar : '#1a1a1a' }}>{fmtValidade(item.validade_dt)}</strong>
+                  <div style={{ fontSize:12, display:'flex', flexDirection:'column', gap:2 }}>
+                    <div>
+                      <span style={{ color:'#888' }}>Validade: </span>
+                      <strong style={{ color: status === 'vencido' ? colors.bar : '#1a1a1a' }}>{fmtValidade(item.validade_dt)}</strong>
+                    </div>
+                    {modoEstoque === 'historico' && item.baixa_dt && (
+                      <div>
+                        <span style={{ color:'#888' }}>Baixa em: </span>
+                        <strong style={{ color:'#6b7280' }}>{fmtValidade(item.baixa_dt)}</strong>
+                      </div>
+                    )}
                   </div>
-                  {confirmandoId === item.id ? (
+                  {modoEstoque === 'historico' ? (
+                    <button
+                      onClick={() => handleRestaurar(item.id)}
+                      disabled={restaurandoId === item.id}
+                      style={{ fontSize:12, padding:'5px 12px', borderRadius:6, border:'1px solid #2563eb', background: restaurandoId === item.id ? '#e5e7eb' : '#eff6ff', cursor: restaurandoId === item.id ? 'not-allowed' : 'pointer', fontWeight:600, color:'#2563eb' }}
+                    >
+                      {restaurandoId === item.id ? '...' : '↩ Restaurar'}
+                    </button>
+                  ) : confirmandoId === item.id ? (
                     <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                       <span style={{ fontSize:11, color:'#374151', fontWeight:600 }}>Confirmar?</span>
                       <button onClick={() => handleDarBaixa(item.id)} style={{ fontSize:12, padding:'5px 10px', borderRadius:6, border:'none', background:'#009249', color:'#fff', cursor:'pointer', fontWeight:700 }}>Sim</button>
@@ -4710,8 +4756,22 @@ function EtiquetasTab() {
           );
         };
 
+        const loadingAtual = modoEstoque === 'ativo' ? loadingEstoque : loadingHistorico;
+
         return (
           <div className="space-y-4">
+
+            {/* ── Toggle ativo / histórico ── */}
+            <div style={{ display:'flex', gap:8, background:'#f1f5f9', borderRadius:10, padding:4, width:'fit-content' }}>
+              <button
+                onClick={() => setModoEstoque('ativo')}
+                style={{ fontSize:13, fontWeight:600, padding:'6px 16px', borderRadius:8, border:'none', cursor:'pointer', background: modoEstoque === 'ativo' ? '#233253' : 'transparent', color: modoEstoque === 'ativo' ? '#fff' : '#64748b', transition:'all .15s' }}
+              >📦 Estoque ativo <span style={{ background: modoEstoque === 'ativo' ? 'rgba(255,255,255,.2)' : '#e2e8f0', borderRadius:10, padding:'1px 7px', fontSize:11 }}>{estoqueItens.length}</span></button>
+              <button
+                onClick={() => setModoEstoque('historico')}
+                style={{ fontSize:13, fontWeight:600, padding:'6px 16px', borderRadius:8, border:'none', cursor:'pointer', background: modoEstoque === 'historico' ? '#233253' : 'transparent', color: modoEstoque === 'historico' ? '#fff' : '#64748b', transition:'all .15s' }}
+              >📋 Histórico <span style={{ background: modoEstoque === 'historico' ? 'rgba(255,255,255,.2)' : '#e2e8f0', borderRadius:10, padding:'1px 7px', fontSize:11 }}>{historicoItens.length}</span></button>
+            </div>
 
             {/* ── Painel de resumo ── */}
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:10 }}>
@@ -4805,41 +4865,47 @@ function EtiquetasTab() {
               </button>
             </div>
 
-            {loadingEstoque && <div className="text-sm text-gray-400 text-center py-8">Carregando estoque...</div>}
+            {loadingAtual && <div className="text-sm text-gray-400 text-center py-8">Carregando...</div>}
 
-            {!loadingEstoque && estoqueItens.length === 0 && (
+            {!loadingAtual && fonteItens.length === 0 && (
               <div className="text-sm text-gray-400 text-center py-12 border rounded-xl bg-gray-50">
-                Nenhum item no estoque. Imprima etiquetas para registrá-las aqui.
+                {modoEstoque === 'ativo' ? 'Nenhum item no estoque. Imprima etiquetas para registrá-las aqui.' : 'Nenhum item no histórico ainda.'}
               </div>
             )}
 
-            {!loadingEstoque && itensFiltrados.length === 0 && estoqueItens.length > 0 && (
+            {!loadingAtual && itensFiltrados.length === 0 && fonteItens.length > 0 && (
               <div className="text-sm text-gray-400 text-center py-8 border rounded-xl bg-gray-50">
                 Nenhum item para os filtros selecionados.
               </div>
             )}
 
-            {!loadingEstoque && itensFiltrados.length > 0 && (
-              <div>
-                {grupos.vencido.length > 0 && (
-                  <div className="mb-4">
-                    <p className="text-xs font-semibold text-red-600 uppercase tracking-wider mb-2">Vencidos</p>
-                    {grupos.vencido.map(i => <ItemCard key={i.id} item={i} />)}
-                  </div>
-                )}
-                {grupos.proximo.length > 0 && (
-                  <div className="mb-4">
-                    <p className="text-xs font-semibold text-amber-600 uppercase tracking-wider mb-2">Próximos ao vencimento (48h)</p>
-                    {grupos.proximo.map(i => <ItemCard key={i.id} item={i} />)}
-                  </div>
-                )}
-                {grupos.ok.length > 0 && (
-                  <div>
-                    <p className="text-xs font-semibold text-green-700 uppercase tracking-wider mb-2">Na validade</p>
-                    {grupos.ok.map(i => <ItemCard key={i.id} item={i} />)}
-                  </div>
-                )}
-              </div>
+            {!loadingAtual && itensFiltrados.length > 0 && (
+              modoEstoque === 'ativo' ? (
+                <div>
+                  {grupos.vencido.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-xs font-semibold text-red-600 uppercase tracking-wider mb-2">Vencidos</p>
+                      {grupos.vencido.map(i => <ItemCard key={i.id} item={i} />)}
+                    </div>
+                  )}
+                  {grupos.proximo.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-xs font-semibold text-amber-600 uppercase tracking-wider mb-2">Próximos ao vencimento (48h)</p>
+                      {grupos.proximo.map(i => <ItemCard key={i.id} item={i} />)}
+                    </div>
+                  )}
+                  {grupos.ok.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-green-700 uppercase tracking-wider mb-2">Na validade</p>
+                      {grupos.ok.map(i => <ItemCard key={i.id} item={i} />)}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  {itensFiltrados.map(i => <ItemCard key={i.id} item={i} />)}
+                </div>
+              )
             )}
           </div>
         );
