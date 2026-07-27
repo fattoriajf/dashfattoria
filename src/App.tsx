@@ -3957,7 +3957,9 @@ function EtiquetasTab() {
   const [conservacao, setConservacao] = useState<'resfriado'|'congelado'|'ambiente'>('resfriado');
   const [responsavel, setResponsavel] = useState('');
   const [staff, setStaff] = useState<string[]>([]);
-  const [peso, setPeso] = useState('');
+  const [pesoNumero, setPesoNumero] = useState('');
+  const [pesoUnidade, setPesoUnidade] = useState<'g'|'Kg'|'ml'|'L'>('g');
+  const peso = pesoNumero ? `${pesoNumero}${pesoUnidade}` : '';
   const [manipData, setManipData] = useState(() => {
     const n = new Date();
     return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;
@@ -4483,7 +4485,67 @@ function EtiquetasTab() {
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs text-gray-600">Peso/Qtd</label>
-                  <input className="input w-full" placeholder="Ex: 500g" value={peso} onChange={e => setPeso(e.target.value)} />
+                  {/* Teclado numérico customizado */}
+                  <div style={{ border:'1px solid #d1d5db', borderRadius:10, background:'#fff', overflow:'hidden' }}>
+                    {/* Display */}
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', background:'#f8fafc', borderBottom:'1px solid #e5e7eb' }}>
+                      <span style={{ fontSize:20, fontWeight:700, color: pesoNumero ? '#1a1a1a' : '#9ca3af', letterSpacing:1 }}>
+                        {pesoNumero || '0'}
+                      </span>
+                      {/* Seletor de unidade */}
+                      <div style={{ display:'flex', gap:4 }}>
+                        {(['g','Kg','ml','L'] as const).map(u => (
+                          <button key={u} onClick={() => setPesoUnidade(u)}
+                            style={{ fontSize:12, fontWeight:700, padding:'4px 8px', borderRadius:6, border:'none', cursor:'pointer',
+                              background: pesoUnidade === u ? '#233253' : '#e5e7eb',
+                              color: pesoUnidade === u ? '#fff' : '#374151' }}>
+                            {u}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {/* Teclas */}
+                    {(() => {
+                      const tecla = (label: string, action: () => void, wide = false) => (
+                        <button key={label} onClick={action}
+                          style={{ flex: wide ? 2 : 1, padding:'14px 0', fontSize:18, fontWeight:600, background:'#fff', border:'none', borderRight:'1px solid #e5e7eb', borderBottom:'1px solid #e5e7eb', cursor:'pointer', color:'#1a1a1a', transition:'background .1s' }}
+                          onMouseDown={e => (e.currentTarget.style.background='#f1f5f9')}
+                          onMouseUp={e => (e.currentTarget.style.background='#fff')}
+                          onTouchStart={e => (e.currentTarget.style.background='#f1f5f9')}
+                          onTouchEnd={e => (e.currentTarget.style.background='#fff')}
+                        >{label}</button>
+                      );
+                      const press = (d: string) => () => setPesoNumero(prev => {
+                        if (d === '.' && prev.includes('.')) return prev;
+                        if (prev === '0' && d !== '.') return d;
+                        return (prev + d).slice(0, 7);
+                      });
+                      const del = () => setPesoNumero(prev => prev.slice(0,-1));
+                      const clear = () => setPesoNumero('');
+                      return (
+                        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)' }}>
+                          {tecla('7', press('7'))} {tecla('8', press('8'))} {tecla('9', press('9'))}
+                          {tecla('4', press('4'))} {tecla('5', press('5'))} {tecla('6', press('6'))}
+                          {tecla('1', press('1'))} {tecla('2', press('2'))} {tecla('3', press('3'))}
+                          {tecla(',', press('.'))} {tecla('0', press('0'))}
+                          <button onClick={del}
+                            style={{ padding:'14px 0', fontSize:18, background:'#fff', border:'none', borderRight:'1px solid #e5e7eb', borderBottom:'1px solid #e5e7eb', cursor:'pointer', color:'#ef4444' }}
+                            onMouseDown={e => (e.currentTarget.style.background='#fef2f2')}
+                            onMouseUp={e => (e.currentTarget.style.background='#fff')}
+                            onTouchStart={e => (e.currentTarget.style.background='#fef2f2')}
+                            onTouchEnd={e => (e.currentTarget.style.background='#fff')}
+                          >⌫</button>
+                          <button onClick={clear}
+                            style={{ gridColumn:'1/-1', padding:'10px 0', fontSize:13, fontWeight:600, background:'#fff8f0', border:'none', borderTop:'1px solid #e5e7eb', cursor:'pointer', color:'#f97316' }}
+                            onMouseDown={e => (e.currentTarget.style.background='#ffedd5')}
+                            onMouseUp={e => (e.currentTarget.style.background='#fff8f0')}
+                            onTouchStart={e => (e.currentTarget.style.background='#ffedd5')}
+                            onTouchEnd={e => (e.currentTarget.style.background='#fff8f0')}
+                          >Limpar</button>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs text-gray-600">Porções</label>
