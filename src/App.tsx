@@ -3959,6 +3959,7 @@ function EtiquetasTab() {
   const [staff, setStaff] = useState<string[]>([]);
   const [pesoNumero, setPesoNumero] = useState('');
   const [pesoUnidade, setPesoUnidade] = useState<'g'|'Kg'|'ml'|'L'>('g');
+  const [showPesoKeypad, setShowPesoKeypad] = useState(false);
   const peso = pesoNumero ? `${pesoNumero}${pesoUnidade}` : '';
   const [manipData, setManipData] = useState(() => {
     const n = new Date();
@@ -4483,69 +4484,89 @@ function EtiquetasTab() {
                     <option value="ambiente">Temp. ambiente</option>
                   </select>
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1" style={{ position:'relative' }}>
                   <label className="text-xs text-gray-600">Peso/Qtd</label>
-                  {/* Teclado numérico customizado */}
-                  <div style={{ border:'1px solid #d1d5db', borderRadius:10, background:'#fff', overflow:'hidden' }}>
-                    {/* Display */}
-                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', background:'#f8fafc', borderBottom:'1px solid #e5e7eb' }}>
-                      <span style={{ fontSize:20, fontWeight:700, color: pesoNumero ? '#1a1a1a' : '#9ca3af', letterSpacing:1 }}>
-                        {pesoNumero || '0'}
-                      </span>
-                      {/* Seletor de unidade */}
-                      <div style={{ display:'flex', gap:4 }}>
-                        {(['g','Kg','ml','L'] as const).map(u => (
-                          <button key={u} onClick={() => setPesoUnidade(u)}
-                            style={{ fontSize:12, fontWeight:700, padding:'4px 8px', borderRadius:6, border:'none', cursor:'pointer',
-                              background: pesoUnidade === u ? '#233253' : '#e5e7eb',
-                              color: pesoUnidade === u ? '#fff' : '#374151' }}>
-                            {u}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    {/* Teclas */}
-                    {(() => {
-                      const tecla = (label: string, action: () => void, wide = false) => (
-                        <button key={label} onClick={action}
-                          style={{ flex: wide ? 2 : 1, padding:'14px 0', fontSize:18, fontWeight:600, background:'#fff', border:'none', borderRight:'1px solid #e5e7eb', borderBottom:'1px solid #e5e7eb', cursor:'pointer', color:'#1a1a1a', transition:'background .1s' }}
-                          onMouseDown={e => (e.currentTarget.style.background='#f1f5f9')}
-                          onMouseUp={e => (e.currentTarget.style.background='#fff')}
-                          onTouchStart={e => (e.currentTarget.style.background='#f1f5f9')}
-                          onTouchEnd={e => (e.currentTarget.style.background='#fff')}
-                        >{label}</button>
-                      );
-                      const press = (d: string) => () => setPesoNumero(prev => {
-                        if (d === '.' && prev.includes('.')) return prev;
-                        if (prev === '0' && d !== '.') return d;
-                        return (prev + d).slice(0, 7);
-                      });
-                      const del = () => setPesoNumero(prev => prev.slice(0,-1));
-                      const clear = () => setPesoNumero('');
-                      return (
-                        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)' }}>
-                          {tecla('7', press('7'))} {tecla('8', press('8'))} {tecla('9', press('9'))}
-                          {tecla('4', press('4'))} {tecla('5', press('5'))} {tecla('6', press('6'))}
-                          {tecla('1', press('1'))} {tecla('2', press('2'))} {tecla('3', press('3'))}
-                          {tecla(',', press('.'))} {tecla('0', press('0'))}
-                          <button onClick={del}
-                            style={{ padding:'14px 0', fontSize:18, background:'#fff', border:'none', borderRight:'1px solid #e5e7eb', borderBottom:'1px solid #e5e7eb', cursor:'pointer', color:'#ef4444' }}
-                            onMouseDown={e => (e.currentTarget.style.background='#fef2f2')}
-                            onMouseUp={e => (e.currentTarget.style.background='#fff')}
-                            onTouchStart={e => (e.currentTarget.style.background='#fef2f2')}
-                            onTouchEnd={e => (e.currentTarget.style.background='#fff')}
-                          >⌫</button>
-                          <button onClick={clear}
-                            style={{ gridColumn:'1/-1', padding:'10px 0', fontSize:13, fontWeight:600, background:'#fff8f0', border:'none', borderTop:'1px solid #e5e7eb', cursor:'pointer', color:'#f97316' }}
-                            onMouseDown={e => (e.currentTarget.style.background='#ffedd5')}
-                            onMouseUp={e => (e.currentTarget.style.background='#fff8f0')}
-                            onTouchStart={e => (e.currentTarget.style.background='#ffedd5')}
-                            onTouchEnd={e => (e.currentTarget.style.background='#fff8f0')}
-                          >Limpar</button>
+                  {/* Campo que abre o teclado */}
+                  <button
+                    onClick={() => setShowPesoKeypad(v => !v)}
+                    className="input w-full"
+                    style={{ textAlign:'left', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', background: showPesoKeypad ? '#f0f4ff' : '#fff', borderColor: showPesoKeypad ? '#233253' : undefined }}
+                  >
+                    <span style={{ fontWeight: pesoNumero ? 600 : 400, color: pesoNumero ? '#1a1a1a' : '#9ca3af' }}>
+                      {peso || 'Toque para digitar...'}
+                    </span>
+                    <span style={{ fontSize:11, color:'#94a3b8' }}>🔢</span>
+                  </button>
+
+                  {/* Teclado flutuante */}
+                  {showPesoKeypad && (
+                    <>
+                      {/* Overlay transparente para fechar */}
+                      <div onClick={() => setShowPesoKeypad(false)} style={{ position:'fixed', inset:0, zIndex:40 }} />
+                      <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, zIndex:50, width:280, background:'#fff', borderRadius:14, boxShadow:'0 8px 32px rgba(0,0,0,.18)', border:'1px solid #e2e8f0', overflow:'hidden' }}>
+                        {/* Display + unidade */}
+                        <div style={{ padding:'10px 14px', background:'#f8fafc', borderBottom:'1px solid #e5e7eb', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                          <span style={{ fontSize:24, fontWeight:700, color: pesoNumero ? '#1a1a1a' : '#9ca3af', letterSpacing:1, minWidth:80 }}>
+                            {pesoNumero || '—'}
+                          </span>
+                          <div style={{ display:'flex', gap:5 }}>
+                            {(['g','Kg','ml','L'] as const).map(u => (
+                              <button key={u} onClick={() => setPesoUnidade(u)}
+                                style={{ fontSize:13, fontWeight:700, padding:'5px 9px', borderRadius:7, border:'none', cursor:'pointer',
+                                  background: pesoUnidade === u ? '#233253' : '#e5e7eb',
+                                  color: pesoUnidade === u ? '#fff' : '#374151' }}>
+                                {u}
+                              </button>
+                            ))}
+                          </div>
                         </div>
-                      );
-                    })()}
-                  </div>
+                        {/* Grade de teclas */}
+                        {(() => {
+                          const press = (d: string) => () => setPesoNumero(prev => {
+                            if (d === '.' && prev.includes('.')) return prev;
+                            if (!prev && d === '0') return '0';
+                            if (prev === '0' && d !== '.') return d;
+                            return (prev + d).slice(0, 8);
+                          });
+                          const del = () => setPesoNumero(prev => prev.slice(0, -1));
+                          const clear = () => setPesoNumero('');
+                          const btnStyle = (color = '#1a1a1a', bg = '#fff'): React.CSSProperties => ({
+                            padding:'16px 0', fontSize:20, fontWeight:600, background:bg,
+                            border:'none', borderRight:'1px solid #e5e7eb', borderBottom:'1px solid #e5e7eb',
+                            cursor:'pointer', color, userSelect:'none',
+                          });
+                          const keys: [string, () => void, string?, string?][] = [
+                            ['7',press('7')], ['8',press('8')], ['9',press('9')],
+                            ['4',press('4')], ['5',press('5')], ['6',press('6')],
+                            ['1',press('1')], ['2',press('2')], ['3',press('3')],
+                            [',',press('.')], ['0',press('0')], ['⌫',del,'#ef4444','#fff'],
+                          ];
+                          return (
+                            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)' }}>
+                              {keys.map(([label, fn, color, bg]) => (
+                                <button key={label} onClick={fn}
+                                  style={btnStyle(color as string ?? '#1a1a1a', bg ?? '#fff')}
+                                  onPointerDown={e => (e.currentTarget.style.background='#f1f5f9')}
+                                  onPointerUp={e => (e.currentTarget.style.background= bg ?? '#fff')}
+                                  onPointerLeave={e => (e.currentTarget.style.background= bg ?? '#fff')}
+                                >{label}</button>
+                              ))}
+                              <button onClick={() => { clear(); }}
+                                style={{ gridColumn:'1/3', padding:'13px 0', fontSize:13, fontWeight:600, background:'#fff8f0', border:'none', borderTop:'1px solid #e5e7eb', cursor:'pointer', color:'#f97316' }}
+                                onPointerDown={e => (e.currentTarget.style.background='#ffedd5')}
+                                onPointerUp={e => (e.currentTarget.style.background='#fff8f0')}
+                              >Limpar</button>
+                              <button onClick={() => setShowPesoKeypad(false)}
+                                style={{ padding:'13px 0', fontSize:13, fontWeight:700, background:'#233253', border:'none', borderTop:'1px solid #e5e7eb', cursor:'pointer', color:'#fff' }}
+                                onPointerDown={e => (e.currentTarget.style.background='#1a2540')}
+                                onPointerUp={e => (e.currentTarget.style.background='#233253')}
+                              >OK ✓</button>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </>
+                  )}
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs text-gray-600">Porções</label>
