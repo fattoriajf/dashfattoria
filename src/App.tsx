@@ -3938,6 +3938,8 @@ function EtiquetasTab() {
   const [baixandoId, setBaixandoId] = useState<string|null>(null);
   const [filtroConserv, setFiltroConserv] = useState<string>('');
   const [filtroCategoria, setFiltroCategoria] = useState<string>('');
+  const [filtroDtInicio, setFiltroDtInicio] = useState<string>('');
+  const [filtroDtFim, setFiltroDtFim] = useState<string>('');
   const [confirmandoId, setConfirmandoId] = useState<string|null>(null);
 
   // ── dados carregados ──
@@ -4618,9 +4620,16 @@ function EtiquetasTab() {
         ).sort();
 
         // itens filtrados
+        const dtInicioMs = filtroDtInicio ? new Date(filtroDtInicio).getTime() : null;
+        const dtFimMs    = filtroDtFim    ? new Date(filtroDtFim + 'T23:59:59').getTime() : null;
         const itensFiltrados = estoqueItens.filter(i => {
           if (filtroConserv && i.conservacao !== filtroConserv) return false;
           if (filtroCategoria && catDeInsumo(i.insumo) !== filtroCategoria) return false;
+          if (dtInicioMs || dtFimMs) {
+            const manipMs = new Date(i.manip_dt).getTime();
+            if (dtInicioMs && manipMs < dtInicioMs) return false;
+            if (dtFimMs    && manipMs > dtFimMs)    return false;
+          }
           return true;
         });
 
@@ -4757,6 +4766,28 @@ function EtiquetasTab() {
                   {filtroCategoria && <button onClick={() => setFiltroCategoria('')} style={{ fontSize:11, color:'#94a3b8', background:'none', border:'none', cursor:'pointer' }}>✕ limpar</button>}
                 </div>
               )}
+              {/* Filtro período */}
+              <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                <span style={{ fontSize:12, color:'#64748b', fontWeight:600, minWidth:90 }}>Período:</span>
+                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  <input
+                    type="date"
+                    value={filtroDtInicio}
+                    onChange={e => setFiltroDtInicio(e.target.value)}
+                    style={{ fontSize:12, padding:'4px 8px', borderRadius:8, border:'1.5px solid #d1d5db', color:'#374151', background:'#fff', cursor:'pointer' }}
+                  />
+                  <span style={{ fontSize:12, color:'#94a3b8' }}>até</span>
+                  <input
+                    type="date"
+                    value={filtroDtFim}
+                    onChange={e => setFiltroDtFim(e.target.value)}
+                    style={{ fontSize:12, padding:'4px 8px', borderRadius:8, border:'1.5px solid #d1d5db', color:'#374151', background:'#fff', cursor:'pointer' }}
+                  />
+                </div>
+                {(filtroDtInicio || filtroDtFim) && (
+                  <button onClick={() => { setFiltroDtInicio(''); setFiltroDtFim(''); }} style={{ fontSize:11, color:'#94a3b8', background:'none', border:'none', cursor:'pointer' }}>✕ limpar</button>
+                )}
+              </div>
             </div>
 
             {/* ── Contagem e atualizar ── */}
@@ -4765,7 +4796,7 @@ function EtiquetasTab() {
                 <span className="text-red-600 font-semibold">🔴 Vencidos: {grupos.vencido.length}</span>
                 <span className="text-amber-600 font-semibold">⚠️ Próximos: {grupos.proximo.length}</span>
                 <span className="text-green-700 font-semibold">✅ OK: {grupos.ok.length}</span>
-                {(filtroConserv || filtroCategoria) && (
+                {(filtroConserv || filtroCategoria || filtroDtInicio || filtroDtFim) && (
                   <span className="text-gray-500">({itensFiltrados.length} de {total})</span>
                 )}
               </div>
