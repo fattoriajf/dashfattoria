@@ -4655,7 +4655,7 @@ function EtiquetasTab() {
           {(() => {
             const S = 3.9; // px por mm
             const today = new Date();
-            const previewCode = `ETQ-${String(today.getDate()).padStart(2,'0')}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getFullYear()).slice(-2)}-XXXX`;
+            const previewCode = `ETQ-###`; // número sequencial atribuído ao imprimir
             const marcaVal = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
             const footLine = [empresa.cnpj ? `CNPJ ${empresa.cnpj}` : '', empresa.endereco || ''].filter(Boolean).join(' · ');
             return (
