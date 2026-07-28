@@ -4100,7 +4100,7 @@ function EtiquetasTab() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'dar_baixa', id }),
       });
-      setTimeout(() => loadEstoque(), 1500);
+      setTimeout(() => { loadEstoque(); loadHistorico(); }, 1500);
     } catch { alert('Erro ao dar baixa.'); }
     finally { setBaixandoId(null); }
   };
@@ -4181,13 +4181,15 @@ function EtiquetasTab() {
     setIsPrinting(true); // ativa imediatamente, antes de qualquer fetch
 
     // Busca o próximo número sequencial do backend.
+    // Fallback curto: 4 dígitos aleatórios (ex: ETQ-4872) caso o endpoint falhe.
+    const fallbackCodigo = () => `ETQ-${Math.floor(1000 + Math.random() * 9000)}`;
     let loteCode = '';
     try {
       const seqResp = await fetch(`${SYNC_ENDPOINT}?action=next_lote_id&_ts=${Date.now()}`);
       const seqData = await seqResp.json();
-      loteCode = (seqData?.ok && seqData?.codigo) ? seqData.codigo : `ETQ-${Date.now()}`;
+      loteCode = (seqData?.ok && seqData?.codigo) ? seqData.codigo : fallbackCodigo();
     } catch {
-      loteCode = `ETQ-${Date.now()}`;
+      loteCode = fallbackCodigo();
     }
 
     const buildHTMLLabel = (code: string): string => {
