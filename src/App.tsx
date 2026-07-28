@@ -3972,7 +3972,7 @@ function EtiquetasTab() {
   const [qtdEtiquetas, setQtdEtiquetas] = useState(1);
   const [isPrinting, setIsPrinting] = useState(false);
   const [erroForm, setErroForm] = useState('');
-  const [porcoes, setPorcoes] = useState('');
+  const [porcoes, setPorcoes] = useState(0);
 
   // ── form categorias ──
   const [catNome, setCatNome] = useState('');
@@ -4570,7 +4570,17 @@ function EtiquetasTab() {
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs text-gray-600">Porções</label>
-                  <input type="number" min={1} className="input w-full" placeholder="Ex: 4" value={porcoes} onChange={e => setPorcoes(e.target.value)} />
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="w-9 h-9 rounded-lg border border-gray-300 text-xl font-bold flex items-center justify-center bg-white hover:bg-gray-100 active:bg-gray-200"
+                      onClick={() => setPorcoes(q => Math.max(0, q - 1))}
+                    >−</button>
+                    <span className="w-8 text-center text-lg font-bold">{porcoes || '—'}</span>
+                    <button
+                      className="w-9 h-9 rounded-lg border border-gray-300 text-xl font-bold flex items-center justify-center bg-white hover:bg-gray-100 active:bg-gray-200"
+                      onClick={() => setPorcoes(q => q + 1)}
+                    >+</button>
+                  </div>
                 </div>
               </div>
 
