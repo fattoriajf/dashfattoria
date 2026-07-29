@@ -3961,14 +3961,24 @@ function EtiquetasTab() {
   const [pesoUnidade, setPesoUnidade] = useState<'g'|'Kg'|'ml'|'L'>('g');
   const [showPesoKeypad, setShowPesoKeypad] = useState(false);
   const peso = pesoNumero ? `${pesoNumero}${pesoUnidade}` : '';
-  const [manipData, setManipData] = useState(() => {
-    const n = new Date();
-    return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;
-  });
-  const [manipHora, setManipHora] = useState(() => {
-    const n = new Date();
-    return `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`;
-  });
+  const fmtData = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const fmtHora = (d: Date) => `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  const [manipData, setManipData] = useState(() => fmtData(new Date()));
+  const [manipHora, setManipHora] = useState(() => fmtHora(new Date()));
+  const [manipEditado, setManipEditado] = useState(false);
+
+  // Sincroniza relógio a cada minuto enquanto o usuário não editar manualmente
+  useEffect(() => {
+    if (manipEditado) return;
+    const tick = () => {
+      const n = new Date();
+      setManipData(fmtData(n));
+      setManipHora(fmtHora(n));
+    };
+    tick(); // atualiza imediatamente ao montar
+    const id = setInterval(tick, 60_000);
+    return () => clearInterval(id);
+  }, [manipEditado]);
   const [qtdEtiquetas, setQtdEtiquetas] = useState(1);
   const [isPrinting, setIsPrinting] = useState(false);
   const [erroForm, setErroForm] = useState('');
@@ -4586,14 +4596,19 @@ function EtiquetasTab() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs text-gray-600">Data de manipulação</label>
-                  <input type="date" className="input w-full" value={manipData} onChange={e => setManipData(e.target.value)} />
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs text-gray-600">Data e hora de manipulação</label>
+                  {manipEditado && (
+                    <button
+                      onClick={() => setManipEditado(false)}
+                      style={{ fontSize:11, color:'#2563eb', background:'none', border:'none', cursor:'pointer', padding:0 }}
+                    >↺ Usar horário atual</button>
+                  )}
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-gray-600">Hora</label>
-                  <input type="time" className="input w-full" value={manipHora} onChange={e => setManipHora(e.target.value)} />
+                <div className="grid grid-cols-2 gap-3">
+                  <input type="date" className="input w-full" value={manipData} onChange={e => { setManipData(e.target.value); setManipEditado(true); }} />
+                  <input type="time" className="input w-full" value={manipHora} onChange={e => { setManipHora(e.target.value); setManipEditado(true); }} />
                 </div>
               </div>
 
