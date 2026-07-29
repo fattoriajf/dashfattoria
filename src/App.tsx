@@ -3976,7 +3976,7 @@ function EtiquetasTab() {
       setManipHora(fmtHora(n));
     };
     tick(); // atualiza imediatamente ao montar
-    const id = setInterval(tick, 60_000);
+    const id = setInterval(tick, 1_000);
     return () => clearInterval(id);
   }, [manipEditado]);
   const [qtdEtiquetas, setQtdEtiquetas] = useState(1);
