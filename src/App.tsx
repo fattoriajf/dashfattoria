@@ -3980,6 +3980,7 @@ function EtiquetasTab() {
     return () => clearInterval(id);
   }, [manipEditado]);
   const [qtdEtiquetas, setQtdEtiquetas] = useState(1);
+  const [modoImpressao, setModoImpressao] = useState<'mesmo_lote'|'lotes_separados'>('mesmo_lote');
   const [isPrinting, setIsPrinting] = useState(false);
   const [erroForm, setErroForm] = useState('');
   const [porcoes, setPorcoes] = useState(0);
@@ -4190,16 +4191,23 @@ function EtiquetasTab() {
     setErroForm('');
     setIsPrinting(true); // ativa imediatamente, antes de qualquer fetch
 
-    // Busca o próximo número sequencial do backend.
-    // Fallback curto: 4 dígitos aleatórios (ex: ETQ-4872) caso o endpoint falhe.
-    const fallbackCodigo = () => `ETQ-${Math.floor(1000 + Math.random() * 9000)}`;
-    let loteCode = '';
+    // Busca código(s) sequencial(is) do backend.
+    const fallback = (n: number) => Array.from({length: n}, () => `ETQ-${Math.floor(1000 + Math.random() * 9000)}`);
+    let loteCodes: string[] = [];
     try {
-      const seqResp = await fetch(`${SYNC_ENDPOINT}?action=next_lote_id&_ts=${Date.now()}`);
-      const seqData = await seqResp.json();
-      loteCode = (seqData?.ok && seqData?.codigo) ? seqData.codigo : fallbackCodigo();
+      if (modoImpressao === 'lotes_separados' && qtdEtiquetas > 1) {
+        // Reserva N códigos de uma vez
+        const r = await fetch(`${SYNC_ENDPOINT}?action=next_lote_ids&count=${qtdEtiquetas}&_ts=${Date.now()}`);
+        const d = await r.json();
+        loteCodes = (d?.ok && d?.codigos) ? d.codigos : fallback(qtdEtiquetas);
+      } else {
+        // Um único código (mesmo lote, N cópias)
+        const r = await fetch(`${SYNC_ENDPOINT}?action=next_lote_id&_ts=${Date.now()}`);
+        const d = await r.json();
+        loteCodes = [(d?.ok && d?.codigo) ? d.codigo : fallback(1)[0]];
+      }
     } catch {
-      loteCode = fallbackCodigo();
+      loteCodes = fallback(modoImpressao === 'lotes_separados' ? qtdEtiquetas : 1);
     }
 
     const buildHTMLLabel = (code: string): string => {
@@ -4306,37 +4314,66 @@ function EtiquetasTab() {
         await qz.websocket.connect();
       }
 
-      const htmlContent = buildHTMLLabel(loteCode);
-
-      // Um único qz.print() com N itens no array — uma chamada, um job, N etiquetas.
-      // Mais rápido que loop com await e evita o erro de "copies" em pixel/HTML mode.
       const config = qz.configs.create('ELGIN L42PRO FULL', {
         size: { width: 60, height: 60 },
         units: 'mm',
         density: 203,
       });
 
-      const labelItem = { type: 'pixel', format: 'html', flavor: 'plain', data: htmlContent };
-      await qz.print(config, Array.from({ length: qtdEtiquetas }, () => labelItem));
+      if (modoImpressao === 'lotes_separados' && loteCodes.length > 1) {
+        // ── Lotes separados: cada etiqueta tem seu próprio código ──
+        // Monta um item HTML diferente por código — um único qz.print() com N itens.
+        const printItems = loteCodes.map(code => ({
+          type: 'pixel', format: 'html', flavor: 'plain',
+          data: buildHTMLLabel(code),
+        }));
+        await qz.print(config, printItems);
 
-      // Registra o lote no estoque
-      if (SYNC_ENDPOINT) {
-        fetch(SYNC_ENDPOINT, {
-          method: 'POST', mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'registrar_lote',
-            id: loteCode,
-            insumo: insumoSel,
-            conservacao,
-            validade_dt: validadeDT ? validadeDT.toISOString() : '',
-            manip_dt: `${manipData}T${manipHora}`,
-            responsavel,
-            porcoes,
-            peso,
-            qtd: qtdEtiquetas,
-          }),
-        }).catch(() => {});
+        // Registra cada lote individualmente (fire-and-forget, no-cors)
+        if (SYNC_ENDPOINT) {
+          loteCodes.forEach(code => {
+            fetch(SYNC_ENDPOINT, {
+              method: 'POST', mode: 'no-cors',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'registrar_lote',
+                id: code,
+                insumo: insumoSel,
+                conservacao,
+                validade_dt: validadeDT ? validadeDT.toISOString() : '',
+                manip_dt: `${manipData}T${manipHora}`,
+                responsavel,
+                porcoes,
+                peso,
+                qtd: 1,
+              }),
+            }).catch(() => {});
+          });
+        }
+      } else {
+        // ── Mesmo lote: N cópias com o mesmo código ──
+        const loteCode = loteCodes[0];
+        const labelItem = { type: 'pixel', format: 'html', flavor: 'plain', data: buildHTMLLabel(loteCode) };
+        await qz.print(config, Array.from({ length: qtdEtiquetas }, () => labelItem));
+
+        if (SYNC_ENDPOINT) {
+          fetch(SYNC_ENDPOINT, {
+            method: 'POST', mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'registrar_lote',
+              id: loteCode,
+              insumo: insumoSel,
+              conservacao,
+              validade_dt: validadeDT ? validadeDT.toISOString() : '',
+              manip_dt: `${manipData}T${manipHora}`,
+              responsavel,
+              porcoes,
+              peso,
+              qtd: qtdEtiquetas,
+            }),
+          }).catch(() => {});
+        }
       }
 
     } catch (err: any) {
@@ -4626,7 +4663,7 @@ function EtiquetasTab() {
                 </div>
               )}
 
-              <div className="flex gap-3 items-center pt-1">
+              <div className="flex gap-3 items-center pt-1 flex-wrap">
                 <div className="space-y-1">
                   <label className="text-xs text-gray-600">Qtd de etiquetas</label>
                   <div className="flex items-center gap-2">
@@ -4637,32 +4674,70 @@ function EtiquetasTab() {
                     <span className="w-8 text-center text-lg font-bold">{qtdEtiquetas}</span>
                     <button
                       className="w-9 h-9 rounded-lg border border-gray-300 text-xl font-bold flex items-center justify-center bg-white hover:bg-gray-100 active:bg-gray-200"
-                      onClick={() => setQtdEtiquetas(q => Math.min(20, q + 1))}
+                      onClick={() => setQtdEtiquetas(q => q + 1)}
                     >+</button>
                   </div>
                 </div>
-                {erroForm && (
-                  <div style={{
-                    background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8,
-                    padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8,
-                    marginTop: 12,
-                  }}>
-                    <span style={{ fontSize: 16 }}>⚠️</span>
-                    <span style={{ fontSize: 12, color: '#b91c1c', flex: 1 }}>{erroForm}</span>
-                    <button onClick={() => setErroForm('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', fontSize: 14, fontWeight: 'bold' }}>✕</button>
+
+                {/* Toggle modo de impressão — só aparece quando qtd > 1 */}
+                {qtdEtiquetas > 1 && (
+                  <div className="space-y-1">
+                    <label className="text-xs text-gray-600">Modo</label>
+                    <div className="flex rounded-lg border border-gray-300 overflow-hidden text-xs font-medium">
+                      <button
+                        onClick={() => setModoImpressao('mesmo_lote')}
+                        style={{
+                          padding: '6px 10px',
+                          background: modoImpressao === 'mesmo_lote' ? BRAND.primary : '#fff',
+                          color: modoImpressao === 'mesmo_lote' ? '#fff' : '#374151',
+                          border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+                        }}
+                      >Mesmo lote</button>
+                      <button
+                        onClick={() => setModoImpressao('lotes_separados')}
+                        style={{
+                          padding: '6px 10px',
+                          background: modoImpressao === 'lotes_separados' ? BRAND.primary : '#fff',
+                          color: modoImpressao === 'lotes_separados' ? '#fff' : '#374151',
+                          border: 'none', borderLeft: '1px solid #d1d5db', cursor: 'pointer', whiteSpace: 'nowrap',
+                        }}
+                      >Lotes separados</button>
+                    </div>
+                    <p className="text-xs text-gray-400" style={{maxWidth: 180}}>
+                      {modoImpressao === 'mesmo_lote'
+                        ? `${qtdEtiquetas} cópias com código ETQ igual`
+                        : `${qtdEtiquetas} lotes únicos (ETQ-X, ETQ-X+1…)`}
+                    </p>
                   </div>
                 )}
-                <button
-                  className="btn btn-primary flex-1 mt-4"
-                  onClick={handlePrint}
-                  disabled={isPrinting}
-                  style={{background: isPrinting ? '#888' : BRAND.primary}}
-                >
-                  {isPrinting
-                    ? '⏳ Imprimindo etiquetas...'
-                    : `🖨 Imprimir ${qtdEtiquetas > 1 ? `${qtdEtiquetas} etiquetas` : 'etiqueta'}`}
-                </button>
               </div>
+
+              {erroForm && (
+                <div style={{
+                  background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8,
+                  padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8,
+                  marginTop: 8,
+                }}>
+                  <span style={{ fontSize: 16 }}>⚠️</span>
+                  <span style={{ fontSize: 12, color: '#b91c1c', flex: 1 }}>{erroForm}</span>
+                  <button onClick={() => setErroForm('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', fontSize: 14, fontWeight: 'bold' }}>✕</button>
+                </div>
+              )}
+
+              <button
+                className="btn btn-primary mt-3"
+                onClick={handlePrint}
+                disabled={isPrinting}
+                style={{background: isPrinting ? '#888' : BRAND.primary, width: '100%'}}
+              >
+                {isPrinting
+                  ? '⏳ Imprimindo etiquetas...'
+                  : `🖨 Imprimir ${qtdEtiquetas > 1
+                      ? modoImpressao === 'lotes_separados'
+                        ? `${qtdEtiquetas} lotes separados`
+                        : `${qtdEtiquetas} etiquetas (mesmo lote)`
+                      : 'etiqueta'}`}
+              </button>
             </div>
           </div>
 
