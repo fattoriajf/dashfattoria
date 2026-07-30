@@ -4318,7 +4318,7 @@ function EtiquetasTab() {
           padding: 1mm 1.5mm 0.9mm; border-bottom: 0.4mm solid #000;
           letter-spacing: 0.05mm; line-height: 1.15;
         }
-        .body { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 0.7mm 1.8mm 0.5mm; }
+        .body { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 0.5mm 1.8mm 0.3mm; }
         .row { display: flex; justify-content: space-between; align-items: center; }
         .lbl { font-size: 1.9mm; text-transform: uppercase; letter-spacing: 0.15mm; }
         .val { font-size: 2.8mm; font-weight: bold; text-align: right; }
@@ -4365,7 +4365,7 @@ function EtiquetasTab() {
             <div class="resp-col">
               <span class="lbl">Responsável</span>
               <span class="val" style="text-align:left;font-size:2.5mm">${responsavel}</span>
-              <div style="display:flex;gap:3mm;margin-top:0.3mm">
+              <div style="display:flex;gap:3mm;margin-top:0mm">
                 ${porcoes ? `<div><span class="lbl">Porções</span><br><span style="font-size:2.7mm;font-weight:bold">${porcoes}</span></div>` : ''}
                 <div><span class="lbl">Peso</span><br><span style="font-size:2.7mm;font-weight:bold">${peso || '—'}</span></div>
               </div>
@@ -4961,7 +4961,7 @@ function EtiquetasTab() {
                       <div style={{ display:'flex', flexDirection:'column', flex:1 }}>
                         <span style={{ fontSize:1.9*S, textTransform:'uppercase', letterSpacing:0.6, color:'#000' }}>Responsável</span>
                         <span style={{ fontSize:2.5*S, fontWeight:'bold', color:'#000' }}>{responsavel || '—'}</span>
-                        <div style={{ display:'flex', gap:3*S, marginTop:0.3*S }}>
+                        <div style={{ display:'flex', gap:3*S, marginTop:0 }}>
                           {porcoes > 0 && (
                             <div>
                               <span style={{ fontSize:1.9*S, textTransform:'uppercase', letterSpacing:0.6, color:'#000' }}>Porções</span>
