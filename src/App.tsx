@@ -4334,7 +4334,7 @@ function EtiquetasTab() {
         }
         .vbox-lbl { font-size: 2.6mm; font-weight: bold; letter-spacing: 0.1mm; }
         .vbox-val { font-size: 3.4mm; font-weight: bold; }
-        .resp { display: flex; justify-content: space-between; align-items: flex-start; gap: 1mm; }
+        .resp { display: flex; justify-content: space-between; align-items: center; gap: 1mm; }
         .resp-col { display: flex; flex-direction: column; flex: 1; min-width: 0; }
         .qr-wrap { display: flex; flex-direction: column; align-items: center; gap: 0.2mm; flex-shrink: 0; }
         .ftr {
@@ -4957,7 +4957,7 @@ function EtiquetasTab() {
                       <span style={{ fontSize:3.4*S, fontWeight:'bold', color:'#000' }}>{fmtDT(validadeDT)}</span>
                     </div>
                     <div style={{ height:0.15*S, background:'#888' }} />
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:1.5*S }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:1.5*S }}>
                       <div style={{ display:'flex', flexDirection:'column', flex:1 }}>
                         <span style={{ fontSize:1.9*S, textTransform:'uppercase', letterSpacing:0.6, color:'#000' }}>Responsável</span>
                         <span style={{ fontSize:2.5*S, fontWeight:'bold', color:'#000' }}>{responsavel || '—'}</span>
