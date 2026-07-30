@@ -4334,9 +4334,9 @@ function EtiquetasTab() {
         }
         .vbox-lbl { font-size: 2.6mm; font-weight: bold; letter-spacing: 0.1mm; }
         .vbox-val { font-size: 3.4mm; font-weight: bold; }
-        .resp { display: flex; justify-content: space-between; align-items: flex-start; gap: 1.5mm; }
-        .resp-col { display: flex; flex-direction: column; flex: 1; }
-        .qr-wrap { display: flex; flex-direction: column; align-items: center; gap: 0.3mm; flex-shrink: 0; }
+        .resp { display: flex; justify-content: space-between; align-items: flex-start; gap: 1mm; }
+        .resp-col { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+        .qr-wrap { display: flex; flex-direction: column; align-items: center; gap: 0.2mm; flex-shrink: 0; }
         .ftr {
           border-top: 0.4mm solid #000; padding: 0.7mm 1mm; text-align: center;
         }
@@ -4371,8 +4371,8 @@ function EtiquetasTab() {
               </div>
             </div>
             <div class="qr-wrap">
-              <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(code)}&margin=1&color=000000&bgcolor=ffffff" style="width:13mm;height:13mm;display:block" />
-              <span style="font-size:1.35mm;color:#555;letter-spacing:0.05mm">SCAN P/ BAIXA</span>
+              <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(code)}&margin=0&color=000000&bgcolor=ffffff" style="width:10mm;height:10mm;display:block" />
+              <span style="font-size:1.2mm;color:#555;letter-spacing:0.05mm">SCAN</span>
             </div>
           </div>
         </div>
@@ -4973,11 +4973,11 @@ function EtiquetasTab() {
                       {/* QR code preview */}
                       <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0.3*S, flexShrink:0 }}>
                         <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent('ETQ-###')}&margin=1`}
-                          style={{ width:13*S, height:13*S, display:'block', imageRendering:'pixelated' }}
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent('ETQ-###')}&margin=0`}
+                          style={{ width:10*S, height:10*S, display:'block', imageRendering:'pixelated' }}
                           alt="QR"
                         />
-                        <span style={{ fontSize:1.35*S, color:'#555', letterSpacing:0.2 }}>SCAN P/ BAIXA</span>
+                        <span style={{ fontSize:1.2*S, color:'#555', letterSpacing:0.2 }}>SCAN</span>
                       </div>
                     </div>
                   </div>
