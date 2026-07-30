@@ -4318,7 +4318,7 @@ function EtiquetasTab() {
           padding: 1mm 1.5mm 0.9mm; border-bottom: 0.4mm solid #000;
           letter-spacing: 0.05mm; line-height: 1.15;
         }
-        .body { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 0.5mm 1.8mm 0.3mm; }
+        .body { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 0.4mm 1.8mm 0mm; }
         .row { display: flex; justify-content: space-between; align-items: center; }
         .lbl { font-size: 1.9mm; text-transform: uppercase; letter-spacing: 0.15mm; }
         .val { font-size: 2.8mm; font-weight: bold; text-align: right; }
@@ -4338,10 +4338,10 @@ function EtiquetasTab() {
         .resp-col { display: flex; flex-direction: column; flex: 1; min-width: 0; }
         .qr-wrap { display: flex; flex-direction: column; align-items: center; gap: 0.2mm; flex-shrink: 0; }
         .ftr {
-          border-top: 0.4mm solid #000; padding: 0.4mm 1mm; text-align: center;
+          border-top: 0.4mm solid #000; padding: 0.2mm 1mm; text-align: center;
         }
         .ftr-name { font-size: 2.7mm; font-weight: bold; letter-spacing: 0.4mm; }
-        .ftr-info { font-size: 1.55mm; margin-top: 0.3mm; }
+        .ftr-info { font-size: 1.55mm; margin-top: 0.1mm; }
       </style></head><body>
         <div class="hdr">${insumoSel.toUpperCase()}</div>
         <div class="body">
@@ -4985,9 +4985,9 @@ function EtiquetasTab() {
                     </div>
                   </div>
                   {/* footer */}
-                  <div style={{ borderTop:`${0.4*S}px solid #000`, padding:`${0.4*S}px ${1*S}px`, textAlign:'center' }}>
+                  <div style={{ borderTop:`${0.4*S}px solid #000`, padding:`${0.2*S}px ${1*S}px`, textAlign:'center' }}>
                     <div style={{ fontSize:2.7*S, fontWeight:'bold', letterSpacing:1.6, color:'#000' }}>{(empresa.nome || 'FATTORIA').toUpperCase()}</div>
-                    {footLine && <div style={{ fontSize:1.55*S, marginTop:0.3*S, color:'#000' }}>{footLine}</div>}
+                    {footLine && <div style={{ fontSize:1.55*S, marginTop:0.1*S, color:'#000' }}>{footLine}</div>}
                   </div>
                 </div>
               </div>
