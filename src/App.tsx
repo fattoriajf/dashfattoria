@@ -3946,6 +3946,7 @@ function EtiquetasTab() {
   const scanInputRef = React.useRef<HTMLInputElement>(null);
   const [filtroConserv, setFiltroConserv] = useState<string>('');
   const [filtroCategoria, setFiltroCategoria] = useState<string>('');
+  const [filtroSetor, setFiltroSetor] = useState<string>('');
   const [filtroDtInicio, setFiltroDtInicio] = useState<string>('');
   const [filtroDtFim, setFiltroDtFim] = useState<string>('');
   const [confirmandoId, setConfirmandoId] = useState<string|null>(null);
@@ -4046,6 +4047,7 @@ function EtiquetasTab() {
   const [editInsCat, setEditInsCat] = useState('');
   const [editInsMarca, setEditInsMarca] = useState('');
   const [editInsSif, setEditInsSif] = useState('');
+  const [editInsSetor, setEditInsSetor] = useState('');
   const [editInsFornecedores, setEditInsFornecedores] = useState<string[]>([]);
   const [novoFornecedor, setNovoFornecedor] = useState('');
   const [savingIns, setSavingIns] = useState(false);
@@ -4534,6 +4536,7 @@ function EtiquetasTab() {
           marca_fornecedor: allFns[0] || editInsMarca,
           fornecedores: allFns.join('|'),
           sif: editInsSif,
+          setor: editInsSetor,
         }),
       });
       setEditingInsumo(null);
@@ -4609,11 +4612,16 @@ function EtiquetasTab() {
                         <span className="text-gray-500">Categoria:</span>
                         <span className="font-medium">{insumoAtual.categoria_validade || '—'}</span>
                       </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Setor:</span>
+                        <span className="font-medium">{insumoAtual.setor || '—'}</span>
+                      </div>
                       <button className="text-xs text-blue-500 hover:underline mt-1" onClick={() => {
                         setEditingInsumo(insumoAtual.nome);
                         setEditInsCat(insumoAtual.categoria_validade || '');
                         setEditInsMarca(insumoAtual.marca_fornecedor || '');
                         setEditInsSif(insumoAtual.sif || '');
+                        setEditInsSetor(insumoAtual.setor || '');
                         setEditInsFornecedores(fns.length > 0 ? fns : insumoAtual.marca_fornecedor ? [insumoAtual.marca_fornecedor] : []);
                         setNovoFornecedor('');
                       }}>
@@ -4692,6 +4700,10 @@ function EtiquetasTab() {
                   <div className="space-y-1">
                     <label className="text-xs text-gray-600">SIF (se aplicável)</label>
                     <input className="input w-full text-sm" placeholder="Ex: 0042" value={editInsSif} onChange={e => setEditInsSif(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-gray-600">Setor</label>
+                    <input className="input w-full text-sm" placeholder="Ex: Bar, Pizza, Evento..." value={editInsSetor} onChange={e => setEditInsSetor(e.target.value)} />
                   </div>
                   <div className="flex gap-2">
                     <button className="btn btn-primary text-xs" onClick={handleSaveInsEtiqueta} disabled={savingIns}>{savingIns ? '...' : 'Salvar'}</button>
@@ -5008,16 +5020,19 @@ function EtiquetasTab() {
           return 'ok';
         };
 
-        // mapa insumo → categoria_validade
-        const catDeInsumo = (nome: string) =>
-          insumos.find((i: any) => i.insumo === nome)?.categoria_validade || '';
+        // mapa insumo → categoria_validade / setor
+        const catDeInsumo   = (nome: string) => insumos.find((i: any) => i.nome === nome)?.categoria_validade || '';
+        const setorDeInsumo = (nome: string) => insumos.find((i: any) => i.nome === nome)?.setor || '';
 
         // fonte de dados conforme modo
         const fonteItens = modoEstoque === 'ativo' ? estoqueItens : historicoItens;
 
-        // categorias únicas presentes na fonte atual
+        // valores únicos presentes na fonte atual
         const categoriasNoEstoque = Array.from(
           new Set(fonteItens.map(i => catDeInsumo(i.insumo)).filter(Boolean))
+        ).sort();
+        const setoresNoEstoque = Array.from(
+          new Set(fonteItens.map(i => setorDeInsumo(i.insumo)).filter(Boolean))
         ).sort();
 
         // itens filtrados
@@ -5026,6 +5041,7 @@ function EtiquetasTab() {
         const itensFiltrados = fonteItens.filter(i => {
           if (filtroConserv && i.conservacao !== filtroConserv) return false;
           if (filtroCategoria && catDeInsumo(i.insumo) !== filtroCategoria) return false;
+          if (filtroSetor && setorDeInsumo(i.insumo) !== filtroSetor) return false;
           if (dtInicioMs || dtFimMs) {
             const manipMs = new Date(i.manip_dt).getTime();
             if (dtInicioMs && manipMs < dtInicioMs) return false;
@@ -5065,7 +5081,8 @@ function EtiquetasTab() {
             vencido: { bar: '#cf2a39', bg: '#fff1f2', border: '#fecdd3', text: '#9f1239' },
           }[status];
           const label = { ok: '✅ Na validade', proximo: '⚠️ Próximo ao vencimento', vencido: '🔴 Vencido' }[status];
-          const cat = catDeInsumo(item.insumo);
+          const cat   = catDeInsumo(item.insumo);
+          const setor = setorDeInsumo(item.insumo);
           return (
             <div style={{ display:'flex', border:`1px solid ${colors.border}`, borderRadius:10, overflow:'hidden', background:colors.bg, marginBottom:8 }}>
               <div style={{ width:5, background:colors.bar, flexShrink:0 }} />
@@ -5075,6 +5092,7 @@ function EtiquetasTab() {
                     <span style={{ fontWeight:'bold', fontSize:13, color:'#1a1a1a' }}>{item.insumo}</span>
                     <span style={{ fontSize:11, background:'#e5e7eb', borderRadius:4, padding:'1px 6px', color:'#374151', textTransform:'uppercase', fontWeight:600 }}>{item.conservacao}</span>
                     {cat && <span style={{ fontSize:11, background:'#dbeafe', borderRadius:4, padding:'1px 6px', color:'#1d4ed8', fontWeight:600 }}>{cat}</span>}
+                    {setor && <span style={{ fontSize:11, background:'#fef9c3', borderRadius:4, padding:'1px 6px', color:'#854d0e', fontWeight:600 }}>{setor}</span>}
                   </div>
                   <span style={{ fontSize:10, color:colors.text, fontWeight:600, whiteSpace:'nowrap', marginLeft:8 }}>{label}</span>
                 </div>
@@ -5236,6 +5254,19 @@ function EtiquetasTab() {
                     </button>
                   ))}
                   {filtroCategoria && <button onClick={() => setFiltroCategoria('')} style={{ fontSize:11, color:'#94a3b8', background:'none', border:'none', cursor:'pointer' }}>✕ limpar</button>}
+                </div>
+              )}
+              {/* Filtro setor */}
+              {setoresNoEstoque.length > 0 && (
+                <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                  <span style={{ fontSize:12, color:'#64748b', fontWeight:600, minWidth:90 }}>Setor:</span>
+                  {setoresNoEstoque.map(s => (
+                    <button key={s} onClick={() => setFiltroSetor(filtroSetor === s ? '' : s)}
+                      style={{ fontSize:12, padding:'4px 12px', borderRadius:20, border:`1.5px solid ${filtroSetor === s ? '#854d0e' : '#d1d5db'}`, background: filtroSetor === s ? '#854d0e' : '#fff', color: filtroSetor === s ? '#fff' : '#374151', cursor:'pointer', fontWeight:600 }}>
+                      {s}
+                    </button>
+                  ))}
+                  {filtroSetor && <button onClick={() => setFiltroSetor('')} style={{ fontSize:11, color:'#94a3b8', background:'none', border:'none', cursor:'pointer' }}>✕ limpar</button>}
                 </div>
               )}
               {/* Filtro período */}
