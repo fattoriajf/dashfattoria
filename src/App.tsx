@@ -3940,6 +3940,10 @@ function EtiquetasTab() {
   const [loadingHistorico, setLoadingHistorico] = useState(false);
   const [restaurandoId, setRestaurandoId] = useState<string|null>(null);
   const [modoEstoque, setModoEstoque] = useState<'ativo'|'historico'>('ativo');
+  const [scanCode, setScanCode] = useState('');
+  const [scanStatus, setScanStatus] = useState<{ok: boolean; msg: string} | null>(null);
+  const [scanBaixando, setScanBaixando] = useState(false);
+  const scanInputRef = React.useRef<HTMLInputElement>(null);
   const [filtroConserv, setFiltroConserv] = useState<string>('');
   const [filtroCategoria, setFiltroCategoria] = useState<string>('');
   const [filtroDtInicio, setFiltroDtInicio] = useState<string>('');
@@ -4037,12 +4041,16 @@ function EtiquetasTab() {
     finally { setDeletingResp(null); }
   };
 
-  // ── edição de insumo (categoria/marca/sif) ──
+  // ── edição de insumo (categoria/fornecedores/sif) ──
   const [editingInsumo, setEditingInsumo] = useState<string|null>(null);
   const [editInsCat, setEditInsCat] = useState('');
   const [editInsMarca, setEditInsMarca] = useState('');
   const [editInsSif, setEditInsSif] = useState('');
+  const [editInsFornecedores, setEditInsFornecedores] = useState<string[]>([]);
+  const [novoFornecedor, setNovoFornecedor] = useState('');
   const [savingIns, setSavingIns] = useState(false);
+  // ── fornecedor selecionado na hora de gerar ──
+  const [fornecedorSel, setFornecedorSel] = useState('');
 
   const loadAll = async () => {
     if (!SYNC_ENDPOINT) return;
@@ -4068,6 +4076,45 @@ function EtiquetasTab() {
   };
 
   useEffect(() => { loadAll(); }, []);
+
+  // ── Scanner QR global: funciona em qualquer sub-aba do módulo de Etiquetas ──
+  // Leitores HID enviam todos os chars em < 80ms/char seguidos de Enter.
+  // Se o intervalo entre teclas for maior que 100ms, consideramos digitação humana e ignoramos.
+  useEffect(() => {
+    let buffer = '';
+    let lastKeyTime = 0;
+    const SCANNER_THRESHOLD_MS = 100; // leitores típicos: 5–30ms entre chars
+
+    const onKey = (e: KeyboardEvent) => {
+      // Ignora se o foco está em um input/textarea/select (digitação normal do usuário)
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      const now = Date.now();
+      const delta = now - lastKeyTime;
+      lastKeyTime = now;
+
+      if (e.key === 'Enter') {
+        const code = buffer.trim().toUpperCase();
+        buffer = '';
+        if (code.startsWith('ETQ-')) {
+          handleScanBaixa(code);
+        }
+        return;
+      }
+
+      // Se o intervalo for muito grande, reseta o buffer (nova leitura)
+      if (delta > SCANNER_THRESHOLD_MS * 5 && buffer.length > 0) {
+        buffer = '';
+      }
+
+      if (e.key.length === 1) buffer += e.key;
+    };
+
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estoqueItens]); // re-registra quando estoqueItens mudar para ter lista atualizada
 
   const loadEstoque = async () => {
     if (!SYNC_ENDPOINT) return;
@@ -4112,8 +4159,38 @@ function EtiquetasTab() {
         body: JSON.stringify({ action: 'dar_baixa', id }),
       });
       setTimeout(() => { loadEstoque(); loadHistorico(); }, 1500);
-    } catch { alert('Erro ao dar baixa.'); }
+    } catch { setErroForm('Erro ao dar baixa. Verifique a conexão.'); }
     finally { setBaixandoId(null); }
+  };
+
+  // Dar baixa via QR scanner (leitor HID → teclado)
+  const handleScanBaixa = async (code: string) => {
+    const trimmed = code.trim().toUpperCase();
+    if (!trimmed) return;
+    setScanCode('');
+    const item = estoqueItens.find(i => i.id.toUpperCase() === trimmed);
+    if (!item) {
+      setScanStatus({ ok: false, msg: `Código "${trimmed}" não encontrado no estoque ativo.` });
+      setTimeout(() => setScanStatus(null), 3000);
+      scanInputRef.current?.focus();
+      return;
+    }
+    setScanBaixando(true);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: 'POST', mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'dar_baixa', id: item.id }),
+      });
+      setScanStatus({ ok: true, msg: `✅ Baixa dada: ${item.insumo} (${item.id})` });
+      setTimeout(() => { loadEstoque(); loadHistorico(); setScanStatus(null); }, 1500);
+    } catch {
+      setScanStatus({ ok: false, msg: 'Erro ao dar baixa. Verifique a conexão.' });
+      setTimeout(() => setScanStatus(null), 3000);
+    } finally {
+      setScanBaixando(false);
+      scanInputRef.current?.focus();
+    }
   };
 
   // ── QZ Tray: inicializa certificado UMA vez ao montar o componente ──
@@ -4150,6 +4227,12 @@ function EtiquetasTab() {
 
   // ── derivados ──
   const insumoAtual = insumos.find(i => i.nome === insumoSel);
+
+  // Auto-seleciona fornecedor quando há apenas um; limpa quando muda o insumo
+  useEffect(() => {
+    const fns: string[] = insumoAtual?.fornecedores || (insumoAtual?.marca_fornecedor ? [insumoAtual.marca_fornecedor] : []);
+    setFornecedorSel(fns.length === 1 ? fns[0] : '');
+  }, [insumoSel]); // eslint-disable-line react-hooks/exhaustive-deps
   const categoriaAtual = categorias.find(c => c.nome === insumoAtual?.categoria_validade);
 
   const calcValidade = () => {
@@ -4187,6 +4270,8 @@ function EtiquetasTab() {
   // ── Impressão ──
   const handlePrint = async () => {
     if (!insumoSel) { setErroForm('Selecione um insumo antes de imprimir.'); return; }
+    const fnsAtual: string[] = insumoAtual?.fornecedores || (insumoAtual?.marca_fornecedor ? [insumoAtual.marca_fornecedor] : []);
+    if (fnsAtual.length > 1 && !fornecedorSel) { setErroForm('Selecione o fornecedor antes de imprimir.'); return; }
     if (!responsavel.trim()) { setErroForm('Informe o responsável antes de imprimir.'); return; }
     setErroForm('');
     setIsPrinting(true); // ativa imediatamente, antes de qualquer fetch
@@ -4211,7 +4296,7 @@ function EtiquetasTab() {
     }
 
     const buildHTMLLabel = (code: string): string => {
-      const marcaVal = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
+      const marcaVal = `${fornecedorSel || insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
       const badge = conservacao === 'resfriado' ? 'RESFRIADO' : conservacao === 'congelado' ? 'CONGELADO' : 'TEMP. AMBIENTE';
       const footLine = [
         empresa.cnpj ? `CNPJ ${empresa.cnpj}` : '',
@@ -4249,10 +4334,9 @@ function EtiquetasTab() {
         }
         .vbox-lbl { font-size: 2.6mm; font-weight: bold; letter-spacing: 0.1mm; }
         .vbox-val { font-size: 3.4mm; font-weight: bold; }
-        .resp { display: flex; justify-content: space-between; align-items: flex-start; }
-        .resp-col { display: flex; flex-direction: column; }
-        .resp-col.mid { align-items: center; }
-        .resp-col.right { align-items: flex-end; }
+        .resp { display: flex; justify-content: space-between; align-items: flex-start; gap: 1.5mm; }
+        .resp-col { display: flex; flex-direction: column; flex: 1; }
+        .qr-wrap { display: flex; flex-direction: column; align-items: center; gap: 0.3mm; flex-shrink: 0; }
         .ftr {
           border-top: 0.4mm solid #000; padding: 0.7mm 1mm; text-align: center;
         }
@@ -4280,15 +4364,15 @@ function EtiquetasTab() {
           <div class="resp">
             <div class="resp-col">
               <span class="lbl">Responsável</span>
-              <span class="val" style="text-align:left">${responsavel}</span>
+              <span class="val" style="text-align:left;font-size:2.5mm">${responsavel}</span>
+              <div style="display:flex;gap:3mm;margin-top:0.6mm">
+                ${porcoes ? `<div><span class="lbl">Porções</span><br><span style="font-size:2.7mm;font-weight:bold">${porcoes}</span></div>` : ''}
+                <div><span class="lbl">Peso</span><br><span style="font-size:2.7mm;font-weight:bold">${peso || '—'}</span></div>
+              </div>
             </div>
-            ${porcoes ? `<div class="resp-col mid">
-              <span class="lbl">Porções</span>
-              <span class="val">${porcoes}</span>
-            </div>` : ''}
-            <div class="resp-col right">
-              <span class="lbl">Peso</span>
-              <span class="val">${peso || '—'}</span>
+            <div class="qr-wrap">
+              <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(code)}&margin=1&color=000000&bgcolor=ffffff" style="width:13mm;height:13mm;display:block" />
+              <span style="font-size:1.35mm;color:#555;letter-spacing:0.05mm">SCAN P/ BAIXA</span>
             </div>
           </div>
         </div>
@@ -4439,11 +4523,19 @@ function EtiquetasTab() {
       await fetch(SYNC_ENDPOINT, {
         method:'POST', mode:'no-cors',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ action:'update_insumo_etiqueta', nome:editingInsumo, categoria_validade:editInsCat, marca_fornecedor:editInsMarca, sif:editInsSif }),
+        body: JSON.stringify({
+          action:'update_insumo_etiqueta',
+          nome: editingInsumo,
+          categoria_validade: editInsCat,
+          marca_fornecedor: editInsFornecedores[0] || editInsMarca, // backward compat
+          fornecedores: editInsFornecedores.join('|'), // pipe-separated
+          sif: editInsSif,
+        }),
       });
       setEditingInsumo(null);
+      setNovoFornecedor('');
       setTimeout(() => loadAll(), 2000);
-    } catch { alert('Erro ao salvar.'); }
+    } catch { setErroForm('Erro ao salvar insumo.'); }
     finally { setSavingIns(false); }
   };
 
@@ -4461,6 +4553,23 @@ function EtiquetasTab() {
         ))}
       </div>
 
+      {/* ── Toast de scanner QR — aparece em qualquer sub-aba ── */}
+      {(scanStatus || scanBaixando) && (
+        <div style={{
+          position: 'fixed', bottom: 32, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 9999, minWidth: 280, maxWidth: 420,
+          padding: '14px 20px', borderRadius: 12,
+          display: 'flex', alignItems: 'center', gap: 12,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+          background: scanBaixando ? '#1e3a5f' : scanStatus?.ok ? '#166534' : '#b91c1c',
+          color: '#fff', fontWeight: 600, fontSize: 14,
+          animation: 'fadeInUp .2s ease',
+        }}>
+          <span style={{ fontSize: 22 }}>{scanBaixando ? '⏳' : scanStatus?.ok ? '✅' : '❌'}</span>
+          <span>{scanBaixando ? 'Dando baixa...' : scanStatus?.msg}</span>
+        </div>
+      )}
+
       {/* ── GERAR ETIQUETA ── */}
       {subAba === 'gerar' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -4477,27 +4586,57 @@ function EtiquetasTab() {
                 </select>
               </div>
 
-              {insumoAtual && (
-                <div className="bg-gray-50 rounded-lg p-2 text-xs space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Marca/Fornecedor:</span>
-                    <span className="font-medium">{insumoAtual.marca_fornecedor || '—'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">SIF:</span>
-                    <span className="font-medium">{insumoAtual.sif || '—'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Categoria:</span>
-                    <span className="font-medium">{insumoAtual.categoria_validade || '—'}</span>
-                  </div>
-                  {!insumoAtual.categoria_validade && (
-                    <button className="text-xs text-blue-500 hover:underline mt-1" onClick={() => { setEditingInsumo(insumoAtual.nome); setEditInsCat(''); setEditInsMarca(insumoAtual.marca_fornecedor||''); setEditInsSif(insumoAtual.sif||''); }}>
-                      + Configurar categoria/marca/SIF
-                    </button>
-                  )}
-                </div>
-              )}
+              {insumoAtual && (() => {
+                const fns: string[] = insumoAtual.fornecedores || (insumoAtual.marca_fornecedor ? [insumoAtual.marca_fornecedor] : []);
+                return (
+                  <>
+                    <div className="bg-gray-50 rounded-lg p-2 text-xs space-y-1">
+                      <div className="flex justify-between items-start gap-2">
+                        <span className="text-gray-500 shrink-0">Fornecedores:</span>
+                        <span className="font-medium text-right">
+                          {fns.length === 0 ? '—' : fns.length === 1 ? fns[0] : `${fns.length} cadastrados`}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">SIF:</span>
+                        <span className="font-medium">{insumoAtual.sif || '—'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Categoria:</span>
+                        <span className="font-medium">{insumoAtual.categoria_validade || '—'}</span>
+                      </div>
+                      <button className="text-xs text-blue-500 hover:underline mt-1" onClick={() => {
+                        setEditingInsumo(insumoAtual.nome);
+                        setEditInsCat(insumoAtual.categoria_validade || '');
+                        setEditInsMarca(insumoAtual.marca_fornecedor || '');
+                        setEditInsSif(insumoAtual.sif || '');
+                        setEditInsFornecedores(fns.length > 0 ? fns : insumoAtual.marca_fornecedor ? [insumoAtual.marca_fornecedor] : []);
+                        setNovoFornecedor('');
+                      }}>
+                        ✏️ Editar fornecedores / categoria
+                      </button>
+                    </div>
+
+                    {/* Seletor de fornecedor — aparece só quando há mais de um */}
+                    {fns.length > 1 && (
+                      <div className="space-y-1">
+                        <label className="text-xs text-gray-600 font-medium">
+                          Fornecedor desta entrega <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          className="input w-full"
+                          value={fornecedorSel}
+                          onChange={e => setFornecedorSel(e.target.value)}
+                          style={{ borderColor: !fornecedorSel ? '#f87171' : undefined }}
+                        >
+                          <option value="">Selecione o fornecedor...</option>
+                          {fns.map(f => <option key={f} value={f}>{f}</option>)}
+                        </select>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
 
               {editingInsumo && (
                 <div className="border border-blue-200 rounded-lg p-3 bg-blue-50 space-y-2">
@@ -4510,8 +4649,41 @@ function EtiquetasTab() {
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs text-gray-600">Marca/Fornecedor</label>
-                    <input className="input w-full text-sm" value={editInsMarca} onChange={e => setEditInsMarca(e.target.value)} />
+                    <label className="text-xs text-gray-600 font-medium">Fornecedores</label>
+                    <div className="space-y-1">
+                      {editInsFornecedores.map((f, idx) => (
+                        <div key={idx} className="flex items-center gap-2 bg-white border rounded-lg px-3 py-1.5">
+                          <span className="flex-1 text-sm">{f}</span>
+                          <button
+                            onClick={() => setEditInsFornecedores(prev => prev.filter((_, i) => i !== idx))}
+                            className="text-red-400 hover:text-red-600 font-bold text-sm leading-none"
+                          >✕</button>
+                        </div>
+                      ))}
+                      <div className="flex gap-2">
+                        <input
+                          className="input flex-1 text-sm"
+                          placeholder="Nome do fornecedor..."
+                          value={novoFornecedor}
+                          onChange={e => setNovoFornecedor(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && novoFornecedor.trim()) {
+                              setEditInsFornecedores(prev => [...prev, novoFornecedor.trim()]);
+                              setNovoFornecedor('');
+                            }
+                          }}
+                        />
+                        <button
+                          className="btn btn-ghost text-xs px-3"
+                          onClick={() => {
+                            if (novoFornecedor.trim()) {
+                              setEditInsFornecedores(prev => [...prev, novoFornecedor.trim()]);
+                              setNovoFornecedor('');
+                            }
+                          }}
+                        >+ Add</button>
+                      </div>
+                    </div>
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs text-gray-600">SIF (se aplicável)</label>
@@ -4746,7 +4918,7 @@ function EtiquetasTab() {
             const S = 3.9; // px por mm
             const today = new Date();
             const previewCode = `ETQ-###`; // número sequencial atribuído ao imprimir
-            const marcaVal = `${insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
+            const marcaVal = `${fornecedorSel || insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
             const footLine = [empresa.cnpj ? `CNPJ ${empresa.cnpj}` : '', empresa.endereco || ''].filter(Boolean).join(' · ');
             return (
               <div className="flex flex-col items-center gap-2">
@@ -4781,20 +4953,31 @@ function EtiquetasTab() {
                       <span style={{ fontSize:3.4*S, fontWeight:'bold', color:'#000' }}>{fmtDT(validadeDT)}</span>
                     </div>
                     <div style={{ height:0.15*S, background:'#888' }} />
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-                      <div style={{ display:'flex', flexDirection:'column' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:1.5*S }}>
+                      <div style={{ display:'flex', flexDirection:'column', flex:1 }}>
                         <span style={{ fontSize:1.9*S, textTransform:'uppercase', letterSpacing:0.6, color:'#000' }}>Responsável</span>
-                        <span style={{ fontSize:2.8*S, fontWeight:'bold', color:'#000' }}>{responsavel || '—'}</span>
-                      </div>
-                      {porcoes && (
-                        <div style={{ display:'flex', flexDirection:'column', alignItems:'center' }}>
-                          <span style={{ fontSize:1.9*S, textTransform:'uppercase', letterSpacing:0.6, color:'#000' }}>Porções</span>
-                          <span style={{ fontSize:2.8*S, fontWeight:'bold', color:'#000' }}>{porcoes}</span>
+                        <span style={{ fontSize:2.5*S, fontWeight:'bold', color:'#000' }}>{responsavel || '—'}</span>
+                        <div style={{ display:'flex', gap:3*S, marginTop:0.6*S }}>
+                          {porcoes > 0 && (
+                            <div>
+                              <span style={{ fontSize:1.9*S, textTransform:'uppercase', letterSpacing:0.6, color:'#000' }}>Porções</span>
+                              <div style={{ fontSize:2.7*S, fontWeight:'bold', color:'#000' }}>{porcoes}</div>
+                            </div>
+                          )}
+                          <div>
+                            <span style={{ fontSize:1.9*S, textTransform:'uppercase', letterSpacing:0.6, color:'#000' }}>Peso</span>
+                            <div style={{ fontSize:2.7*S, fontWeight:'bold', color:'#000' }}>{peso || '—'}</div>
+                          </div>
                         </div>
-                      )}
-                      <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end' }}>
-                        <span style={{ fontSize:1.9*S, textTransform:'uppercase', letterSpacing:0.6, color:'#000' }}>Peso</span>
-                        <span style={{ fontSize:2.8*S, fontWeight:'bold', color:'#000' }}>{peso || '—'}</span>
+                      </div>
+                      {/* QR code preview */}
+                      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0.3*S, flexShrink:0 }}>
+                        <img
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent('ETQ-###')}&margin=1`}
+                          style={{ width:13*S, height:13*S, display:'block', imageRendering:'pixelated' }}
+                          alt="QR"
+                        />
+                        <span style={{ fontSize:1.35*S, color:'#555', letterSpacing:0.2 }}>SCAN P/ BAIXA</span>
                       </div>
                     </div>
                   </div>
@@ -4957,6 +5140,47 @@ function EtiquetasTab() {
                 style={{ fontSize:13, fontWeight:600, padding:'6px 16px', borderRadius:8, border:'none', cursor:'pointer', background: modoEstoque === 'historico' ? '#233253' : 'transparent', color: modoEstoque === 'historico' ? '#fff' : '#64748b', transition:'all .15s' }}
               >📋 Histórico <span style={{ background: modoEstoque === 'historico' ? 'rgba(255,255,255,.2)' : '#e2e8f0', borderRadius:10, padding:'1px 7px', fontSize:11 }}>{historicoItens.length}</span></button>
             </div>
+
+            {/* ── Barra de scanner QR (só no estoque ativo) ── */}
+            {modoEstoque === 'ativo' && (
+              <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                <div style={{
+                  display:'flex', alignItems:'center', gap:10,
+                  background:'#f0fdf4', border:'1.5px solid #86efac', borderRadius:10, padding:'8px 12px',
+                }}>
+                  <span style={{ fontSize:20 }}>📷</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:'#15803d', marginBottom:3 }}>SCANNER QR — DAR BAIXA</div>
+                    <input
+                      ref={scanInputRef}
+                      value={scanCode}
+                      onChange={e => setScanCode(e.target.value.toUpperCase())}
+                      onKeyDown={e => { if (e.key === 'Enter') handleScanBaixa(scanCode); }}
+                      placeholder="Aponte o leitor para a etiqueta ou digite ETQ-..."
+                      disabled={scanBaixando}
+                      style={{
+                        width:'100%', border:'none', background:'transparent', outline:'none',
+                        fontSize:14, fontWeight:600, color:'#166534', letterSpacing:'0.5px',
+                      }}
+                      autoComplete="off"
+                    />
+                  </div>
+                  {scanBaixando
+                    ? <span style={{ fontSize:12, color:'#15803d' }}>⏳ Dando baixa...</span>
+                    : <span style={{ fontSize:10, color:'#86efac', fontWeight:600 }}>AGUARDANDO</span>}
+                </div>
+                {scanStatus && (
+                  <div style={{
+                    padding:'8px 12px', borderRadius:8, fontSize:13, fontWeight:600,
+                    background: scanStatus.ok ? '#dcfce7' : '#fef2f2',
+                    color: scanStatus.ok ? '#15803d' : '#b91c1c',
+                    border: `1px solid ${scanStatus.ok ? '#86efac' : '#fca5a5'}`,
+                  }}>
+                    {scanStatus.msg}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ── Painel de resumo ── */}
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:10 }}>
