@@ -4338,7 +4338,7 @@ function EtiquetasTab() {
         .resp-col { display: flex; flex-direction: column; flex: 1; min-width: 0; }
         .qr-wrap { display: flex; flex-direction: column; align-items: center; gap: 0.2mm; flex-shrink: 0; }
         .ftr {
-          border-top: 0.4mm solid #000; padding: 0.7mm 1mm; text-align: center;
+          border-top: 0.4mm solid #000; padding: 0.4mm 1mm; text-align: center;
         }
         .ftr-name { font-size: 2.7mm; font-weight: bold; letter-spacing: 0.4mm; }
         .ftr-info { font-size: 1.55mm; margin-top: 0.3mm; }
@@ -4365,14 +4365,13 @@ function EtiquetasTab() {
             <div class="resp-col">
               <span class="lbl">Responsável</span>
               <span class="val" style="text-align:left;font-size:2.5mm">${responsavel}</span>
-              <div style="display:flex;gap:3mm;margin-top:0.6mm">
+              <div style="display:flex;gap:3mm;margin-top:0.3mm">
                 ${porcoes ? `<div><span class="lbl">Porções</span><br><span style="font-size:2.7mm;font-weight:bold">${porcoes}</span></div>` : ''}
                 <div><span class="lbl">Peso</span><br><span style="font-size:2.7mm;font-weight:bold">${peso || '—'}</span></div>
               </div>
             </div>
             <div class="qr-wrap">
               <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(code)}&margin=0&color=000000&bgcolor=ffffff" style="width:10mm;height:10mm;display:block" />
-              <span style="font-size:1.2mm;color:#555;letter-spacing:0.05mm">SCAN</span>
             </div>
           </div>
         </div>
@@ -4519,6 +4518,11 @@ function EtiquetasTab() {
   const handleSaveInsEtiqueta = async () => {
     if (!editingInsumo) return;
     setSavingIns(true);
+    // Inclui novoFornecedor se o usuário digitou mas não clicou "+ Add"
+    const allFns = [
+      ...editInsFornecedores,
+      ...(novoFornecedor.trim() ? [novoFornecedor.trim()] : []),
+    ];
     try {
       await fetch(SYNC_ENDPOINT, {
         method:'POST', mode:'no-cors',
@@ -4527,8 +4531,8 @@ function EtiquetasTab() {
           action:'update_insumo_etiqueta',
           nome: editingInsumo,
           categoria_validade: editInsCat,
-          marca_fornecedor: editInsFornecedores[0] || editInsMarca, // backward compat
-          fornecedores: editInsFornecedores.join('|'), // pipe-separated
+          marca_fornecedor: allFns[0] || editInsMarca,
+          fornecedores: allFns.join('|'),
           sif: editInsSif,
         }),
       });
@@ -4957,7 +4961,7 @@ function EtiquetasTab() {
                       <div style={{ display:'flex', flexDirection:'column', flex:1 }}>
                         <span style={{ fontSize:1.9*S, textTransform:'uppercase', letterSpacing:0.6, color:'#000' }}>Responsável</span>
                         <span style={{ fontSize:2.5*S, fontWeight:'bold', color:'#000' }}>{responsavel || '—'}</span>
-                        <div style={{ display:'flex', gap:3*S, marginTop:0.6*S }}>
+                        <div style={{ display:'flex', gap:3*S, marginTop:0.3*S }}>
                           {porcoes > 0 && (
                             <div>
                               <span style={{ fontSize:1.9*S, textTransform:'uppercase', letterSpacing:0.6, color:'#000' }}>Porções</span>
@@ -4977,12 +4981,11 @@ function EtiquetasTab() {
                           style={{ width:10*S, height:10*S, display:'block', imageRendering:'pixelated' }}
                           alt="QR"
                         />
-                        <span style={{ fontSize:1.2*S, color:'#555', letterSpacing:0.2 }}>SCAN</span>
                       </div>
                     </div>
                   </div>
                   {/* footer */}
-                  <div style={{ borderTop:`${0.4*S}px solid #000`, padding:`${0.7*S}px ${1*S}px`, textAlign:'center' }}>
+                  <div style={{ borderTop:`${0.4*S}px solid #000`, padding:`${0.4*S}px ${1*S}px`, textAlign:'center' }}>
                     <div style={{ fontSize:2.7*S, fontWeight:'bold', letterSpacing:1.6, color:'#000' }}>{(empresa.nome || 'FATTORIA').toUpperCase()}</div>
                     {footLine && <div style={{ fontSize:1.55*S, marginTop:0.3*S, color:'#000' }}>{footLine}</div>}
                   </div>
