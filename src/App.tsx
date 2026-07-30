@@ -4371,7 +4371,7 @@ function EtiquetasTab() {
               </div>
             </div>
             <div class="qr-wrap">
-              <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(code)}&margin=0&color=000000&bgcolor=ffffff" style="width:10mm;height:10mm;display:block" />
+              <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(code)}&margin=0&color=000000&bgcolor=ffffff" style="width:13mm;height:13mm;display:block" />
             </div>
           </div>
         </div>
@@ -4977,8 +4977,8 @@ function EtiquetasTab() {
                       {/* QR code preview */}
                       <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0.3*S, flexShrink:0 }}>
                         <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent('ETQ-###')}&margin=0`}
-                          style={{ width:10*S, height:10*S, display:'block', imageRendering:'pixelated' }}
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent('ETQ-###')}&margin=0`}
+                          style={{ width:13*S, height:13*S, display:'block', imageRendering:'pixelated' }}
                           alt="QR"
                         />
                       </div>
