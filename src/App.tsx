@@ -4525,7 +4525,6 @@ function EtiquetasTab() {
           action:'update_insumo_etiqueta',
           nome: editingInsumo,
           categoria_validade: editInsCat,
-          marca_fornecedor: allFns[0] || editInsMarca,
           fornecedores: allFns.join('|'),
           sif: editInsSif,
           setor: editInsSetor,
