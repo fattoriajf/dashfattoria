@@ -4279,7 +4279,8 @@ function EtiquetasTab() {
     setIsPrinting(true); // ativa imediatamente, antes de qualquer fetch
 
     // Busca código(s) sequencial(is) do backend.
-    const fallback = (n: number) => Array.from({length: n}, () => `ETQ-${Math.floor(1000 + Math.random() * 9000)}`);
+    // Fallback offline: usa timestamp como base para garantir unicidade, não random
+    const fallback = (n: number) => { const base = Date.now(); return Array.from({length: n}, (_, i) => `ETQ-F${base + i}`); };
     let loteCodes: string[] = [];
     try {
       if (modoImpressao === 'lotes_separados' && qtdEtiquetas > 1) {
@@ -4407,33 +4408,29 @@ function EtiquetasTab() {
 
       if (modoImpressao === 'lotes_separados' && loteCodes.length > 1) {
         // ── Lotes separados: cada etiqueta tem seu próprio código ──
-        // Monta um item HTML diferente por código — um único qz.print() com N itens.
         const printItems = loteCodes.map(code => ({
           type: 'pixel', format: 'html', flavor: 'plain',
           data: buildHTMLLabel(code),
         }));
         await qz.print(config, printItems);
 
-        // Registra cada lote individualmente (fire-and-forget, no-cors)
+        // Registra todos de uma vez (batch) — evita concorrência no GAS
         if (SYNC_ENDPOINT) {
-          loteCodes.forEach(code => {
-            fetch(SYNC_ENDPOINT, {
-              method: 'POST', mode: 'no-cors',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                action: 'registrar_lote',
-                id: code,
-                insumo: insumoSel,
-                conservacao,
-                validade_dt: validadeDT ? validadeDT.toISOString() : '',
-                manip_dt: `${manipData}T${manipHora}`,
-                responsavel,
-                porcoes,
-                peso,
-                qtd: 1,
-              }),
-            }).catch(() => {});
-          });
+          fetch(SYNC_ENDPOINT, {
+            method: 'POST', mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'registrar_lotes_batch',
+              codigos: loteCodes,
+              insumo: insumoSel,
+              conservacao,
+              validade_dt: validadeDT ? validadeDT.toISOString() : '',
+              manip_dt: `${manipData}T${manipHora}`,
+              responsavel,
+              porcoes,
+              peso,
+            }),
+          }).catch(() => {});
         }
       } else {
         // ── Mesmo lote: N cópias com o mesmo código ──
