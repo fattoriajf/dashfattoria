@@ -4283,17 +4283,11 @@ function EtiquetasTab() {
     const fallback = (n: number) => { const base = Date.now(); return Array.from({length: n}, (_, i) => `ETQ-F${base + i}`); };
     let loteCodes: string[] = [];
     try {
-      if (modoImpressao === 'lotes_separados' && qtdEtiquetas > 1) {
-        // Reserva N códigos de uma vez
-        const r = await fetch(`${SYNC_ENDPOINT}?action=next_lote_ids&count=${qtdEtiquetas}&_ts=${Date.now()}`);
-        const d = await r.json();
-        loteCodes = (d?.ok && d?.codigos) ? d.codigos : fallback(qtdEtiquetas);
-      } else {
-        // Um único código (mesmo lote, N cópias)
-        const r = await fetch(`${SYNC_ENDPOINT}?action=next_lote_id&_ts=${Date.now()}`);
-        const d = await r.json();
-        loteCodes = [(d?.ok && d?.codigo) ? d.codigo : fallback(1)[0]];
-      }
+      // Sempre usa next_lote_ids — funciona para 1 ou N códigos
+      const qtdCodigos = modoImpressao === 'lotes_separados' ? qtdEtiquetas : 1;
+      const r = await fetch(`${SYNC_ENDPOINT}?action=next_lote_ids&count=${qtdCodigos}&_ts=${Date.now()}`);
+      const d = await r.json();
+      loteCodes = (d?.ok && d?.codigos) ? d.codigos : fallback(qtdCodigos);
     } catch {
       loteCodes = fallback(modoImpressao === 'lotes_separados' ? qtdEtiquetas : 1);
     }
