@@ -3947,6 +3947,7 @@ function EtiquetasTab() {
   const [filtroConserv, setFiltroConserv] = useState<string>('');
   const [filtroCategoria, setFiltroCategoria] = useState<string>('');
   const [filtroSetor, setFiltroSetor] = useState<string>('');
+  const [filtroInsumo, setFiltroInsumo] = useState<string>('');
   const [filtroDtInicio, setFiltroDtInicio] = useState<string>('');
   const [filtroDtFim, setFiltroDtFim] = useState<string>('');
   const [confirmandoId, setConfirmandoId] = useState<string|null>(null);
@@ -5025,11 +5026,15 @@ function EtiquetasTab() {
         const setoresNoEstoque = Array.from(
           new Set(fonteItens.map(i => setorDeInsumo(i.insumo)).filter(Boolean))
         ).sort();
+        const insumosNoEstoque = Array.from(
+          new Set(fonteItens.map(i => i.insumo).filter(Boolean))
+        ).sort();
 
         // itens filtrados
         const dtInicioMs = filtroDtInicio ? new Date(filtroDtInicio).getTime() : null;
         const dtFimMs    = filtroDtFim    ? new Date(filtroDtFim + 'T23:59:59').getTime() : null;
         const itensFiltrados = fonteItens.filter(i => {
+          if (filtroInsumo && i.insumo !== filtroInsumo) return false;
           if (filtroConserv && i.conservacao !== filtroConserv) return false;
           if (filtroCategoria && catDeInsumo(i.insumo) !== filtroCategoria) return false;
           if (filtroSetor && setorDeInsumo(i.insumo) !== filtroSetor) return false;
@@ -5223,6 +5228,31 @@ function EtiquetasTab() {
 
             {/* ── Filtros ── */}
             <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              {/* Filtro insumo */}
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <span style={{ fontSize:12, color:'#64748b', fontWeight:600, minWidth:90 }}>Insumo:</span>
+                <select
+                  value={filtroInsumo}
+                  onChange={e => setFiltroInsumo(e.target.value)}
+                  style={{ fontSize:12, padding:'4px 10px', borderRadius:8, border:`1.5px solid ${filtroInsumo ? '#233253' : '#d1d5db'}`, background: filtroInsumo ? '#f0f4ff' : '#fff', color:'#374151', cursor:'pointer', minWidth:180 }}
+                >
+                  <option value="">Todos os insumos</option>
+                  {insumosNoEstoque.map(ins => <option key={ins} value={ins}>{ins}</option>)}
+                </select>
+                {filtroInsumo && <button onClick={() => setFiltroInsumo('')} style={{ fontSize:11, color:'#94a3b8', background:'none', border:'none', cursor:'pointer' }}>✕ limpar</button>}
+              </div>
+              {/* Somatório de porções quando há filtro de insumo */}
+              {filtroInsumo && (() => {
+                const totalPorcoes = itensFiltrados.reduce((acc, i) => acc + (Number(i.porcoes) || 0), 0);
+                const totalLotes = itensFiltrados.length;
+                return totalPorcoes > 0 ? (
+                  <div style={{ display:'flex', gap:16, background:'#f0fdf4', border:'1.5px solid #86efac', borderRadius:10, padding:'8px 14px', alignItems:'center' }}>
+                    <span style={{ fontSize:13, fontWeight:700, color:'#166534' }}>🍽 Total de porções: <strong>{totalPorcoes}</strong></span>
+                    <span style={{ fontSize:12, color:'#4ade80' }}>|</span>
+                    <span style={{ fontSize:12, color:'#166534' }}>{totalLotes} lote{totalLotes !== 1 ? 's' : ''} no estoque</span>
+                  </div>
+                ) : null;
+              })()}
               {/* Filtro conservação */}
               <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
                 <span style={{ fontSize:12, color:'#64748b', fontWeight:600, minWidth:90 }}>Conservação:</span>
@@ -5290,7 +5320,7 @@ function EtiquetasTab() {
                 <span className="text-red-600 font-semibold">🔴 Vencidos: {grupos.vencido.length}</span>
                 <span className="text-amber-600 font-semibold">⚠️ Próximos: {grupos.proximo.length}</span>
                 <span className="text-green-700 font-semibold">✅ OK: {grupos.ok.length}</span>
-                {(filtroConserv || filtroCategoria || filtroDtInicio || filtroDtFim) && (
+                {(filtroInsumo || filtroConserv || filtroCategoria || filtroSetor || filtroDtInicio || filtroDtFim) && (
                   <span className="text-gray-500">({itensFiltrados.length} de {total})</span>
                 )}
               </div>
