@@ -4453,6 +4453,9 @@ function EtiquetasTab() {
         }
       }
 
+      // Aguarda o GAS gravar e recarrega o estoque automaticamente
+      setTimeout(() => loadEstoque(), 3000);
+
     } catch (err: any) {
       setErroForm(`Erro ao imprimir: ${String(err)}`);
     } finally {
