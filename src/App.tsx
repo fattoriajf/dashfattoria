@@ -6922,7 +6922,12 @@ function AdiantamentosTab() {
   );
 }
 
-// ======== ABA COMPRAS DE ESTOQUE ========
+// ============================================================
+// SUBSTITUA a função StockTab() INTEIRA no seu App.tsx por este bloco.
+// Procure por: function StockTab() {
+// e substitua até o fechamento da função (o último "}" antes da próxima função).
+// ============================================================
+
 function StockTab() {
   const [items, setItems] = useState<StockItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -6931,13 +6936,54 @@ function StockTab() {
   const [selectedSector, setSelectedSector] = useState<string>("");
   const [creatingList, setCreatingList] = useState(false);
   const [extraItems, setExtraItems] = useState<string[]>([]);
+  // ── Config de cores ──
+  const [pctAmarelo, setPctAmarelo] = useState<number>(30);
+  const [pctVerde, setPctVerde] = useState<number>(50);
+  const [savingConfig, setSavingConfig] = useState(false);
 
   useEffect(() => {
     const todayIso = new Date().toISOString().slice(0, 10);
     setDateRaw(todayIso);
     loadStock();
+    loadEstoqueConfig();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function loadEstoqueConfig() {
+    if (!SYNC_ENDPOINT) return;
+    try {
+      const res = await fetch(
+        `${SYNC_ENDPOINT}?action=estoque_config&_ts=${Date.now()}`
+      );
+      const data = await res.json();
+      if (data?.ok) {
+        setPctAmarelo(Number(data.pct_amarelo ?? 30));
+        setPctVerde(Number(data.pct_verde ?? 50));
+      }
+    } catch {}
+  }
+
+  async function saveEstoqueConfig() {
+    if (!SYNC_ENDPOINT || savingConfig) return;
+    setSavingConfig(true);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({
+          action: "save_estoque_config",
+          pct_amarelo: pctAmarelo,
+          pct_verde: pctVerde,
+        }),
+      });
+      alert("Configuração de cores salva!");
+    } catch {
+      alert("Erro ao salvar configuração.");
+    } finally {
+      setSavingConfig(false);
+    }
+  }
 
   async function loadStock() {
     if (!SYNC_ENDPOINT) return;
@@ -6946,10 +6992,7 @@ function StockTab() {
       const url = `${SYNC_ENDPOINT}?action=stock`;
       const resp = await fetch(url);
       const data = await resp.json();
-
       if (data?.ok && Array.isArray(data.items)) {
-        // Aqui eu assumo que o Apps Script já está devolvendo "setor"
-        // Se ainda não estiver, você vai precisar ajustar o Apps Script (ver seção 3)
         setItems(data.items as StockItem[]);
       } else {
         console.error("Resposta inválida em /stock", data);
@@ -6990,7 +7033,6 @@ function StockTab() {
     setExtraItems((prev) => prev.filter((_, i) => i !== idx));
   };
 
-
   const formatDateForPayload = (raw: string | Date) => {
     if (raw instanceof Date) {
       const y = raw.getFullYear();
@@ -7004,24 +7046,33 @@ function StockTab() {
     return `${d}/${m}/${y}`;
   };
 
+  // Preview de cor na tabela (versão mais suave para fundo de linha)
+  function getRowBg(item: StockItem, qty: string): string {
+    const val = parseFloat(qty);
+    if (qty === "" || isNaN(val)) return "";
+    const min = item.estoqueMin;
+    if (!min || min <= 0) return "";
+    const limAmarelo = min * (1 + pctAmarelo / 100);
+    const limVerde = min * (1 + pctVerde / 100);
+    if (val < limAmarelo) return "#ffe5e5"; // vermelho claro
+    if (val < limVerde) return "#fff9cc";   // amarelo claro
+    return "#e6f9ee";                        // verde claro
+  }
+
   const handleCreateList = async () => {
     if (creatingList) return;
-
     if (!SYNC_ENDPOINT) {
       alert("Nenhum endpoint de sincronização configurado.");
       return;
     }
-
     if (!selectedSector) {
       alert("Selecione o setor antes de criar a lista de compras.");
       return;
     }
-
     if (!filteredItems.length) {
       alert("Não há itens de estoque para o setor selecionado.");
       return;
     }
-
     const dateStr =
       formatDateForPayload(dateRaw) || formatDateForPayload(new Date());
 
@@ -7036,6 +7087,8 @@ function StockTab() {
       setor: selectedSector,
       entries,
       extras: extraItems.map((s) => String(s || "").trim()).filter(Boolean),
+      pct_amarelo: pctAmarelo,
+      pct_verde: pctVerde,
     };
 
     setCreatingList(true);
@@ -7046,7 +7099,7 @@ function StockTab() {
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify(payload),
       });
-      // @ts-ignore
+      // no-cors → opaque response (status 0), trata como sucesso
       if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
         alert("Lista de compras gerada e enviada por e-mail.");
         return;
@@ -7054,16 +7107,13 @@ function StockTab() {
       if (!resp.ok) {
         const txt = await resp.text().catch(() => "");
         alert(
-          `Falha ao gerar lista de compras (HTTP ${resp.status}). ${txt.slice(
-            0,
-            180
-          )}`
+          `Falha ao gerar lista de compras (HTTP ${resp.status}). ${txt.slice(0, 180)}`
         );
         return;
       }
       alert("Lista de compras gerada e enviada por e-mail.");
     } catch (err: any) {
-      alert(`Não foi possível gerar a lista de compras. Erro: ${String(err)}`);
+      alert(`Não foi possível gerar a lista. Erro: ${String(err)}`);
     } finally {
       setCreatingList(false);
     }
@@ -7071,15 +7121,107 @@ function StockTab() {
 
   return (
     <div className="space-y-4">
-      {/* Data do registro + explicação */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-        <div className="sm:col-span-2 text-sm text-gray-600">
-          Preencha o estoque atual dos itens do setor selecionado. Ao clicar em{" "}
-          <b>"Criar lista de compras"</b>, o sistema irá calcular quanto comprar para
-          atingir os estoques mínimo e máximo, salvar uma planilha em{" "}
-          <b>"Registros de Estoque"</b> e enviar um PDF por e-mail apenas com os itens
-          abaixo do mínimo.
+
+      {/* ── Painel de configuração de cores ── */}
+      <div className="border rounded-xl p-4 bg-white space-y-3">
+        <h3 className="font-semibold text-sm text-gray-700">
+          Configuração de cores do estoque
+        </h3>
+        <div className="flex flex-wrap gap-6 items-end">
+          <div className="space-y-1">
+            <label className="text-xs text-gray-600">
+              🟡 Amarelo a partir de
+            </label>
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-gray-500">+</span>
+              <input
+                type="number"
+                min={0}
+                max={99}
+                step={1}
+                className="input w-20 text-right"
+                value={pctAmarelo}
+                onChange={(e) =>
+                  setPctAmarelo(
+                    Math.max(0, Math.min(99, Number(e.target.value)))
+                  )
+                }
+              />
+              <span className="text-xs text-gray-500">% acima do mín.</span>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-gray-600">
+              🟢 Verde a partir de
+            </label>
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-gray-500">+</span>
+              <input
+                type="number"
+                min={1}
+                max={500}
+                step={1}
+                className="input w-20 text-right"
+                value={pctVerde}
+                onChange={(e) =>
+                  setPctVerde(Math.max(1, Number(e.target.value)))
+                }
+              />
+              <span className="text-xs text-gray-500">% acima do mín.</span>
+            </div>
+          </div>
+          <button
+            className={`btn btn-primary text-sm${savingConfig ? " opacity-70 cursor-not-allowed" : ""}`}
+            onClick={saveEstoqueConfig}
+            disabled={savingConfig}
+          >
+            {savingConfig ? "Salvando…" : "Salvar configuração"}
+          </button>
         </div>
+        {/* Legenda de cores */}
+        <div className="flex flex-wrap gap-4 pt-1">
+          {[
+            {
+              bg: "#FF4444",
+              label: `🔴 Vermelho — abaixo de +${pctAmarelo}% do mínimo`,
+            },
+            {
+              bg: "#FFCC00",
+              label: `🟡 Amarelo — entre +${pctAmarelo}% e +${pctVerde}% do mínimo`,
+            },
+            {
+              bg: "#44BB44",
+              label: `🟢 Verde — acima de +${pctVerde}% do mínimo`,
+            },
+          ].map(({ bg, label }) => (
+            <div
+              key={bg}
+              className="flex items-center gap-2 text-xs text-gray-600"
+            >
+              <span
+                style={{
+                  display: "inline-block",
+                  width: 14,
+                  height: 14,
+                  borderRadius: 3,
+                  background: bg,
+                  border: "1px solid #ccc",
+                  flexShrink: 0,
+                }}
+              />
+              {label}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Data + explicação */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+        <p className="sm:col-span-2 text-sm text-gray-600">
+          Preencha o estoque atual dos itens. A planilha gerada mostrará{" "}
+          <strong>todos os itens</strong> com as cores acima; o PDF/e-mail
+          destacará os que precisam de atenção.
+        </p>
         <div className="space-y-1">
           <label className="text-sm text-gray-600">Data do registro</label>
           <input
@@ -7091,7 +7233,7 @@ function StockTab() {
         </div>
       </div>
 
-      {/* Seleção de setor */}
+      {/* Setor */}
       <div className="space-y-1">
         <label className="text-sm text-gray-600">Setor do inventário</label>
         <select
@@ -7111,9 +7253,9 @@ function StockTab() {
           ))}
         </select>
         {selectedSector && (
-          <div className="text-xs text-gray-500">
-            Itens exibidos abaixo: setor <b>{selectedSector}</b>.
-          </div>
+          <p className="text-xs text-gray-500">
+            Exibindo itens do setor <strong>{selectedSector}</strong>.
+          </p>
         )}
       </div>
 
@@ -7125,31 +7267,32 @@ function StockTab() {
             type="button"
             onClick={loadStock}
             disabled={loading}
-            className={`btn btn-ghost text-xs ${loading ? "opacity-70 cursor-not-allowed" : ""}`}
+            className={`btn btn-ghost text-xs${loading ? " opacity-70 cursor-not-allowed" : ""}`}
           >
-            {loading ? "Processando..." : "Recarregar itens"}
+            {loading ? "Carregando…" : "Recarregar itens"}
           </button>
         </div>
+
         {loading && (
-          <div className="text-xs text-gray-500">
-            Carregando itens de estoque…
-          </div>
+          <p className="text-xs text-gray-500">Carregando itens…</p>
         )}
         {!loading && !items.length && (
-          <div className="text-xs text-red-600">
-            Nenhum item encontrado em &quot;Cadastro_Estoque&quot;.
-          </div>
+          <p className="text-xs text-red-600">
+            Nenhum item encontrado em "Cadastro_Estoque".
+          </p>
         )}
         {!loading && items.length > 0 && !selectedSector && (
-          <div className="text-xs text-amber-700">
-            Selecione um setor para visualizar os itens do inventário.
-          </div>
+          <p className="text-xs text-amber-700">
+            Selecione um setor para visualizar os itens.
+          </p>
         )}
         {!loading && selectedSector && filteredItems.length === 0 && (
-          <div className="text-xs text-red-600">
-            Não há itens cadastrados para o setor <b>{selectedSector}</b>.
-          </div>
+          <p className="text-xs text-red-600">
+            Não há itens cadastrados para o setor{" "}
+            <strong>{selectedSector}</strong>.
+          </p>
         )}
+
         {!loading && selectedSector && filteredItems.length > 0 && (
           <div className="overflow-auto">
             <table className="min-w-full border text-sm">
@@ -7157,85 +7300,540 @@ function StockTab() {
                 <tr>
                   <th className="border px-3 py-2 text-left">Item</th>
                   <th className="border px-3 py-2 text-left">Armazenamento</th>
-                  <th className="border px-3 py-2 text-left">Estoque atual</th>
+                  <th className="border px-3 py-2 text-right">Mín.</th>
+                  <th className="border px-3 py-2 text-left">
+                    Estoque atual
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {filteredItems.map((it) => (
-                  <tr key={it.item}>
-                    <td className="border px-3 py-2">
-                      <div className="font-medium">{it.item}</div>
-                      {it.categoria && (
-                        <div className="text-xs text-gray-500">
-                          Categoria: {it.categoria}
-                        </div>
-                      )}
-                    </td>
-                    <td className="border px-3 py-2">
-                      {it.armazenamento || (
-                        <span className="text-xs text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="border px-3 py-2">
-                      <input
-                        type="number"
-                        min={0}
-                        className="input w-24"
-                        value={quantities[it.item] ?? ""}
-                        onChange={(e) =>
-                          handleQtyChange(it.item, e.target.value)
-                        }
-                        placeholder="0"
-                      />
-                    </td>
-                  </tr>
-                ))}
+                {filteredItems.map((it) => {
+                  const qty = quantities[it.item] ?? "";
+                  const bg = getRowBg(it, qty);
+                  return (
+                    <tr key={it.item} style={bg ? { background: bg } : {}}>
+                      <td className="border px-3 py-2">
+                        <div className="font-medium">{it.item}</div>
+                        {it.categoria && (
+                          <div className="text-xs text-gray-500">
+                            {it.categoria}
+                          </div>
+                        )}
+                      </td>
+                      <td className="border px-3 py-2 text-gray-600">
+                        {it.armazenamento || (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="border px-3 py-2 text-right text-gray-500">
+                        {it.estoqueMin !== null ? it.estoqueMin : "—"}
+                      </td>
+                      <td className="border px-3 py-2">
+                        <input
+                          type="number"
+                          min={0}
+                          className="input w-24"
+                          value={qty}
+                          onChange={(e) =>
+                            handleQtyChange(it.item, e.target.value)
+                          }
+                          placeholder="0"
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {/* Itens extras (observações) */}
+      {/* Itens extras */}
       <div className="border rounded-xl p-3 bg-white space-y-2">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-sm">Itens extras (observações)</h3>
+          <h3 className="font-semibold text-sm">Itens extras / observações</h3>
           <button
             type="button"
             onClick={addExtraItem}
             className="btn btn-ghost text-xs"
           >
-            Adicionar item extra
+            Adicionar
+          </button>
+        </div>
+        {extraItems.length === 0 && (
+          <p className="text-xs text-gray-500">
+            Itens fora do cadastro de estoque que devem aparecer no e-mail.
+          </p>
+        )}
+        {extraItems.map((txt, idx) => (
+          <div key={idx} className="flex items-center gap-2">
+            <input
+              className="input flex-1"
+              value={txt}
+              onChange={(e) => updateExtraItem(idx, e.target.value)}
+              placeholder="Ex.: Guardanapos / Gelo / Sacolas…"
+            />// ============================================================
+// SUBSTITUA a função StockTab() INTEIRA no seu App.tsx por este bloco.
+// Procure por: function StockTab() {
+// e substitua até o fechamento da função (o último "}" antes da próxima função).
+// ============================================================
+
+function StockTab() {
+  const [items, setItems] = useState<StockItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [quantities, setQuantities] = useState<Record<string, string>>({});
+  const [dateRaw, setDateRaw] = useState<string>("");
+  const [selectedSector, setSelectedSector] = useState<string>("");
+  const [creatingList, setCreatingList] = useState(false);
+  const [extraItems, setExtraItems] = useState<string[]>([]);
+  // ── Config de cores ──
+  const [pctAmarelo, setPctAmarelo] = useState<number>(30);
+  const [pctVerde, setPctVerde] = useState<number>(50);
+  const [savingConfig, setSavingConfig] = useState(false);
+
+  useEffect(() => {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    setDateRaw(todayIso);
+    loadStock();
+    loadEstoqueConfig();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function loadEstoqueConfig() {
+    if (!SYNC_ENDPOINT) return;
+    try {
+      const res = await fetch(
+        `${SYNC_ENDPOINT}?action=estoque_config&_ts=${Date.now()}`
+      );
+      const data = await res.json();
+      if (data?.ok) {
+        setPctAmarelo(Number(data.pct_amarelo ?? 30));
+        setPctVerde(Number(data.pct_verde ?? 50));
+      }
+    } catch {}
+  }
+
+  async function saveEstoqueConfig() {
+    if (!SYNC_ENDPOINT || savingConfig) return;
+    setSavingConfig(true);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({
+          action: "save_estoque_config",
+          pct_amarelo: pctAmarelo,
+          pct_verde: pctVerde,
+        }),
+      });
+      alert("Configuração de cores salva!");
+    } catch {
+      alert("Erro ao salvar configuração.");
+    } finally {
+      setSavingConfig(false);
+    }
+  }
+
+  async function loadStock() {
+    if (!SYNC_ENDPOINT) return;
+    setLoading(true);
+    try {
+      const url = `${SYNC_ENDPOINT}?action=stock`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (data?.ok && Array.isArray(data.items)) {
+        setItems(data.items as StockItem[]);
+      } else {
+        console.error("Resposta inválida em /stock", data);
+      }
+    } catch (err) {
+      console.error("Falha ao carregar estoque:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const sectors = useMemo(() => {
+    const s = new Set<string>();
+    items.forEach((it) => {
+      if (it.setor && String(it.setor).trim() !== "") {
+        s.add(String(it.setor).trim());
+      }
+    });
+    return Array.from(s).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [items]);
+
+  const filteredItems = useMemo(() => {
+    if (!selectedSector) return [];
+    return items.filter(
+      (it) => String(it.setor || "").trim() === selectedSector
+    );
+  }, [items, selectedSector]);
+
+  const handleQtyChange = (itemName: string, value: string) => {
+    setQuantities((prev) => ({ ...prev, [itemName]: value }));
+  };
+
+  const addExtraItem = () => setExtraItems((prev) => [...prev, ""]);
+  const updateExtraItem = (idx: number, value: string) => {
+    setExtraItems((prev) => prev.map((v, i) => (i === idx ? value : v)));
+  };
+  const removeExtraItem = (idx: number) => {
+    setExtraItems((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const formatDateForPayload = (raw: string | Date) => {
+    if (raw instanceof Date) {
+      const y = raw.getFullYear();
+      const m = String(raw.getMonth() + 1).padStart(2, "0");
+      const d = String(raw.getDate()).padStart(2, "0");
+      return `${d}/${m}/${y}`;
+    }
+    if (!raw) return "";
+    const [y, m, d] = raw.split("-");
+    if (!y || !m || !d) return "";
+    return `${d}/${m}/${y}`;
+  };
+
+  // Preview de cor na tabela (versão mais suave para fundo de linha)
+  function getRowBg(item: StockItem, qty: string): string {
+    const val = parseFloat(qty);
+    if (qty === "" || isNaN(val)) return "";
+    const min = item.estoqueMin;
+    if (!min || min <= 0) return "";
+    const limAmarelo = min * (1 + pctAmarelo / 100);
+    const limVerde = min * (1 + pctVerde / 100);
+    if (val < limAmarelo) return "#ffe5e5"; // vermelho claro
+    if (val < limVerde) return "#fff9cc";   // amarelo claro
+    return "#e6f9ee";                        // verde claro
+  }
+
+  const handleCreateList = async () => {
+    if (creatingList) return;
+    if (!SYNC_ENDPOINT) {
+      alert("Nenhum endpoint de sincronização configurado.");
+      return;
+    }
+    if (!selectedSector) {
+      alert("Selecione o setor antes de criar a lista de compras.");
+      return;
+    }
+    if (!filteredItems.length) {
+      alert("Não há itens de estoque para o setor selecionado.");
+      return;
+    }
+    const dateStr =
+      formatDateForPayload(dateRaw) || formatDateForPayload(new Date());
+
+    const entries = filteredItems.map((it) => ({
+      item: it.item,
+      estoqueAtual: quantities[it.item] ?? "",
+    }));
+
+    const payload = {
+      action: "estoque_lista",
+      date: dateStr,
+      setor: selectedSector,
+      entries,
+      extras: extraItems.map((s) => String(s || "").trim()).filter(Boolean),
+      pct_amarelo: pctAmarelo,
+      pct_verde: pctVerde,
+    };
+
+    setCreatingList(true);
+    try {
+      const resp = await fetch(SYNC_ENDPOINT, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+      });
+      // no-cors → opaque response (status 0), trata como sucesso
+      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
+        alert("Lista de compras gerada e enviada por e-mail.");
+        return;
+      }
+      if (!resp.ok) {
+        const txt = await resp.text().catch(() => "");
+        alert(
+          `Falha ao gerar lista de compras (HTTP ${resp.status}). ${txt.slice(0, 180)}`
+        );
+        return;
+      }
+      alert("Lista de compras gerada e enviada por e-mail.");
+    } catch (err: any) {
+      alert(`Não foi possível gerar a lista. Erro: ${String(err)}`);
+    } finally {
+      setCreatingList(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+
+      {/* ── Painel de configuração de cores ── */}
+      <div className="border rounded-xl p-4 bg-white space-y-3">
+        <h3 className="font-semibold text-sm text-gray-700">
+          Configuração de cores do estoque
+        </h3>
+        <div className="flex flex-wrap gap-6 items-end">
+          <div className="space-y-1">
+            <label className="text-xs text-gray-600">
+              🟡 Amarelo a partir de
+            </label>
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-gray-500">+</span>
+              <input
+                type="number"
+                min={0}
+                max={99}
+                step={1}
+                className="input w-20 text-right"
+                value={pctAmarelo}
+                onChange={(e) =>
+                  setPctAmarelo(
+                    Math.max(0, Math.min(99, Number(e.target.value)))
+                  )
+                }
+              />
+              <span className="text-xs text-gray-500">% acima do mín.</span>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-gray-600">
+              🟢 Verde a partir de
+            </label>
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-gray-500">+</span>
+              <input
+                type="number"
+                min={1}
+                max={500}
+                step={1}
+                className="input w-20 text-right"
+                value={pctVerde}
+                onChange={(e) =>
+                  setPctVerde(Math.max(1, Number(e.target.value)))
+                }
+              />
+              <span className="text-xs text-gray-500">% acima do mín.</span>
+            </div>
+          </div>
+          <button
+            className={`btn btn-primary text-sm${savingConfig ? " opacity-70 cursor-not-allowed" : ""}`}
+            onClick={saveEstoqueConfig}
+            disabled={savingConfig}
+          >
+            {savingConfig ? "Salvando…" : "Salvar configuração"}
+          </button>
+        </div>
+        {/* Legenda de cores */}
+        <div className="flex flex-wrap gap-4 pt-1">
+          {[
+            {
+              bg: "#FF4444",
+              label: `🔴 Vermelho — abaixo de +${pctAmarelo}% do mínimo`,
+            },
+            {
+              bg: "#FFCC00",
+              label: `🟡 Amarelo — entre +${pctAmarelo}% e +${pctVerde}% do mínimo`,
+            },
+            {
+              bg: "#44BB44",
+              label: `🟢 Verde — acima de +${pctVerde}% do mínimo`,
+            },
+          ].map(({ bg, label }) => (
+            <div
+              key={bg}
+              className="flex items-center gap-2 text-xs text-gray-600"
+            >
+              <span
+                style={{
+                  display: "inline-block",
+                  width: 14,
+                  height: 14,
+                  borderRadius: 3,
+                  background: bg,
+                  border: "1px solid #ccc",
+                  flexShrink: 0,
+                }}
+              />
+              {label}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Data + explicação */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+        <p className="sm:col-span-2 text-sm text-gray-600">
+          Preencha o estoque atual dos itens. A planilha gerada mostrará{" "}
+          <strong>todos os itens</strong> com as cores acima; o PDF/e-mail
+          destacará os que precisam de atenção.
+        </p>
+        <div className="space-y-1">
+          <label className="text-sm text-gray-600">Data do registro</label>
+          <input
+            type="date"
+            className="input w-full"
+            value={dateRaw}
+            onChange={(e) => setDateRaw(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* Setor */}
+      <div className="space-y-1">
+        <label className="text-sm text-gray-600">Setor do inventário</label>
+        <select
+          className="input w-full sm:w-80"
+          value={selectedSector}
+          onChange={(e) => setSelectedSector(e.target.value)}
+        >
+          <option value="">
+            {sectors.length
+              ? "Selecione um setor"
+              : "Nenhum setor encontrado na planilha"}
+          </option>
+          {sectors.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        {selectedSector && (
+          <p className="text-xs text-gray-500">
+            Exibindo itens do setor <strong>{selectedSector}</strong>.
+          </p>
+        )}
+      </div>
+
+      {/* Tabela de itens */}
+      <div className="border rounded-xl p-3 bg-white space-y-2">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-semibold text-sm">Itens de estoque</h3>
+          <button
+            type="button"
+            onClick={loadStock}
+            disabled={loading}
+            className={`btn btn-ghost text-xs${loading ? " opacity-70 cursor-not-allowed" : ""}`}
+          >
+            {loading ? "Carregando…" : "Recarregar itens"}
           </button>
         </div>
 
-        {extraItems.length === 0 && (
-          <div className="text-xs text-gray-500">
-            Use para adicionar observações/itens que não estão no cadastro de estoque. Eles serão incluídos no e-mail da lista de compras.
-          </div>
+        {loading && (
+          <p className="text-xs text-gray-500">Carregando itens…</p>
+        )}
+        {!loading && !items.length && (
+          <p className="text-xs text-red-600">
+            Nenhum item encontrado em "Cadastro_Estoque".
+          </p>
+        )}
+        {!loading && items.length > 0 && !selectedSector && (
+          <p className="text-xs text-amber-700">
+            Selecione um setor para visualizar os itens.
+          </p>
+        )}
+        {!loading && selectedSector && filteredItems.length === 0 && (
+          <p className="text-xs text-red-600">
+            Não há itens cadastrados para o setor{" "}
+            <strong>{selectedSector}</strong>.
+          </p>
         )}
 
-        {extraItems.length > 0 && (
-          <div className="space-y-2">
-            {extraItems.map((txt, idx) => (
-              <div key={idx} className="flex items-center gap-2">
-                <input
-                  className="input flex-1"
-                  value={txt}
-                  onChange={(e) => updateExtraItem(idx, e.target.value)}
-                  placeholder="Ex.: Guardanapos / Gelo / Sacolas / ..."
-                />
-                <button
-                  type="button"
-                  onClick={() => removeExtraItem(idx)}
-                  className="btn btn-ghost text-xs"
-                >
-                  Remover
-                </button>
-              </div>
-            ))}
+        {!loading && selectedSector && filteredItems.length > 0 && (
+          <div className="overflow-auto">
+            <table className="min-w-full border text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="border px-3 py-2 text-left">Item</th>
+                  <th className="border px-3 py-2 text-left">Armazenamento</th>
+                  <th className="border px-3 py-2 text-right">Mín.</th>
+                  <th className="border px-3 py-2 text-left">
+                    Estoque atual
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredItems.map((it) => {
+                  const qty = quantities[it.item] ?? "";
+                  const bg = getRowBg(it, qty);
+                  return (
+                    <tr key={it.item} style={bg ? { background: bg } : {}}>
+                      <td className="border px-3 py-2">
+                        <div className="font-medium">{it.item}</div>
+                        {it.categoria && (
+                          <div className="text-xs text-gray-500">
+                            {it.categoria}
+                          </div>
+                        )}
+                      </td>
+                      <td className="border px-3 py-2 text-gray-600">
+                        {it.armazenamento || (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="border px-3 py-2 text-right text-gray-500">
+                        {it.estoqueMin !== null ? it.estoqueMin : "—"}
+                      </td>
+                      <td className="border px-3 py-2">
+                        <input
+                          type="number"
+                          min={0}
+                          className="input w-24"
+                          value={qty}
+                          onChange={(e) =>
+                            handleQtyChange(it.item, e.target.value)
+                          }
+                          placeholder="0"
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
+      </div>
+
+      {/* Itens extras */}
+      <div className="border rounded-xl p-3 bg-white space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-sm">Itens extras / observações</h3>
+          <button
+            type="button"
+            onClick={addExtraItem}
+            className="btn btn-ghost text-xs"
+          >
+            Adicionar
+          </button>
+        </div>
+        {extraItems.length === 0 && (
+          <p className="text-xs text-gray-500">
+            Itens fora do cadastro de estoque que devem aparecer no e-mail.
+          </p>
+        )}
+        {extraItems.map((txt, idx) => (
+          <div key={idx} className="flex items-center gap-2">
+            <input
+              className="input flex-1"
+              value={txt}
+              onChange={(e) => updateExtraItem(idx, e.target.value)}
+              placeholder="Ex.: Guardanapos / Gelo / Sacolas…"
+            />
+            <button
+              type="button"
+              onClick={() => removeExtraItem(idx)}
+              className="btn btn-ghost text-xs"
+            >
+              Remover
+            </button>
+          </div>
+        ))}
       </div>
 
       {/* Botão principal */}
@@ -7243,9 +7841,34 @@ function StockTab() {
         <button
           onClick={handleCreateList}
           disabled={creatingList}
-          className={`btn btn-primary ${creatingList ? "opacity-70 cursor-not-allowed" : ""}`}
+          className={`btn btn-primary${creatingList ? " opacity-70 cursor-not-allowed" : ""}`}
         >
-          {creatingList ? "Processando..." : "Criar lista de compras"}
+          {creatingList ? "Processando…" : "Criar lista de compras"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+            <button
+              type="button"
+              onClick={() => removeExtraItem(idx)}
+              className="btn btn-ghost text-xs"
+            >
+              Remover
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Botão principal */}
+      <div className="pt-2">
+        <button
+          onClick={handleCreateList}
+          disabled={creatingList}
+          className={`btn btn-primary${creatingList ? " opacity-70 cursor-not-allowed" : ""}`}
+        >
+          {creatingList ? "Processando…" : "Criar lista de compras"}
         </button>
       </div>
     </div>
