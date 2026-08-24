@@ -6931,11 +6931,15 @@ function StockTab() {
   const [selectedSector, setSelectedSector] = useState<string>("");
   const [creatingList, setCreatingList] = useState(false);
   const [extraItems, setExtraItems] = useState<string[]>([]);
+  const [pctAmarelo, setPctAmarelo] = useState<number>(30);
+  const [pctVerde, setPctVerde] = useState<number>(50);
+  const [savingConfig, setSavingConfig] = useState(false);
 
   useEffect(() => {
     const todayIso = new Date().toISOString().slice(0, 10);
     setDateRaw(todayIso);
     loadStock();
+    loadEstoqueConfig();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -6959,6 +6963,49 @@ function StockTab() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function loadEstoqueConfig() {
+    if (!SYNC_ENDPOINT) return;
+    try {
+      const resp = await fetch(`${SYNC_ENDPOINT}?action=estoque_config`);
+      const data = await resp.json();
+      if (data?.ok) {
+        setPctAmarelo(Number(data.pct_amarelo) || 30);
+        setPctVerde(Number(data.pct_verde) || 50);
+      }
+    } catch (err) {
+      console.error("Falha ao carregar config de estoque:", err);
+    }
+  }
+
+  async function saveEstoqueConfig() {
+    if (!SYNC_ENDPOINT) return;
+    setSavingConfig(true);
+    try {
+      await fetch(SYNC_ENDPOINT, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "save_estoque_config", pct_amarelo: pctAmarelo, pct_verde: pctVerde }),
+      });
+      alert("Configuração salva.");
+    } catch (err) {
+      alert("Não foi possível salvar a configuração.");
+    } finally {
+      setSavingConfig(false);
+    }
+  }
+
+  function getRowBg(item: StockItem): string | undefined {
+    const atual = parseFloat(quantities[item.item] ?? "");
+    const min = item.estoqueMin;
+    if (min == null || min <= 0 || isNaN(atual)) return undefined;
+    const limAmarelo = min * (1 + pctAmarelo / 100);
+    const limVerde   = min * (1 + pctVerde   / 100);
+    if (atual < limAmarelo) return "#FF9999";
+    if (atual < limVerde)   return "#FFE066";
+    return "#93EFAB";
   }
 
   const sectors = useMemo(() => {
@@ -7036,6 +7083,8 @@ function StockTab() {
       setor: selectedSector,
       entries,
       extras: extraItems.map((s) => String(s || "").trim()).filter(Boolean),
+      pct_amarelo: pctAmarelo,
+      pct_verde: pctVerde,
     };
 
     setCreatingList(true);
@@ -7075,10 +7124,12 @@ function StockTab() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
         <div className="sm:col-span-2 text-sm text-gray-600">
           Preencha o estoque atual dos itens do setor selecionado. Ao clicar em{" "}
-          <b>"Criar lista de compras"</b>, o sistema irá calcular quanto comprar para
-          atingir os estoques mínimo e máximo, salvar uma planilha em{" "}
-          <b>"Registros de Estoque"</b> e enviar um PDF por e-mail apenas com os itens
-          abaixo do mínimo.
+          <b>"Criar lista de compras"</b>, o sistema gera uma planilha em{" "}
+          <b>"Registros de Estoque"</b> e envia um PDF por e-mail com todos os itens
+          coloridos por nível de urgência:{" "}
+          <span style={{color:"#c0392b"}}>■ Vermelho</span> = crítico,{" "}
+          <span style={{color:"#b8860b"}}>■ Amarelo</span> = atenção,{" "}
+          <span style={{color:"#27ae60"}}>■ Verde</span> = OK.
         </div>
         <div className="space-y-1">
           <label className="text-sm text-gray-600">Data do registro</label>
@@ -7162,7 +7213,7 @@ function StockTab() {
               </thead>
               <tbody>
                 {filteredItems.map((it) => (
-                  <tr key={it.item}>
+                  <tr key={it.item} style={{ backgroundColor: getRowBg(it) }}>
                     <td className="border px-3 py-2">
                       <div className="font-medium">{it.item}</div>
                       {it.categoria && (
@@ -7236,6 +7287,52 @@ function StockTab() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Configuração de limiares de cor */}
+      <div className="border rounded-xl p-3 bg-white space-y-3">
+        <h3 className="font-semibold text-sm">Configuração de cores do estoque</h3>
+        <div className="flex flex-wrap gap-4 items-end">
+          <div className="space-y-1">
+            <label className="text-xs text-gray-600">
+              🔴 Limiar vermelho → amarelo (% acima do mínimo)
+            </label>
+            <input
+              type="number"
+              min={0}
+              max={200}
+              className="input w-28"
+              value={pctAmarelo}
+              onChange={(e) => setPctAmarelo(Number(e.target.value))}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-gray-600">
+              🟡 Limiar amarelo → verde (% acima do mínimo)
+            </label>
+            <input
+              type="number"
+              min={0}
+              max={200}
+              className="input w-28"
+              value={pctVerde}
+              onChange={(e) => setPctVerde(Number(e.target.value))}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={saveEstoqueConfig}
+            disabled={savingConfig}
+            className={`btn btn-ghost text-xs ${savingConfig ? "opacity-70 cursor-not-allowed" : ""}`}
+          >
+            {savingConfig ? "Salvando..." : "Salvar configuração"}
+          </button>
+        </div>
+        <div className="flex gap-4 text-xs">
+          <span className="px-2 py-1 rounded" style={{backgroundColor:"#FF9999"}}>Vermelho = abaixo de mín × {(1 + pctAmarelo/100).toFixed(2)}</span>
+          <span className="px-2 py-1 rounded" style={{backgroundColor:"#FFE066"}}>Amarelo = até mín × {(1 + pctVerde/100).toFixed(2)}</span>
+          <span className="px-2 py-1 rounded" style={{backgroundColor:"#93EFAB"}}>Verde = acima de mín × {(1 + pctVerde/100).toFixed(2)}</span>
+        </div>
       </div>
 
       {/* Botão principal */}
