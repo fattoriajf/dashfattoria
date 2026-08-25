@@ -104,7 +104,7 @@ const LS_KEY = "escala_fattoria_state_v5";
 try { localStorage.removeItem("escala_fattoria_state_v4"); } catch {}
 try { localStorage.removeItem("escala_fattoria_state_v3"); } catch {}
 const SYNC_ENDPOINT =
-  "https://script.google.com/macros/s/AKfycbwjUWRjZpTxEjN_EBq14ZjJrtkk-tt-UBPOX1kuiDD18miZYGzGrdncNreln-SVNbid2w/exec";
+  "https://script.google.com/macros/s/AKfycbyWVvpL1xluRZsgItop800v-M50s7LZJmdbrCxy6lelAoZ1fH4AtDmrcJfMeHeRcYX0rQ/exec";
 
 function id() {
   return Math.random().toString(36).slice(2, 10);
