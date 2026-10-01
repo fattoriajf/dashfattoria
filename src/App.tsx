@@ -106,7 +106,7 @@ const LS_KEY = "escala_fattoria_state_v5";
 try { localStorage.removeItem("escala_fattoria_state_v4"); } catch {}
 try { localStorage.removeItem("escala_fattoria_state_v3"); } catch {}
 const SYNC_ENDPOINT =
-  "https://script.google.com/macros/s/AKfycbxD5km6FKXtv64HxIwcJBSh1iqwRXHnS3Z0tclOHkwdHsBJYnzw3BSI9OBZDA62QhxSwg/exec";
+  "https://script.google.com/macros/s/AKfycbzGeFng5Impo2gdSrNoHaIe2JvvQlc3GBWLGE7wQdJg2EvSXlGUs5TlWxRo9d3SskCC7w/exec";
 
 // ===== Painel do colaborador: sessão e chamadas ao backend =====
 // tipo vem da coluna "Tipo" do Cadastro_colaboradores: fixo não faz disponibilidade nem recebe escala
