@@ -94,9 +94,11 @@ interface AvailabilityFormProps {
   weekId: string;
   syncEnabled: boolean;
   onSaved?: () => void;
+  colabSessao?: ColabSessao | null;
 }
 interface PunchTabProps {
   staff: Staff[];
+  colabSessao?: ColabSessao | null;
 }
 
 const LS_KEY = "escala_fattoria_state_v5";
@@ -105,6 +107,47 @@ try { localStorage.removeItem("escala_fattoria_state_v4"); } catch {}
 try { localStorage.removeItem("escala_fattoria_state_v3"); } catch {}
 const SYNC_ENDPOINT =
   "https://script.google.com/macros/s/AKfycbxD5km6FKXtv64HxIwcJBSh1iqwRXHnS3Z0tclOHkwdHsBJYnzw3BSI9OBZDA62QhxSwg/exec";
+
+// ===== Painel do colaborador: sessão e chamadas ao backend =====
+// tipo vem da coluna "Tipo" do Cadastro_colaboradores: fixo não faz disponibilidade nem recebe escala
+type ColabSessao = { token: string; nome: string; tipo?: "fixo" | "freelancer" };
+const COLAB_SESSAO_KEY = "fattoria_colab_sessao";
+const COLAB_SESSAO_EXPIRADA_EVENT = "fattoria-colab-sessao-expirada";
+
+function lerColabSessao(): ColabSessao | null {
+  try {
+    const raw = localStorage.getItem(COLAB_SESSAO_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    return s && s.token && s.nome ? (s as ColabSessao) : null;
+  } catch {
+    return null;
+  }
+}
+function salvarColabSessao(s: ColabSessao | null) {
+  try {
+    if (s) localStorage.setItem(COLAB_SESSAO_KEY, JSON.stringify(s));
+    else localStorage.removeItem(COLAB_SESSAO_KEY);
+  } catch {}
+}
+
+// POST que lê a resposta (text/plain evita o preflight de CORS do Apps Script)
+async function colabPost(action: string, body: Record<string, any> = {}): Promise<any> {
+  const resp = await fetch(SYNC_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action, ...body }),
+  });
+  const data = await resp.json();
+  if (data?.sessaoInvalida) {
+    window.dispatchEvent(new Event(COLAB_SESSAO_EXPIRADA_EVENT));
+  }
+  return data;
+}
+
+function formatBRL(v: number) {
+  return (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
 
 function id() {
   return Math.random().toString(36).slice(2, 10);
@@ -177,10 +220,16 @@ export default function App() {
     }
   });
 
-  const [mode, setMode] = useState<Mode>("admin");
+  const [mode, setMode] = useState<Mode>(() => {
+    try {
+      const url = new URL(window.location.href);
+      if (/^\/usuarios\/?$/i.test(url.pathname) || url.searchParams.get("mode") === "colab") return "colab";
+    } catch {}
+    return "admin";
+  });
 
   const [activeTab, setActiveTab] = useState<
-  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv" | "insumos" | "compras" | "markup" | "etiquetas" | "dre"
+  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv" | "insumos" | "compras" | "markup" | "etiquetas" | "dre" | "escalaSemana" | "minhaEscala" | "meusRegistros"
   >("disponibilidade");
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
@@ -204,10 +253,12 @@ export default function App() {
     const wanted = url.searchParams.get("staff");
     const w = url.searchParams.get("w");
     const m = url.searchParams.get("mode"); // "colab" ou "admin"
+    // painel dos colaboradores: gestaofattoria.com.br/usuarios (?mode=colab continua funcionando, também com login)
+    const isPainelUsuarios = /^\/usuarios\/?$/i.test(url.pathname);
 
-    if (m === "colab") {
+    if (isPainelUsuarios || m === "colab") {
       setMode("colab");
-      setActiveTab("disponibilidade");
+      setActiveTab("minhaEscala");
     } else if (m === "admin") {
       setMode("admin");
     }
@@ -303,6 +354,50 @@ export default function App() {
 
   const isColab = mode === "colab";
 
+  // ===== LOGIN COLABORADOR =====
+  const [colabSessao, setColabSessao] = useState<ColabSessao | null>(() => lerColabSessao());
+
+  const sairColab = () => {
+    const token = colabSessao?.token;
+    salvarColabSessao(null);
+    setColabSessao(null);
+    setSelectedStaffId("");
+    if (token) colabPost("colab_logout", { token }).catch(() => {});
+  };
+
+  // sessão expirada/bloqueada -> volta para o login
+  useEffect(() => {
+    const onExpirada = () => {
+      salvarColabSessao(null);
+      setColabSessao(null);
+    };
+    window.addEventListener(COLAB_SESSAO_EXPIRADA_EVENT, onExpirada);
+    return () => window.removeEventListener(COLAB_SESSAO_EXPIRADA_EVENT, onExpirada);
+  }, []);
+
+  // confere a sessão salva ao abrir o painel
+  useEffect(() => {
+    if (!isColab || !colabSessao) return;
+    colabPost("colab_me", { token: colabSessao.token })
+      .then((data) => {
+        if (data?.ok && data.nome && (data.nome !== colabSessao.nome || data.tipo !== colabSessao.tipo)) {
+          const s: ColabSessao = { token: colabSessao.token, nome: data.nome, tipo: data.tipo };
+          salvarColabSessao(s);
+          setColabSessao(s);
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isColab, colabSessao?.token]);
+
+  // no painel do colaborador, o nome já vem selecionado (disponibilidade)
+  useEffect(() => {
+    if (!isColab || !colabSessao) return;
+    const found = state.staff.find((p) => p.name.trim().toLowerCase() === colabSessao.nome.trim().toLowerCase());
+    if (found && found.id !== selectedStaffId) setSelectedStaffId(found.id);
+  }, [isColab, colabSessao, state.staff, selectedStaffId]);
+
+
   // ===== LOGIN ADMIN =====
   const [adminLogado, setAdminLogado] = useState<boolean>(() => {
     try { return sessionStorage.getItem("fattoria_admin_auth") === "1"; } catch { return false; }
@@ -325,14 +420,30 @@ export default function App() {
   }, []);
 
   const podeVer = (aba: string): boolean => {
-    if (isColab) return true;
+    if (isColab) {
+      // colaborador fixo não faz disponibilidade nem recebe escala
+      if (colabSessao?.tipo === "fixo" && (aba === "minhaEscala" || aba === "disponibilidade")) return false;
+      return true;
+    }
     if (abasPermitidas === "tudo") return true;
     return (abasPermitidas as string[]).includes(aba.toLowerCase());
   };
 
   // Aba efetiva: se a aba ativa não tem permissão, usa a primeira permitida
-  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv","insumos","compras","markup","etiquetas","dre"];
-  const abaEfetiva: typeof activeTab = isFullscreen ? "etiquetas" : (podeVer(activeTab) ? activeTab : (todasAbas.find(t => podeVer(t)) ?? "disponibilidade"));
+  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv","insumos","compras","markup","etiquetas","dre","escalaSemana","minhaEscala","meusRegistros"];
+  const abaEfetiva: typeof activeTab = isFullscreen ? "etiquetas" : (podeVer(activeTab) ? activeTab : isColab ? "presenca" : (todasAbas.find(t => podeVer(t)) ?? "disponibilidade"));
+
+  if (isColab && !colabSessao) {
+    return (
+      <LoginColaborador
+        onLogin={(s) => {
+          salvarColabSessao(s);
+          setColabSessao(s);
+          setActiveTab(s.tipo === "fixo" ? "presenca" : "minhaEscala");
+        }}
+      />
+    );
+  }
 
   if (mode === "admin" && !adminLogado) {
     return (
@@ -349,8 +460,9 @@ export default function App() {
     );
   }
 
-  const navItem = (tab: typeof activeTab, label: string, icon: React.ReactNode, adminOnly = false) => {
+  const navItem = (tab: typeof activeTab, label: string, icon: React.ReactNode, adminOnly = false, colabOnly = false) => {
     if (adminOnly && isColab) return null;
+    if (colabOnly && !isColab) return null;
     if (!podeVer(tab)) return null;
     return (
       <button
@@ -367,8 +479,11 @@ export default function App() {
     <>
       <div className="sidebar-category">
         <div className="sidebar-category-label">Pessoal</div>
+        {navItem("minhaEscala", "Minha Escala", <Cal className="w-4 h-4" />, false, true)}
+        {navItem("meusRegistros", "Meus Registros", <ClipboardList className="w-4 h-4" />, false, true)}
         {navItem("disponibilidade", "Disponibilidade", <ClipboardList className="w-4 h-4" />)}
         {navItem("escalar", "Escalar", <Cal className="w-4 h-4" />, true)}
+        {navItem("escalaSemana", "Escala da Semana", <Users className="w-4 h-4" />, true)}
         {navItem("presenca", "Registrar Presença", <Cal className="w-4 h-4" />)}
       </div>
       <div className="sidebar-category">
@@ -415,7 +530,14 @@ export default function App() {
           <img src="/logo.png" alt="Fattoria" className="h-14 sm:h-9 w-auto" />
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400 hidden sm:block">Gestão Interna</span>
+          {isColab && colabSessao ? (
+            <>
+              <span className="text-xs text-gray-500">Olá, {colabSessao.nome}</span>
+              <button onClick={sairColab} className="btn btn-ghost text-xs">Sair</button>
+            </>
+          ) : (
+            <span className="text-xs text-gray-400 hidden sm:block">Gestão Interna</span>
+          )}
           <button
             onClick={() => {
               if (!isFullscreen) {
@@ -478,7 +600,7 @@ export default function App() {
         <main className="main-content">
           {abaEfetiva === "disponibilidade" && (
             <Card title={`Disponibilidade – Semana ${weekIdSlash || "(definir)"}`} icon={<ClipboardList className="w-5 h-5" />}>
-              <AvailabilityForm state={state} update={update} selectedStaffId={selectedStaffId} setSelectedStaffId={setSelectedStaffId} weekId={weekIdDash} syncEnabled={syncEnabled} onSaved={refreshServer} />
+              <AvailabilityForm state={state} update={update} selectedStaffId={selectedStaffId} setSelectedStaffId={setSelectedStaffId} weekId={weekIdDash} syncEnabled={syncEnabled} onSaved={refreshServer} colabSessao={isColab ? colabSessao : null} />
             </Card>
           )}
           {!isColab && abaEfetiva === "escalar" && (
@@ -488,7 +610,22 @@ export default function App() {
           )}
           {abaEfetiva === "presenca" && (
             <Card title="Registrar Presença" icon={<Cal className="w-5 h-5" />}>
-              <PunchTab staff={state.staff} />
+              <PunchTab staff={state.staff} colabSessao={isColab ? colabSessao : null} />
+            </Card>
+          )}
+          {isColab && colabSessao && abaEfetiva === "minhaEscala" && (
+            <Card title="Minha Escala" icon={<Cal className="w-5 h-5" />}>
+              <MinhaEscalaTab sessao={colabSessao} />
+            </Card>
+          )}
+          {isColab && colabSessao && abaEfetiva === "meusRegistros" && (
+            <Card title="Meus Registros" icon={<ClipboardList className="w-5 h-5" />}>
+              <MeusRegistrosTab sessao={colabSessao} />
+            </Card>
+          )}
+          {!isColab && abaEfetiva === "escalaSemana" && (
+            <Card title="Escala da Semana" icon={<Users className="w-5 h-5" />}>
+              <EscalaSemanaTab initialWeekId={weekIdDash} days={state.days} />
             </Card>
           )}
           {abaEfetiva === "estoque" && (
@@ -559,6 +696,577 @@ export default function App() {
           {!isColab && abaEfetiva === "graficos" && <GraphsTab />}
         </main>
       </div>
+    </div>
+  );
+}
+
+// ======== PAINEL DO COLABORADOR: LOGIN ========
+function LoginColaborador({ onLogin }: { onLogin: (s: ColabSessao) => void }) {
+  const [usuario, setUsuario] = useState("");
+  const [senha, setSenha] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [erro, setErro] = useState("");
+
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+    if (!usuario || !senha) { setErro("Preencha usuário e senha."); return; }
+
+    setLoading(true);
+    setErro("");
+    try {
+      const data = await colabPost("colab_login", { usuario: usuario.trim(), senha });
+      if (data?.ok && data?.autorizado && data.token) {
+        onLogin({ token: data.token, nome: data.nome, tipo: data.tipo === "fixo" ? "fixo" : "freelancer" });
+      } else if (data?.bloqueado) {
+        setErro(data.error || "Muitas tentativas. Aguarde alguns minutos.");
+      } else if (data?.ok === false) {
+        setErro(data.error || "Erro no servidor. Tente novamente.");
+      } else {
+        setErro("Usuário ou senha incorretos.");
+      }
+    } catch {
+      setErro("Erro ao conectar. Tente novamente.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="login-page">
+      <div className="login-header">
+        <img src="/logo.png" alt="Fattoria" className="h-16 w-auto" />
+      </div>
+      <div className="login-card">
+        <div className="text-center space-y-1 mb-6">
+          <h2 className="text-lg font-semibold text-gray-800">Painel do colaborador</h2>
+          <p className="text-sm text-gray-500">Entre com o usuário e a senha que você recebeu</p>
+        </div>
+
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Usuário</label>
+            <input
+              type="text"
+              className="input w-full"
+              value={usuario}
+              onChange={(e) => setUsuario(e.target.value)}
+              autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              autoFocus
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Senha</label>
+            <input
+              type="password"
+              className="input w-full"
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              autoComplete="current-password"
+            />
+          </div>
+
+          {erro && (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {erro}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className={`btn btn-primary w-full ${loading ? "opacity-70 cursor-not-allowed" : ""}`}
+          >
+            {loading ? "Verificando..." : "Entrar"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+const WEEKDAY_LABEL_PT: Record<string, string> = {
+  domingo: "Domingo", segunda: "Segunda", terca: "Terça", quarta: "Quarta",
+  quinta: "Quinta", sexta: "Sexta", sabado: "Sábado",
+};
+
+function weekIdToDate(weekId: string): Date | null {
+  const m = String(weekId || "").match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (!m) return null;
+  return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+}
+function weekRangeLabel(weekId: string) {
+  const mon = weekIdToDate(weekId);
+  if (!mon) return weekId;
+  const sun = new Date(mon);
+  sun.setDate(mon.getDate() + 6);
+  const f = (d: Date) => `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
+  return `${f(mon)} a ${f(sun)}`;
+}
+
+// ======== PAINEL DO COLABORADOR: MINHA ESCALA ========
+type ColabEscalaSemana = {
+  weekId: string;
+  publicadoEm: string;
+  dias: { code: string; label: string; data: string }[];
+};
+
+function MinhaEscalaTab({ sessao }: { sessao: ColabSessao }) {
+  const [loading, setLoading] = useState(true);
+  const [erro, setErro] = useState("");
+  const [semanas, setSemanas] = useState<ColabEscalaSemana[]>([]);
+
+  const carregar = async () => {
+    setLoading(true);
+    setErro("");
+    try {
+      const data = await colabPost("colab_escala", { token: sessao.token });
+      if (data?.ok) setSemanas(Array.isArray(data.semanas) ? data.semanas : []);
+      else if (!data?.sessaoInvalida) setErro(data?.error || "Não foi possível carregar a escala.");
+    } catch {
+      setErro("Erro ao conectar. Tente novamente.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessao.token]);
+
+  const semanaAtual = weekIdFromDate_dash(new Date());
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-gray-600">Dias em que você está escalado(a).</p>
+        <button onClick={carregar} disabled={loading} className="btn btn-ghost text-xs">
+          <RefreshCw className="w-3.5 h-3.5" /> {loading ? "Carregando..." : "Atualizar"}
+        </button>
+      </div>
+
+      {erro && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{erro}</div>}
+
+      {!loading && !erro && semanas.length === 0 && (
+        <div className="rounded-xl border px-3 py-3 bg-gray-50 text-sm text-gray-600">
+          Nenhuma escala publicada ainda. Assim que a escala da semana sair, ela aparece aqui.
+        </div>
+      )}
+
+      {semanas.map((s) => (
+        <div key={s.weekId} className="border rounded-xl p-4 bg-white space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="font-semibold">
+              Semana {weekRangeLabel(s.weekId)}
+              {s.weekId === semanaAtual && (
+                <span className="ml-2 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
+                  semana atual
+                </span>
+              )}
+            </div>
+            {s.publicadoEm && <div className="text-xs text-gray-400">Publicada em {s.publicadoEm}</div>}
+          </div>
+          {s.dias.length === 0 ? (
+            <div className="text-sm text-gray-600">
+              Você não foi escalado(a) nesta semana. Se houver necessidade, entraremos em contato pelo WhatsApp.
+            </div>
+          ) : (
+            <ul className="space-y-1">
+              {s.dias.map((d) => (
+                <li key={d.code} className="flex items-center gap-2 text-sm">
+                  <span className="inline-block w-2 h-2 rounded-full bg-green-600" />
+                  <span className="font-medium">{d.label}</span>
+                  {d.data && <span className="text-gray-500">— {d.data.slice(0, 5)}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ))}
+
+      {semanas.some((s) => s.dias.length > 0) && (
+        <p className="text-xs text-gray-500">
+          Se possível, chegue às 17h30 para apoiar na organização do ambiente. Fatores climáticos, movimento da casa ou
+          imprevistos podem exigir ajustes na escala; nesses casos, avisaremos pelo WhatsApp.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ======== PAINEL DO COLABORADOR: MEUS REGISTROS ========
+type ColabRegistro = {
+  data: string;
+  weekday: string;
+  turno: string;
+  registrado: boolean;
+  podeExcluir: boolean;
+  consumo: number;
+  consumoItens: { produto: string; quantidade: number; valor: number }[];
+  transporte: number;
+  transporteDetalhe: string[];
+};
+
+function toInputDate(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function MeusRegistrosTab({ sessao }: { sessao: ColabSessao }) {
+  const hoje = new Date();
+  const inicioPadrao = new Date(hoje);
+  inicioPadrao.setDate(hoje.getDate() - 30);
+
+  const [start, setStart] = useState(toInputDate(inicioPadrao));
+  const [end, setEnd] = useState(toInputDate(hoje));
+  const [loading, setLoading] = useState(true);
+  const [erro, setErro] = useState("");
+  const [rows, setRows] = useState<ColabRegistro[]>([]);
+  const [totals, setTotals] = useState({ consumo: 0, transporte: 0 });
+  const [diasParaExcluir, setDiasParaExcluir] = useState(7);
+  const [excluindo, setExcluindo] = useState<string | null>(null);
+
+  const carregar = async () => {
+    setLoading(true);
+    setErro("");
+    try {
+      const data = await colabPost("colab_registros", { token: sessao.token, start, end });
+      if (data?.ok) {
+        setRows(Array.isArray(data.rows) ? data.rows : []);
+        setTotals(data.totals || { consumo: 0, transporte: 0 });
+        if (data.diasParaExcluir) setDiasParaExcluir(Number(data.diasParaExcluir));
+      } else if (!data?.sessaoInvalida) {
+        setErro(data?.error || "Não foi possível carregar seus registros.");
+      }
+    } catch {
+      setErro("Erro ao conectar. Tente novamente.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessao.token]);
+
+  const excluir = async (r: ColabRegistro) => {
+    const turnoLabel = r.turno === "evento" ? "evento" : r.turno;
+    if (!confirm(`Excluir seu registro de presença de ${r.data} (${turnoLabel})? Essa ação não pode ser desfeita.`)) return;
+    const key = `${r.data}|${r.turno}`;
+    setExcluindo(key);
+    try {
+      const data = await colabPost("colab_excluir_ponto", { token: sessao.token, date: r.data, turno: r.turno });
+      if (data?.ok) {
+        await carregar();
+      } else if (!data?.sessaoInvalida) {
+        alert(data?.error || "Não foi possível excluir o registro.");
+      }
+    } catch (err: any) {
+      alert(`Não foi possível excluir o registro. Erro: ${String(err)}`);
+    } finally {
+      setExcluindo(null);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <label className="text-xs text-gray-600 block">De</label>
+          <input type="date" className="input" value={start} onChange={(e) => setStart(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-gray-600 block">Até</label>
+          <input type="date" className="input" value={end} onChange={(e) => setEnd(e.target.value)} />
+        </div>
+        <button onClick={carregar} disabled={loading} className="btn btn-primary text-sm">
+          {loading ? "Carregando..." : "Filtrar"}
+        </button>
+      </div>
+
+      {erro && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{erro}</div>}
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="border rounded-xl p-3 bg-white">
+          <div className="text-xs text-gray-500">Presenças</div>
+          <div className="text-lg font-semibold">{rows.filter((r) => r.registrado).length}</div>
+        </div>
+        <div className="border rounded-xl p-3 bg-white">
+          <div className="text-xs text-gray-500">Consumo</div>
+          <div className="text-lg font-semibold">{formatBRL(totals.consumo)}</div>
+        </div>
+        <div className="border rounded-xl p-3 bg-white">
+          <div className="text-xs text-gray-500">Transporte</div>
+          <div className="text-lg font-semibold">{formatBRL(totals.transporte)}</div>
+        </div>
+      </div>
+
+      {!loading && !erro && rows.length === 0 && (
+        <div className="rounded-xl border px-3 py-3 bg-gray-50 text-sm text-gray-600">
+          Nenhum registro de presença nesse período.
+        </div>
+      )}
+
+      {rows.length > 0 && (
+        <div className="overflow-auto">
+          <table className="min-w-full border text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="border px-3 py-2 text-left">Data</th>
+                <th className="border px-3 py-2 text-left">Turno</th>
+                <th className="border px-3 py-2 text-left">Consumo</th>
+                <th className="border px-3 py-2 text-left">Transporte</th>
+                <th className="border px-3 py-2 text-left"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const key = `${r.data}|${r.turno}`;
+                return (
+                  <tr key={key} className="align-top">
+                    <td className="border px-3 py-2 whitespace-nowrap">
+                      {r.data}
+                      <span className="block text-xs text-gray-500">{WEEKDAY_LABEL_PT[r.weekday] || r.weekday}</span>
+                    </td>
+                    <td className="border px-3 py-2">{r.turno === "evento" ? "Evento" : r.turno}</td>
+                    <td className="border px-3 py-2">
+                      <div className="font-medium">{formatBRL(r.consumo)}</div>
+                      {r.consumoItens.length > 0 && (
+                        <div className="text-xs text-gray-500">
+                          {r.consumoItens.map((c) => `${c.quantidade}x ${c.produto}`).join(", ")}
+                        </div>
+                      )}
+                    </td>
+                    <td className="border px-3 py-2">
+                      <div className="font-medium">{formatBRL(r.transporte)}</div>
+                      {r.transporteDetalhe.length > 0 && (
+                        <div className="text-xs text-gray-500">{r.transporteDetalhe.join(" · ")}</div>
+                      )}
+                    </td>
+                    <td className="border px-3 py-2 whitespace-nowrap">
+                      {r.registrado && r.podeExcluir && (
+                        <button
+                          onClick={() => excluir(r)}
+                          disabled={excluindo === key}
+                          className="btn btn-ghost text-xs text-red-600"
+                          title="Excluir registro"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" /> {excluindo === key ? "Excluindo..." : "Excluir"}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <p className="text-xs text-gray-500">
+        Registrou algo errado? Você pode excluir o registro em até {diasParaExcluir} dias e registrar de novo na aba
+        Registrar Presença. Depois disso, fale com a gerência.
+      </p>
+    </div>
+  );
+}
+
+// ======== ADMIN: ESCALA DA SEMANA ========
+type EscalaPublicada = {
+  weekId: string;
+  publicadoEm: string;
+  dias: { code: string; label: string; data: string; nomes: string[] }[];
+};
+
+function shiftWeekId(weekId: string, deltaWeeks: number) {
+  const d = weekIdToDate(weekId) || mondayOfWeek(new Date());
+  d.setDate(d.getDate() + deltaWeeks * 7);
+  return formatDDMMYYYY_dash(d);
+}
+
+function EscalaSemanaTab({ initialWeekId, days }: { initialWeekId: string; days: Day[] }) {
+  const [weekId, setWeekId] = useState(initialWeekId || weekIdFromDate_dash(new Date()));
+  const [escala, setEscala] = useState<EscalaPublicada | null>(null);
+  const [semanas, setSemanas] = useState<string[]>([]);
+  const [disponiveis, setDisponiveis] = useState<{ staff: string; days: string[] }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [erro, setErro] = useState("");
+
+  const carregar = async (wk: string) => {
+    setLoading(true);
+    setErro("");
+    try {
+      const [respEscala, respDisp] = await Promise.all([
+        fetch(`${SYNC_ENDPOINT}?action=escala_semana&weekId=${encodeURIComponent(wk)}`),
+        fetch(`${SYNC_ENDPOINT}?action=list&weekId=${encodeURIComponent(wk)}`),
+      ]);
+      const data = await respEscala.json();
+      const dataDisp = await respDisp.json().catch(() => null);
+      setDisponiveis(dataDisp?.ok && Array.isArray(dataDisp.rows) ? dataDisp.rows : []);
+      if (data?.ok) {
+        setEscala(data.escala || null);
+        setSemanas(Array.isArray(data.semanas) ? data.semanas : []);
+      } else {
+        setErro(data?.error || "Não foi possível carregar a escala.");
+      }
+    } catch {
+      setErro("Erro ao conectar. Tente novamente.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    carregar(weekId);
+  }, [weekId]);
+
+  // dias da semana: os da escala publicada + os configurados no app (para mostrar disponibilidade mesmo sem escala)
+  const diasTabela = useMemo(() => {
+    const out: { code: string; label: string; data: string; nomes: string[] }[] = [...(escala?.dias || [])];
+    days.forEach((d) => {
+      if (!out.some((x) => x.code === d.code)) out.push({ code: d.code, label: d.label, data: "", nomes: [] });
+    });
+    return out;
+  }, [escala, days]);
+
+  // quem marcou disponibilidade no dia e NÃO está escalado (para chamar em emergência)
+  const reservaPorDia = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    diasTabela.forEach((d) => {
+      const escalados = new Set(d.nomes.map((n) => n.trim().toLowerCase()));
+      out[d.code] = disponiveis
+        .filter((r) => (r.days || []).includes(d.code) && !escalados.has(String(r.staff).trim().toLowerCase()))
+        .map((r) => String(r.staff))
+        .sort((a, b) => a.localeCompare(b, "pt-BR"));
+    });
+    return out;
+  }, [diasTabela, disponiveis]);
+
+  const semanaAtual = weekIdFromDate_dash(new Date());
+
+  const porPessoa = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    (escala?.dias || []).forEach((d) => {
+      d.nomes.forEach((n) => {
+        (map[n] = map[n] || []).push(d.label);
+      });
+    });
+    return Object.keys(map)
+      .sort((a, b) => a.localeCompare(b, "pt-BR"))
+      .map((nome) => ({ nome, dias: map[nome] }));
+  }, [escala]);
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <button className="btn btn-ghost text-sm" onClick={() => setWeekId(shiftWeekId(weekId, -1))}>‹ Anterior</button>
+        <div className="font-semibold px-2">Semana {weekRangeLabel(weekId)}</div>
+        <button className="btn btn-ghost text-sm" onClick={() => setWeekId(shiftWeekId(weekId, 1))}>Próxima ›</button>
+        {semanas.length > 0 && (
+          <select className="input text-sm" value={semanas.includes(weekId) ? weekId : ""} onChange={(e) => e.target.value && setWeekId(e.target.value)}>
+            <option value="">Semanas publicadas...</option>
+            {semanas.map((wk) => (
+              <option key={wk} value={wk}>{weekRangeLabel(wk)}</option>
+            ))}
+          </select>
+        )}
+        <button className="btn btn-ghost text-sm" onClick={() => carregar(weekId)} disabled={loading}>
+          <RefreshCw className="w-3.5 h-3.5" /> {loading ? "Carregando..." : "Atualizar"}
+        </button>
+      </div>
+
+      {erro && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{erro}</div>}
+
+      {!loading && !erro && !escala && (
+        <div className="rounded-xl border px-3 py-3 bg-gray-50 text-sm text-gray-600">
+          Nenhuma escala publicada para esta semana. Publique pela aba Escalar.
+        </div>
+      )}
+
+      {escala?.publicadoEm && <div className="text-xs text-gray-500">Publicada em {escala.publicadoEm}</div>}
+
+      {(escala || disponiveis.length > 0) && (
+        <div>
+          <h3 className="font-semibold text-base mb-2">Por dia</h3>
+          <div className="overflow-auto">
+            <table className="min-w-full border text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="border px-3 py-2 text-left">Dia/Turno</th>
+                  <th className="border px-3 py-2 text-left">Escalados</th>
+                  <th className="border px-3 py-2 text-left">Disponíveis não escalados (chamar em emergência)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {diasTabela.map((d) => {
+                  const reserva = reservaPorDia[d.code] || [];
+                  return (
+                    <tr key={d.code} className="align-top">
+                      <td className="border px-3 py-2 whitespace-nowrap">
+                        {d.label}
+                        {d.data && <span className="block text-xs text-gray-500">{d.data}</span>}
+                      </td>
+                      <td className="border px-3 py-2">
+                        {d.nomes.length ? (
+                          <>
+                            <span className="text-xs text-gray-500">({d.nomes.length})</span> {d.nomes.join(", ")}
+                          </>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="border px-3 py-2">
+                        {reserva.length ? (
+                          <span className="text-green-800">{reserva.join(", ")}</span>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {weekId !== semanaAtual && disponiveis.length === 0 && (
+            <p className="text-xs text-gray-500 mt-1">
+              A disponibilidade é apagada toda segunda-feira, por isso só aparece para a semana atual.
+            </p>
+          )}
+        </div>
+      )}
+
+      {escala && (
+        <>
+
+          <div>
+            <h3 className="font-semibold text-base mb-2">Por colaborador</h3>
+            <div className="overflow-auto">
+              <table className="min-w-full border text-sm">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="border px-3 py-2 text-left">Colaborador</th>
+                    <th className="border px-3 py-2 text-left">Qtd.</th>
+                    <th className="border px-3 py-2 text-left">Dias</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {porPessoa.map((p) => (
+                    <tr key={p.nome}>
+                      <td className="border px-3 py-2">{p.nome}</td>
+                      <td className="border px-3 py-2">{p.dias.length}</td>
+                      <td className="border px-3 py-2">{p.dias.join(", ")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -681,6 +1389,7 @@ function AvailabilityForm({
   weekId,
   syncEnabled,
   onSaved,
+  colabSessao,
 }: AvailabilityFormProps) {
   const selected = state.staff.find((s) => s.id === selectedStaffId);
   const chosen = state.availability[selectedStaffId] || [];
@@ -724,6 +1433,24 @@ function AvailabilityForm({
 
   setSaving(true);
   try {
+    if (colabSessao) {
+      try {
+        const data = await colabPost("colab_disponibilidade", {
+          token: colabSessao.token,
+          weekId,
+          days: chosenCodes,
+        });
+        if (data?.ok) {
+          alert("Suas escolhas foram salvas.");
+          onSaved?.();
+        } else if (!data?.sessaoInvalida) {
+          alert(`Falha ao salvar: ${data?.error || "erro desconhecido"}`);
+        }
+      } catch (err: any) {
+        alert(`Não foi possível enviar. Verifique sua conexão. Erro: ${String(err)}`);
+      }
+      return;
+    }
     if (syncEnabled && weekId) {
       try {
         const resp = await fetch(SYNC_ENDPOINT, {
@@ -782,6 +1509,16 @@ function AvailabilityForm({
     <div className="space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
         <label className="text-sm text-gray-600">Seu nome</label>
+        {colabSessao ? (
+          <div className="sm:col-span-2 font-medium">
+            {colabSessao.nome}
+            {!selectedStaffId && (
+              <span className="block text-xs text-amber-700 font-normal">
+                Seu nome não foi encontrado no cadastro. Avise a gerência.
+              </span>
+            )}
+          </div>
+        ) : (
         <select
           className="input sm:col-span-2"
           value={selectedStaffId}
@@ -794,6 +1531,7 @@ function AvailabilityForm({
             </option>
           ))}
         </select>
+        )}
       </div>
 
       <label className="flex items-center gap-2 border rounded-xl px-3 py-2 bg-white">
@@ -842,8 +1580,21 @@ function AvailabilityForm({
 }
 
 // ======== ABA REGISTRAR PRESENÇA ========
-function PunchTab({ staff }: PunchTabProps) {
+function PunchTab({ staff, colabSessao }: PunchTabProps) {
   const [selectedId, setSelectedId] = useState<string>("");
+
+  // Painel do colaborador: envia sempre no nome de quem está logado
+  const enviarPontoColab = async (payload: Record<string, any>, sucesso: string, falha: string) => {
+    if (!colabSessao) return;
+    const { staff: _ignorado, action: _acao, ...resto } = payload;
+    try {
+      const data = await colabPost("colab_ponto", { ...resto, token: colabSessao.token });
+      if (data?.ok) alert(sucesso);
+      else if (!data?.sessaoInvalida) alert(`${falha} ${data?.error || ""}`);
+    } catch (err: any) {
+      alert(`${falha} Erro: ${String(err)}`);
+    }
+  };
   const [punching, setPunching] = useState(false);
   const allPeople = useMemo(() => {
     const baseNames = staff.map((s) => s.name);
@@ -968,7 +1719,7 @@ function PunchTab({ staff }: PunchTabProps) {
 
   const handlePunchEvent = async () => {
     if (eventPunching) return;
-    if (!eventSelectedId) {
+    if (!colabSessao && !eventSelectedId) {
       alert("Nenhum nome foi selecionado");
       return;
     }
@@ -978,7 +1729,7 @@ function PunchTab({ staff }: PunchTabProps) {
     }
 
     const entry = allPeople.find((p) => p.id === eventSelectedId);
-    const name = entry?.label || "";
+    const name = colabSessao ? colabSessao.nome : entry?.label || "";
     if (!name) {
       alert("Seleção inválida.");
       return;
@@ -1015,6 +1766,18 @@ function PunchTab({ staff }: PunchTabProps) {
     };
 
     setEventPunching(true);
+    if (colabSessao) {
+      try {
+        await enviarPontoColab(
+          payload,
+          `Presença (evento) registrada para ${name} em ${dateStr}.`,
+          "Não foi possível registrar a presença (evento)."
+        );
+      } finally {
+        setEventPunching(false);
+      }
+      return;
+    }
     try {
       const resp = await fetch(SYNC_ENDPOINT, {
         method: "POST",
@@ -1042,7 +1805,7 @@ function PunchTab({ staff }: PunchTabProps) {
 
   const handlePunch = async () => {
     if (punching) return;
-    if (!selectedId) {
+    if (!colabSessao && !selectedId) {
       alert("Nenhum nome foi selecionado");
       return;
     }
@@ -1052,7 +1815,7 @@ function PunchTab({ staff }: PunchTabProps) {
     }
 
     const entry = allPeople.find((p) => p.id === selectedId);
-    const name = entry?.label || "";
+    const name = colabSessao ? colabSessao.nome : entry?.label || "";
     if (!name) {
       alert("Seleção inválida.");
       return;
@@ -1106,6 +1869,18 @@ function PunchTab({ staff }: PunchTabProps) {
         };
 
     setPunching(true);
+    if (colabSessao) {
+      try {
+        await enviarPontoColab(
+          payload,
+          `Presença registrada para ${name} em ${dateStr}.`,
+          "Não foi possível registrar a presença."
+        );
+      } finally {
+        setPunching(false);
+      }
+      return;
+    }
     try {
       const resp = await fetch(SYNC_ENDPOINT, {
         method: "POST",
@@ -1133,7 +1908,9 @@ function PunchTab({ staff }: PunchTabProps) {
 
    
 
-  const colaboradoresParaCarona = allPeople.filter((p) => p.id !== selectedId);
+  const colaboradoresParaCarona = colabSessao
+    ? allPeople.filter((p) => p.label.trim().toLowerCase() !== colabSessao.nome.trim().toLowerCase())
+    : allPeople.filter((p) => p.id !== selectedId);
 
   return (
     <div className="space-y-4">
@@ -1141,6 +1918,9 @@ function PunchTab({ staff }: PunchTabProps) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1">
           <label className="text-sm text-gray-600">Nome</label>
+          {colabSessao ? (
+            <div className="input w-full bg-gray-50">{colabSessao.nome}</div>
+          ) : (
           <select
             className="input w-full"
             value={selectedId}
@@ -1153,6 +1933,7 @@ function PunchTab({ staff }: PunchTabProps) {
               </option>
             ))}
           </select>
+          )}
         </div>
 
         <div className="space-y-1">
@@ -1384,6 +2165,9 @@ function PunchTab({ staff }: PunchTabProps) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1">
             <label className="text-sm text-gray-600">Nome</label>
+            {colabSessao ? (
+              <div className="input w-full bg-gray-50">{colabSessao.nome}</div>
+            ) : (
             <select
               className="input w-full"
               value={eventSelectedId}
@@ -1396,6 +2180,7 @@ function PunchTab({ staff }: PunchTabProps) {
                 </option>
               ))}
             </select>
+            )}
           </div>
 
           <div className="space-y-1">
@@ -1470,7 +2255,7 @@ function PunchTab({ staff }: PunchTabProps) {
   );
 }
 
-// ======== SOLVER (15 boxes, sem prioridade) + envio por e-mail ========
+// ======== SOLVER (15 boxes, sem prioridade) + publicação da escala ========
 const SLOTS_PER_DAY = 15;
 
 function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
@@ -1481,8 +2266,6 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
 
   const [refreshing, setRefreshing] = useState(false);
 
-  // Mantemos o comportamento original do envio
-  const [sendingEmails, setSendingEmails] = useState(false);
   const [isSendingEmails, setIsSendingEmails] = useState(false);
 
   const labelOf = (sid: string) => state.staff.find((s) => s.id === sid)?.name || "";
@@ -1667,173 +2450,77 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
     });
   };
 
-  const computeDiffs = () => {
-    const removed: Record<string, string[]> = {};
-    const added: Record<string, string[]> = {};
-    if (!finalPack) return { removed, added };
-
-    for (const day of state.days) {
-      const base = finalPack.baselineByDayId[day.id] || [];
-      const cur = finalPack.currentByDayId[day.id] || [];
-
-      const removedIds = base.filter((sid) => !cur.includes(sid));
-      const addedIds = cur.filter((sid) => !base.includes(sid));
-
-      removedIds.forEach((sid) => {
-        const nm = labelOf(sid);
-        if (!nm) return;
-        if (!removed[nm]) removed[nm] = [];
-        removed[nm].push(day.label);
-      });
-
-      addedIds.forEach((sid) => {
-        const nm = labelOf(sid);
-        if (!nm) return;
-        if (!added[nm]) added[nm] = [];
-        added[nm].push(day.label);
-      });
-    }
-
-    return { removed, added };
-  };
-
-  // Enviar escala por e-mail (EXATAMENTE como estava)
-  const handleSendEmails = async () => {
-    if (!SYNC_ENDPOINT) {
-      alert("Nenhum endpoint de sincronização configurado.");
-      return;
-    }
-    if (sendingEmails) return;
-
-    setSendingEmails(true);
-    try {
-      // monta objeto { [dayCode]: [nomesÚnicos] }
-      const schedule: Record<string, string[]> = {};
-      for (const day of state.days) {
-        const arr = selects[day.id] || {};
-        const values = Array.isArray(arr) ? arr : [];
-        const names = values
-          .filter(Boolean)
-          .map((sid: string) => labelOf(sid))
-          .filter(Boolean);
-        const uniqueNames = Array.from(new Set(names));
-        schedule[day.code] = uniqueNames;
-      }
-
-      const payload = {
-        action: "send_schedule",
-        weekId,
-        schedule,
-      };
-      const resp = await fetch(SYNC_ENDPOINT, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(payload),
-      });
-      // Em no-cors a resposta é 'opaque'; tratamos como sucesso
-      // @ts-ignore
-      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
-        alert("Escalas enviadas por e-mail (solicitação enviada ao servidor).");
-        return;
-      }
-      if (!resp.ok) {
-        const txt = await resp.text().catch(() => "");
-        alert(`Falha ao enviar escalas por e-mail (HTTP ${resp.status}). ${txt.slice(0, 180)}`);
-        return;
-      }
-      alert("Escalas enviadas por e-mail.");
-    } catch (err: any) {
-      alert(`Não foi possível enviar as escalas por e-mail. Erro: ${String(err)}`);
-    } finally {
-      setSendingEmails(false);
-    }
+  // Publica a escala no painel dos colaboradores (substitui a escala anterior da mesma semana)
+  const publicarEscala = async (idsByDayId: Record<string, string[]>) => {
+    const dias = state.days.map((day) => ({
+      code: day.code,
+      label: day.label,
+      nomes: Array.from(new Set((idsByDayId[day.id] || []).map((sid) => labelOf(sid)).filter(Boolean))),
+    }));
+    const resp = await fetch(SYNC_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "publicar_escala", weekId, dias }),
+    });
+    const data = await resp.json();
+    if (!data?.ok) throw new Error(data?.error || "erro desconhecido");
+    return data;
   };
 
   const handleSendEmailsClick = async () => {
     if (isSendingEmails) return;
-    setIsSendingEmails(true);
-
-    // cria tabela editável e persiste até a virada de domingo->segunda (00:00)
-    // Fazemos isso ANTES do envio para garantir que a tabela apareça mesmo se o fetch demorar.
+    if (!SYNC_ENDPOINT) {
+      alert("Nenhum endpoint de sincronização configurado.");
+      return;
+    }
     const baselineByDayId = buildUniqueIdsByDay();
-    const pack: FinalSchedulePack = {
-      weekId: String(weekId || ""),
-      createdAt: Date.now(),
-      expiresAt: computeNextMonday00(),
-      baselineByDayId,
-      currentByDayId: baselineByDayId,
-    };
-    setFinalPack(pack);
-    persistPack(pack);
-
-    const init: Record<string, string[]> = {};
-    for (const d of state.days) init[d.id] = Array(ADD_SLOTS).fill("");
-    setAddPick(init);
-
+    const totalEscalados = Object.values(baselineByDayId).reduce((a, ids) => a + ids.length, 0);
+    if (!totalEscalados) {
+      alert("Selecione pelo menos uma pessoa na Tabela de Seleção.");
+      return;
+    }
+    setIsSendingEmails(true);
     try {
-      await handleSendEmails(); // chama EXATAMENTE o que você já tinha
+      await publicarEscala(baselineByDayId);
+
+      // tabela editável persiste até a virada de domingo->segunda (00:00)
+      const pack: FinalSchedulePack = {
+        weekId: String(weekId || ""),
+        createdAt: Date.now(),
+        expiresAt: computeNextMonday00(),
+        baselineByDayId,
+        currentByDayId: baselineByDayId,
+      };
+      setFinalPack(pack);
+      persistPack(pack);
+
+      const init: Record<string, string[]> = {};
+      for (const d of state.days) init[d.id] = Array(ADD_SLOTS).fill("");
+      setAddPick(init);
+
+      alert("Escala publicada! Os colaboradores já conseguem ver no painel.");
+    } catch (err: any) {
+      alert(`Não foi possível publicar a escala. Erro: ${String(err?.message || err)}`);
     } finally {
       setIsSendingEmails(false);
     }
   };
 
   const handleSendUpdatedEmails = async () => {
-    if (!SYNC_ENDPOINT) {
-      alert("Nenhum endpoint de sincronização configurado.");
-      return;
-    }
     if (!finalPack) return;
     if (updatingEmails) return;
-
-    const { removed, added } = computeDiffs();
-    const hasAny =
-      Object.keys(removed).some((k) => (removed[k] || []).length > 0) ||
-      Object.keys(added).some((k) => (added[k] || []).length > 0);
-
-    if (!hasAny) {
-      alert("Nenhuma modificação detectada na escala.");
-      return;
-    }
-
     setUpdatingEmails(true);
     try {
-      const payload = {
-        action: "send_schedule_updates",
-        weekId,
-        removed,
-        added,
-      };
-
-      const resp = await fetch(SYNC_ENDPOINT, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(payload),
-      });
-
-      // @ts-ignore
-      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
-        alert("E-mails atualizados enviados (solicitação enviada ao servidor).");
-      } else if (!resp.ok) {
-        const txt = await resp.text().catch(() => "");
-        alert(`Falha ao enviar e-mails atualizados (HTTP ${resp.status}). ${txt.slice(0, 180)}`);
-      } else {
-        alert("E-mails atualizados enviados.");
-      }
-
-      // depois de enviar, atualiza o baseline para evitar reenviar de novo
+      await publicarEscala(finalPack.currentByDayId);
       setFinalPack((prev) => {
         if (!prev) return prev;
-        const next: FinalSchedulePack = {
-          ...prev,
-          baselineByDayId: prev.currentByDayId,
-        };
+        const next: FinalSchedulePack = { ...prev, baselineByDayId: prev.currentByDayId };
         persistPack(next);
         return next;
       });
+      alert("Escala atualizada no painel dos colaboradores.");
     } catch (err: any) {
-      alert(`Não foi possível enviar e-mails atualizados. Erro: ${String(err)}`);
+      alert(`Não foi possível atualizar a escala. Erro: ${String(err?.message || err)}`);
     } finally {
       setUpdatingEmails(false);
     }
@@ -1948,17 +2635,17 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
         </div>
       </div>
 
-      {/* BOTÃO ENVIAR ESCALA POR E-MAIL */}
+      {/* BOTÃO PUBLICAR ESCALA NO PAINEL */}
       <div className="space-y-3">
         <button onClick={handleSendEmailsClick} className="btn btn-primary text-sm">
-          {isSendingEmails ? "Processando..." : "Enviar e-mails"}
+          {isSendingEmails ? "Publicando..." : "Publicar escala"}
         </button>
 
-        {/* TABELA FINAL EDITÁVEL (só aparece depois de enviar) */}
+        {/* TABELA FINAL EDITÁVEL (só aparece depois de publicar) */}
         {finalPack && (
           <div className="border rounded-xl p-4 bg-white space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-base">Escala enviada (editável)</h3>
+              <h3 className="font-semibold text-base">Escala publicada (editável)</h3>
               <div className="text-xs text-gray-500">
                 Visível até {new Date(finalPack.expiresAt).toLocaleString("pt-BR")}
               </div>
@@ -2042,7 +2729,7 @@ function SolverUI({ state, availability, onRefresh, weekId }: SolverUIProps) {
               className={`btn btn-primary text-sm ${updatingEmails ? "opacity-70 cursor-not-allowed" : ""}`}
               disabled={updatingEmails}
             >
-              {updatingEmails ? "Processando..." : "Mandar e-mails atualizados"}
+              {updatingEmails ? "Publicando..." : "Salvar alterações na escala"}
             </button>
           </div>
         )}
