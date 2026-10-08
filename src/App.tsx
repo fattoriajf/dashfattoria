@@ -145,6 +145,32 @@ async function colabPost(action: string, body: Record<string, any> = {}): Promis
   return data;
 }
 
+// POST do painel admin que lê a resposta do servidor
+async function adminPost(action: string, body: Record<string, any> = {}): Promise<any> {
+  const resp = await fetch(SYNC_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action, ...body }),
+  });
+  return resp.json();
+}
+
+const MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+function mesKeyFromDate(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+function mesLabel(mes: string) {
+  const [y, m] = mes.split("-").map(Number);
+  return y && m ? `${MESES_PT[m - 1]} de ${y}` : mes;
+}
+// próximo mês + mês atual + 23 meses para trás
+function mesesOptions(): string[] {
+  const hoje = new Date();
+  const out: string[] = [];
+  for (let i = -1; i < 24; i++) out.push(mesKeyFromDate(new Date(hoje.getFullYear(), hoje.getMonth() - i, 1)));
+  return out;
+}
+
 function formatBRL(v: number) {
   return (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -229,7 +255,7 @@ export default function App() {
   });
 
   const [activeTab, setActiveTab] = useState<
-  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv" | "insumos" | "compras" | "markup" | "etiquetas" | "dre" | "escalaSemana" | "minhaEscala" | "meusRegistros"
+  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv" | "insumos" | "compras" | "markup" | "etiquetas" | "dre" | "escalaSemana" | "minhaEscala" | "meusRegistros" | "consumoSocios"
   >("disponibilidade");
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
@@ -430,7 +456,7 @@ export default function App() {
   };
 
   // Aba efetiva: se a aba ativa não tem permissão, usa a primeira permitida
-  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv","insumos","compras","markup","etiquetas","dre","escalaSemana","minhaEscala","meusRegistros"];
+  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv","insumos","compras","markup","etiquetas","dre","escalaSemana","consumoSocios","minhaEscala","meusRegistros"];
   const abaEfetiva: typeof activeTab = isFullscreen ? "etiquetas" : (podeVer(activeTab) ? activeTab : isColab ? "presenca" : (todasAbas.find(t => podeVer(t)) ?? "disponibilidade"));
 
   if (isColab && !colabSessao) {
@@ -500,6 +526,7 @@ export default function App() {
           {navItem("comissao", "Comissão e Pagamento", <Cal className="w-4 h-4" />, true)}
           {navItem("adiantamentos", "Adiantamentos", <Banknote className="w-4 h-4" />, true)}
           {navItem("caixa", "Caixa", <Wallet className="w-4 h-4" />, true)}
+          {navItem("consumoSocios", "Consumo dos Sócios", <ClipboardList className="w-4 h-4" />, true)}
           {navItem("cmv", "CMV", <BarChart3 className="w-4 h-4" />, true)}
           {navItem("markup", "Markup", <TrendingUp className="w-4 h-4" />, true)}
           {navItem("dre", "DRE", <BarChart2 className="w-4 h-4" />, true)}
@@ -646,6 +673,11 @@ export default function App() {
           {!isColab && abaEfetiva === "caixa" && (
             <Card title="Caixa" icon={<Wallet className="w-5 h-5" />}>
               <CaixaTab />
+            </Card>
+          )}
+          {!isColab && abaEfetiva === "consumoSocios" && (
+            <Card title="Consumo dos Sócios" icon={<ClipboardList className="w-5 h-5" />}>
+              <ConsumoSociosTab />
             </Card>
           )}
           {!isColab && abaEfetiva === "cmv" && (
@@ -8351,8 +8383,16 @@ type FichaIngrediente = {
   quantidade: number;
   unidade: string;
   custoPorUnidade: number;
-  custoTotal: number;
+  custoTotal: number; // já com o desperdício
+  desperdicio?: number; // % de perda do insumo
+  custoSemDesperdicio?: number;
 };
+
+// 10% de desperdício -> custo ÷ 0,90
+function fatorDesperdicio(pct: number | string | undefined) {
+  const n = Math.min(Math.max(parseFloat(String(pct ?? "0").replace(",", ".")) || 0, 0), 95);
+  return 1 / (1 - n / 100);
+}
 
 type FichaProduto = {
   nome: string;
@@ -8379,11 +8419,13 @@ function FichaTecnicaTab() {
   const [showNewIngrediente, setShowNewIngrediente] = useState(false);
   const [novoInsumoSel, setNovoInsumoSel] = useState("");
   const [novoQtd, setNovoQtd] = useState("");
+  const [novoDesp, setNovoDesp] = useState("");
   const [saving, setSaving] = useState(false);
 
   // edição inline de ingrediente
   const [editingIng, setEditingIng] = useState<string | null>(null);
   const [editIngQtd, setEditIngQtd] = useState("");
+  const [editIngDesp, setEditIngDesp] = useState("");
 
   // edição de preço de venda
   const [editingPreco, setEditingPreco] = useState(false);
@@ -8427,7 +8469,7 @@ function FichaTecnicaTab() {
   const insumoSelecionado = insumos.find(i => i.insumo === novoInsumoSel);
 
   const resetIngredienteForm = () => {
-    setNovoInsumoSel(""); setNovoQtd("");
+    setNovoInsumoSel(""); setNovoQtd(""); setNovoDesp("");
     setShowNewIngrediente(false);
   };
 
@@ -8443,6 +8485,7 @@ function FichaTecnicaTab() {
       precoVenda: precoAtual,
       insumo: novoInsumoSel,
       quantidade: novoQtd,
+      desperdicio: novoDesp || "0",
     };
 
     setSaving(true);
@@ -8500,10 +8543,12 @@ function FichaTecnicaTab() {
           precoVenda: String(p?.precoVenda || 0),
           insumo: ingNome,
           quantidade: editIngQtd,
+          desperdicio: editIngDesp || "0",
         }),
       });
       setEditingIng(null);
       setEditIngQtd("");
+      setEditIngDesp("");
       await loadProdutos();
     } catch (err: any) { alert(`Erro: ${String(err)}`); }
     finally { setSaving(false); }
@@ -8654,6 +8699,7 @@ function FichaTecnicaTab() {
                             <th className="border px-3 py-2 text-right">Qtd</th>
                             <th className="border px-3 py-2 text-left">Unidade</th>
                             <th className="border px-3 py-2 text-right">Custo/un</th>
+                            <th className="border px-3 py-2 text-right">Desperdício %</th>
                             <th className="border px-3 py-2 text-right">Custo total</th>
                             <th className="border px-3 py-2"></th>
                           </tr>
@@ -8671,7 +8717,7 @@ function FichaTecnicaTab() {
                                     onChange={e => setEditIngQtd(e.target.value)}
                                     onKeyDown={e => {
                                       if (e.key === "Enter") handleEditIngrediente(p.nome, ing.ingrediente);
-                                      if (e.key === "Escape") { setEditingIng(null); setEditIngQtd(""); }
+                                      if (e.key === "Escape") { setEditingIng(null); setEditIngQtd(""); setEditIngDesp(""); }
                                     }}
                                   />
                                 ) : (
@@ -8681,8 +8727,24 @@ function FichaTecnicaTab() {
                               <td className="border px-3 py-2">{ing.unidade || "—"}</td>
                               <td className="border px-3 py-2 text-right">{fmtMoney(ing.custoPorUnidade)}</td>
                               <td className="border px-3 py-2 text-right">
+                                {editingIng === ing.ingrediente ? (
+                                  <input
+                                    type="number" step="0.1" min={0} max={95}
+                                    className="input w-20 text-sm text-right"
+                                    value={editIngDesp}
+                                    onChange={e => setEditIngDesp(e.target.value)}
+                                    onKeyDown={e => {
+                                      if (e.key === "Enter") handleEditIngrediente(p.nome, ing.ingrediente);
+                                      if (e.key === "Escape") { setEditingIng(null); setEditIngQtd(""); setEditIngDesp(""); }
+                                    }}
+                                  />
+                                ) : (
+                                  ing.desperdicio ? `${ing.desperdicio}%` : "—"
+                                )}
+                              </td>
+                              <td className="border px-3 py-2 text-right">
                                 {editingIng === ing.ingrediente && editIngQtd
-                                  ? fmtMoney(parseFloat(editIngQtd) * ing.custoPorUnidade)
+                                  ? fmtMoney(parseFloat(editIngQtd) * ing.custoPorUnidade * fatorDesperdicio(editIngDesp))
                                   : fmtMoney(ing.custoTotal)}
                               </td>
                               <td className="border px-3 py-2 text-center">
@@ -8694,14 +8756,14 @@ function FichaTecnicaTab() {
                                       {saving ? "..." : "Salvar"}
                                     </button>
                                     <button className="text-xs text-gray-400 hover:underline"
-                                      onClick={() => { setEditingIng(null); setEditIngQtd(""); }}>
+                                      onClick={() => { setEditingIng(null); setEditIngQtd(""); setEditIngDesp(""); }}>
                                       Cancelar
                                     </button>
                                   </div>
                                 ) : (
                                   <div className="flex gap-2 justify-center">
                                     <button className="text-xs text-blue-500 hover:underline"
-                                      onClick={() => { setEditingIng(ing.ingrediente); setEditIngQtd(String(ing.quantidade)); }}>
+                                      onClick={() => { setEditingIng(ing.ingrediente); setEditIngQtd(String(ing.quantidade)); setEditIngDesp(ing.desperdicio ? String(ing.desperdicio) : ""); }}>
                                       Editar
                                     </button>
                                     <button className="text-xs text-red-500 hover:underline"
@@ -8714,7 +8776,7 @@ function FichaTecnicaTab() {
                             </tr>
                           ))}
                           <tr className="bg-gray-50 font-semibold">
-                            <td colSpan={4} className="border px-3 py-2">Custo total do produto</td>
+                            <td colSpan={5} className="border px-3 py-2">Custo total do produto</td>
                             <td className="border px-3 py-2 text-right">{fmtMoney(p.custoTotal)}</td>
                             <td className="border px-3 py-2"></td>
                           </tr>
@@ -8731,7 +8793,7 @@ function FichaTecnicaTab() {
                       {insumos.length === 0 ? (
                         <div className="text-sm text-amber-600">Cadastre insumos na aba "Insumos" antes de montar a ficha.</div>
                       ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                           <div className="space-y-1">
                             <label className="text-xs text-gray-600">Insumo</label>
                             <select className="input w-full" value={novoInsumoSel} onChange={e => setNovoInsumoSel(e.target.value)}>
@@ -8747,10 +8809,15 @@ function FichaTecnicaTab() {
                               onChange={e => setNovoQtd(e.target.value)} placeholder="0" />
                           </div>
                           <div className="space-y-1">
+                            <label className="text-xs text-gray-600">Desperdício (%)</label>
+                            <input type="number" step="0.1" min={0} max={95} className="input w-full" value={novoDesp}
+                              onChange={e => setNovoDesp(e.target.value)} placeholder="0" />
+                          </div>
+                          <div className="space-y-1">
                             <label className="text-xs text-gray-600">Custo estimado</label>
                             <div className="input w-full bg-gray-100 text-gray-600 flex items-center text-sm">
                               {insumoSelecionado && novoQtd
-                                ? fmtMoney(parseFloat(novoQtd) * insumoSelecionado.custoPorUnidade)
+                                ? fmtMoney(parseFloat(novoQtd) * insumoSelecionado.custoPorUnidade * fatorDesperdicio(novoDesp))
                                 : "—"}
                             </div>
                           </div>
@@ -8759,6 +8826,7 @@ function FichaTecnicaTab() {
                       {insumoSelecionado && (
                         <div className="text-xs text-gray-500">
                           {insumoSelecionado.unidade} · {fmtMoney(insumoSelecionado.custoPorUnidade)}/un (do catálogo)
+                          {" · "}Desperdício: % do insumo que se perde. Ex.: peça de 2 kg que rende 1,8 kg = 10.
                         </div>
                       )}
                       <div className="flex gap-2">
@@ -8960,8 +9028,10 @@ function InsumosTab() {
 // ======== CMV ========
 function CMVTab() {
   // ── shared date state ──
-  const [startRaw, setStartRaw] = useState("");
-  const [endRaw, setEndRaw] = useState("");
+  const [startRawState, setStartRaw] = useState("");
+  const [endRawState, setEndRaw] = useState("");
+  const startRaw = startRawState;
+  const endRaw = endRawState;
 
   // ── CMV Teórico ──
   const [loadingTeo, setLoadingTeo] = useState(false);
@@ -8972,12 +9042,8 @@ function CMVTab() {
   const [grupos, setGrupos] = useState<string[]>([]);
   const [grupoSel, setGrupoSel] = useState("Tudo");
 
-  // ── CMV Real ──
-  const [loadingReal, setLoadingReal] = useState(false);
-  const [cmvRealData, setCmvRealData] = useState<any>(null);
-  const [datasInventario, setDatasInventario] = useState<string[]>([]);
-  const [dataEiSel, setDataEiSel] = useState("");
-  const [dataEfSel, setDataEfSel] = useState("");
+  // período em que o teórico foi calculado por último (para o comparativo com o CMV real do mês)
+  const [periodoTeo, setPeriodoTeo] = useState<{ start: string; end: string } | null>(null);
 
   const fmtMoney = (n: number | null) =>
     n === null ? "—" : new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
@@ -8997,13 +9063,9 @@ function CMVTab() {
     return `${d}/${m}/${y}`;
   };
 
-  // Carrega datas de inventário e grupos disponíveis ao montar
+  // Carrega grupos disponíveis ao montar
   useEffect(() => {
     if (!SYNC_ENDPOINT) return;
-    fetch(`${SYNC_ENDPOINT}?action=inventario_datas&_ts=${Date.now()}`)
-      .then(r => r.json())
-      .then(j => { if (j.ok) setDatasInventario(j.datas || []); })
-      .catch(() => {});
     fetch(`${SYNC_ENDPOINT}?action=dashboard_base_meta&_ts=${Date.now()}`)
       .then(r => r.json())
       .then(j => { if (j.ok && j.groups) setGrupos(j.groups); })
@@ -9011,9 +9073,12 @@ function CMVTab() {
   }, []);
 
   // ── Calcular CMV Teórico ──
-  const loadTeorico = async () => {
+  const loadTeorico = async (startOverride?: string, endOverride?: string) => {
+    const startRaw = startOverride || startRawState;
+    const endRaw = endOverride || endRawState;
     if (!startRaw || !endRaw) { alert("Selecione data inicial e final."); return; }
     if (!SYNC_ENDPOINT) return;
+    if (startOverride && endOverride) { setStartRaw(startOverride); setEndRaw(endOverride); }
     setLoadingTeo(true);
     try {
       const fichasResp = await fetch(`${SYNC_ENDPOINT}?action=fichas_lista&_ts=${Date.now()}`);
@@ -9055,38 +9120,11 @@ function CMVTab() {
       setTotalCusto(totCusto);
       setTotalReceita(totReceita);
       setCmvGeral(totReceita > 0 ? (totCusto / totReceita) * 100 : 0);
+      setPeriodoTeo({ start: startRaw, end: endRaw });
     } catch (err: any) {
       alert(`Erro: ${String(err)}`);
     } finally {
       setLoadingTeo(false);
-    }
-  };
-
-  // ── Calcular CMV Real ──
-  const loadReal = async () => {
-    if (!startRaw || !endRaw) { alert("Selecione data inicial e final."); return; }
-    if (!SYNC_ENDPOINT) return;
-    setLoadingReal(true);
-    setCmvRealData(null);
-    try {
-      const params = new URLSearchParams({
-        action: "cmv_real_data",
-        start: toDDMMYYYY(startRaw),
-        end: toDDMMYYYY(endRaw),
-        _ts: String(Date.now()),
-      });
-      if (dataEiSel) params.set("data_ei", dataEiSel);
-      if (dataEfSel) params.set("data_ef", dataEfSel);
-      if (totalReceita > 0) params.set("vendas_total", String(totalReceita));
-      const res = await fetch(`${SYNC_ENDPOINT}?${params.toString()}`);
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Erro ao calcular CMV Real.");
-      setCmvRealData(json);
-      if (json.datasDisponiveisInventario?.length) setDatasInventario(json.datasDisponiveisInventario);
-    } catch (err: any) {
-      alert(`Erro: ${String(err)}`);
-    } finally {
-      setLoadingReal(false);
     }
   };
 
@@ -9124,7 +9162,7 @@ function CMVTab() {
             {grupos.map(g => <option key={g} value={g}>{g}</option>)}
           </select>
         </div>
-        <button className="btn btn-primary w-full sm:w-auto" onClick={loadTeorico} disabled={loadingTeo}>
+        <button className="btn btn-primary w-full sm:w-auto" onClick={() => loadTeorico()} disabled={loadingTeo}>
           {loadingTeo ? "Calculando..." : "Calcular CMV Teórico"}
         </button>
 
@@ -9194,142 +9232,743 @@ function CMVTab() {
         )}
       </div>
 
-      {/* ── CMV REAL ── */}
-      <div className="border rounded-xl p-4 bg-white space-y-4">
+      {/* ── INVENTÁRIO MENSAL (dia 01) ── */}
+      <InventarioCmvSection />
+
+      {/* ── CMV REAL MENSAL ── */}
+      <CmvMensalSection
+        teorico={rowsTeo.length > 0 && periodoTeo ? { ...periodoTeo, custo: totalCusto, receita: totalReceita, pct: cmvGeral } : null}
+        calcularTeorico={(start, end) => loadTeorico(start, end)}
+        loadingTeorico={loadingTeo}
+      />
+    </div>
+  );
+}
+
+// ======== CMV: INVENTÁRIO MENSAL (dia 01) ========
+type InvCmvItem = { insumo: string; unidade: string; quantidade: number; custoUnitario: number; valor: number };
+
+function InventarioCmvSection() {
+  const fmtMoney = (n: number) => formatBRL(n);
+  const [aberto, setAberto] = useState(false);
+  const [mes, setMes] = useState(mesKeyFromDate(new Date()));
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [catalogo, setCatalogo] = useState<{ insumo: string; unidade: string; custoPorUnidade: number }[]>([]);
+  const [salvo, setSalvo] = useState<InvCmvItem[]>([]);
+  const [atualizadoEm, setAtualizadoEm] = useState("");
+  const [qtds, setQtds] = useState<Record<string, string>>({});
+  const [busca, setBusca] = useState("");
+  const [soPendentes, setSoPendentes] = useState(false);
+  const [atualizarCustos, setAtualizarCustos] = useState(false);
+  const [temRascunho, setTemRascunho] = useState(false);
+
+  const rascunhoKey = `fattoria_inventario_cmv_${mes}`;
+
+  const carregar = async () => {
+    setLoading(true);
+    try {
+      const [rInv, rIns] = await Promise.all([
+        fetch(`${SYNC_ENDPOINT}?action=inventario_cmv&mes=${encodeURIComponent(mes)}&_ts=${Date.now()}`),
+        fetch(`${SYNC_ENDPOINT}?action=insumos_lista&_ts=${Date.now()}`),
+      ]);
+      const inv = await rInv.json();
+      const ins = await rIns.json();
+      if (!inv?.ok) throw new Error(inv?.error || "Erro ao carregar o inventário.");
+      const itens: InvCmvItem[] = inv.inventario?.itens || [];
+      setSalvo(itens);
+      setAtualizadoEm(inv.inventario?.atualizadoEm || "");
+      setCatalogo(ins?.ok && Array.isArray(ins.insumos) ? ins.insumos : []);
+
+      const base: Record<string, string> = {};
+      itens.forEach((it) => { base[it.insumo] = String(it.quantidade); });
+      // rascunho local: contagem em andamento que ainda não foi salva
+      let rascunho: Record<string, string> | null = null;
+      try {
+        const raw = localStorage.getItem(rascunhoKey);
+        if (raw) rascunho = JSON.parse(raw);
+      } catch {}
+      setTemRascunho(!!rascunho);
+      setQtds(rascunho ? { ...base, ...rascunho } : base);
+    } catch (err: any) {
+      alert(`Erro: ${String(err?.message || err)}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (aberto) carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aberto, mes]);
+
+  const setQtd = (insumo: string, v: string) => {
+    setQtds((prev) => {
+      const next = { ...prev, [insumo]: v };
+      try { localStorage.setItem(rascunhoKey, JSON.stringify(next)); } catch {}
+      return next;
+    });
+    setTemRascunho(true);
+  };
+
+  // linhas: catálogo de insumos + itens já salvos que saíram do catálogo
+  const linhas = useMemo(() => {
+    const salvoMap = new Map(salvo.map((it) => [it.insumo.toLowerCase(), it] as const));
+    const out = catalogo.map((c) => {
+      const s = salvoMap.get(c.insumo.toLowerCase());
+      const custo = !atualizarCustos && s && s.custoUnitario > 0 ? s.custoUnitario : c.custoPorUnidade;
+      return { insumo: c.insumo, unidade: c.unidade, custo, foraDoCatalogo: false };
+    });
+    const noCatalogo = new Set(catalogo.map((c) => c.insumo.toLowerCase()));
+    salvo.forEach((it) => {
+      if (!noCatalogo.has(it.insumo.toLowerCase())) out.push({ insumo: it.insumo, unidade: it.unidade, custo: it.custoUnitario, foraDoCatalogo: true });
+    });
+    return out.sort((a, b) => a.insumo.localeCompare(b.insumo, "pt-BR"));
+  }, [catalogo, salvo, atualizarCustos]);
+
+  const num = (v: string | undefined) => {
+    const n = parseFloat(String(v ?? "").replace(",", "."));
+    return isNaN(n) ? 0 : n;
+  };
+  const contado = (insumo: string) => (qtds[insumo] ?? "") !== "";
+  const totalContados = linhas.filter((l) => contado(l.insumo)).length;
+  const valorTotal = linhas.reduce((acc, l) => acc + num(qtds[l.insumo]) * l.custo, 0);
+  const semCusto = linhas.filter((l) => num(qtds[l.insumo]) > 0 && !(l.custo > 0)).map((l) => l.insumo);
+
+  const visiveis = linhas.filter((l) => {
+    if (busca && !l.insumo.toLowerCase().includes(busca.toLowerCase())) return false;
+    if (soPendentes && contado(l.insumo)) return false;
+    return true;
+  });
+
+  const salvar = async () => {
+    if (saving) return;
+    const pendentes = linhas.length - totalContados;
+    if (totalContados === 0) { alert("Preencha a quantidade de pelo menos um insumo."); return; }
+    if (pendentes > 0 && !confirm(`${pendentes} insumo(s) ainda sem contagem. Eles ficam fora do inventário (valor R$ 0). Salvar assim mesmo?`)) return;
+    setSaving(true);
+    try {
+      const itens = linhas.filter((l) => contado(l.insumo)).map((l) => ({ insumo: l.insumo, quantidade: String(qtds[l.insumo]).replace(",", ".") }));
+      const data = await adminPost("save_inventario_cmv", { mes, itens, atualizarCustos });
+      if (!data?.ok) throw new Error(data?.error || "erro desconhecido");
+      try { localStorage.removeItem(rascunhoKey); } catch {}
+      setAtualizarCustos(false);
+      await carregar();
+      alert(`Inventário de 01/${mes.slice(5, 7)}/${mes.slice(0, 4)} salvo: ${data.itens} itens, ${formatBRL(data.valorTotal)}.`);
+    } catch (err: any) {
+      alert(`Não foi possível salvar. Erro: ${String(err?.message || err)}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const descartarRascunho = () => {
+    if (!confirm("Descartar a contagem não salva e voltar ao último inventário salvo?")) return;
+    try { localStorage.removeItem(rascunhoKey); } catch {}
+    carregar();
+  };
+
+  return (
+    <div className="border rounded-xl p-4 bg-white space-y-4">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="font-semibold text-base">CMV Real</h3>
+          <h3 className="font-semibold text-base">Inventário mensal (dia 01)</h3>
           <p className="text-xs text-gray-500 mt-1">
-            Fórmula: <span className="font-mono">Estoque Inicial + Compras do período − Estoque Final</span>.
-            Usa os inventários da pasta "Registros de Estoque" e os lançamentos de Compras.
+            Contagem completa do estoque feita no dia 01, antes de abrir as vendas do mês. É o estoque inicial do mês
+            e o estoque final do mês anterior. Não interfere no inventário semanal da lista de compras.
           </p>
         </div>
-
-        {/* seleção de datas de inventário */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <label className="text-xs text-gray-600">Inventário para Estoque Inicial</label>
-            <select className="input w-full" value={dataEiSel} onChange={e => setDataEiSel(e.target.value)}>
-              <option value="">Automático (mais próximo do início)</option>
-              {datasInventario.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs text-gray-600">Inventário para Estoque Final</label>
-            <select className="input w-full" value={dataEfSel} onChange={e => setDataEfSel(e.target.value)}>
-              <option value="">Automático (mais próximo do fim)</option>
-              {datasInventario.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </div>
-        </div>
-
-        <div className="text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
-          💡 Selecione primeiro o período acima e clique "Calcular CMV Teórico" para ter a receita disponível para o cálculo de %.
-          Depois clique "Calcular CMV Real".
-        </div>
-
-        <button className="btn btn-primary w-full sm:w-auto" onClick={loadReal} disabled={loadingReal || !startRaw || !endRaw}>
-          {loadingReal ? "Calculando..." : "Calcular CMV Real"}
+        <button className="btn btn-ghost text-sm whitespace-nowrap" onClick={() => setAberto((v) => !v)}>
+          {aberto ? "Fechar" : "Abrir inventário"}
         </button>
+      </div>
 
-        {cmvRealData && (() => {
-          const d = cmvRealData;
-          const ei = d.estoqueInicial;
-          const ef = d.estoqueFinal;
-          const cmvPct = totalReceita > 0 ? (d.cmvReal / totalReceita) * 100 : null;
-          return (
-            <div className="space-y-4">
-              {/* Cards resumo */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="border rounded-xl p-3 text-center bg-gray-50">
-                  <div className="text-xs text-gray-500 mb-1">Estoque Inicial</div>
-                  <div className="text-xs text-gray-400">{ei.data || "—"}</div>
-                  <div className="text-lg font-semibold">{fmtMoney(ei.valorTotal)}</div>
-                </div>
-                <div className="border rounded-xl p-3 text-center bg-gray-50">
-                  <div className="text-xs text-gray-500 mb-1">+ Compras</div>
-                  <div className="text-xs text-gray-400">{d.periodo.start} → {d.periodo.end}</div>
-                  <div className="text-lg font-semibold text-blue-600">{fmtMoney(d.compras.total)}</div>
-                </div>
-                <div className="border rounded-xl p-3 text-center bg-gray-50">
-                  <div className="text-xs text-gray-500 mb-1">− Estoque Final</div>
-                  <div className="text-xs text-gray-400">{ef.data || "—"}</div>
-                  <div className="text-lg font-semibold">{fmtMoney(ef.valorTotal)}</div>
-                </div>
-                <div className={`border-2 rounded-xl p-3 text-center ${cmvPct !== null && cmvPct <= 35 ? "border-green-400 bg-green-50" : cmvPct !== null && cmvPct <= 45 ? "border-yellow-400 bg-yellow-50" : "border-red-400 bg-red-50"}`}>
-                  <div className="text-xs text-gray-500 mb-1">CMV Real</div>
-                  <div className="text-lg font-bold">{fmtMoney(d.cmvReal)}</div>
-                  {cmvPct !== null && (
-                    <div className={`text-sm font-semibold ${cmvColor(cmvPct)}`}>{fmtPct(cmvPct)}</div>
-                  )}
-                </div>
+      {aberto && (
+        <>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600 block">Inventário de 01 de</label>
+              <select className="input" value={mes} onChange={(e) => setMes(e.target.value)}>
+                {mesesOptions().map((m) => <option key={m} value={m}>{mesLabel(m)}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1 flex-1 min-w-[160px]">
+              <label className="text-xs text-gray-600 block">Buscar insumo</label>
+              <input className="input w-full" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Digite o nome..." />
+            </div>
+            <label className="flex items-center gap-2 text-sm pb-2">
+              <input type="checkbox" checked={soPendentes} onChange={(e) => setSoPendentes(e.target.checked)} />
+              Só os que faltam contar
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="border rounded-xl p-3 text-center bg-gray-50">
+              <div className="text-xs text-gray-500">Contados</div>
+              <div className="text-lg font-semibold">{totalContados} de {linhas.length}</div>
+            </div>
+            <div className="border rounded-xl p-3 text-center bg-gray-50">
+              <div className="text-xs text-gray-500">Valor do estoque</div>
+              <div className="text-lg font-semibold">{fmtMoney(valorTotal)}</div>
+            </div>
+            <div className="border rounded-xl p-3 text-center bg-gray-50 col-span-2 sm:col-span-1">
+              <div className="text-xs text-gray-500">Último salvamento</div>
+              <div className="text-sm font-medium">{atualizadoEm || "Ainda não salvo"}</div>
+            </div>
+          </div>
+
+          {temRascunho && (
+            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+              <span>Há contagem ainda não salva neste aparelho. Clique em "Salvar inventário" para gravar.</span>
+              <button className="underline" onClick={descartarRascunho}>Descartar</button>
+            </div>
+          )}
+
+          {loading ? (
+            <div className="text-sm text-gray-500">Carregando...</div>
+          ) : linhas.length === 0 ? (
+            <div className="text-sm text-amber-600">Cadastre os insumos na aba "Insumos" (com unidade e custo) para fazer o inventário.</div>
+          ) : (
+            <div className="overflow-auto max-h-[60vh] border rounded-lg">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-100 sticky top-0">
+                  <tr>
+                    <th className="border px-3 py-2 text-left">Insumo</th>
+                    <th className="border px-3 py-2 text-left">Unidade</th>
+                    <th className="border px-3 py-2 text-right">Custo/un</th>
+                    <th className="border px-3 py-2 text-right">Quantidade</th>
+                    <th className="border px-3 py-2 text-right">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visiveis.map((l) => (
+                    <tr key={l.insumo} className={contado(l.insumo) ? "bg-white" : "bg-amber-50/40"}>
+                      <td className="border px-3 py-1.5">
+                        {l.insumo}
+                        {l.foraDoCatalogo && <span className="text-xs text-amber-600 ml-1">(fora do cadastro)</span>}
+                      </td>
+                      <td className="border px-3 py-1.5">{l.unidade || "—"}</td>
+                      <td className={`border px-3 py-1.5 text-right ${l.custo > 0 ? "" : "text-red-600"}`}>{fmtMoney(l.custo)}</td>
+                      <td className="border px-2 py-1 text-right">
+                        <input
+                          type="number" step="0.001" min={0} inputMode="decimal"
+                          className="input w-28 text-sm text-right"
+                          value={qtds[l.insumo] ?? ""}
+                          onChange={(e) => setQtd(l.insumo, e.target.value)}
+                          placeholder="—"
+                        />
+                      </td>
+                      <td className="border px-3 py-1.5 text-right">{contado(l.insumo) ? fmtMoney(num(qtds[l.insumo]) * l.custo) : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {semCusto.length > 0 && (
+            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              ⚠ Insumos contados mas sem custo no cadastro (entram como R$ 0): {semCusto.join(", ")}. Cadastre o custo na
+              aba "Insumos", marque "Atualizar custos" abaixo e salve de novo.
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button className="btn btn-primary" onClick={salvar} disabled={saving || loading}>
+              {saving ? "Salvando..." : "Salvar inventário"}
+            </button>
+            {salvo.length > 0 && (
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={atualizarCustos} onChange={(e) => setAtualizarCustos(e.target.checked)} />
+                Atualizar custos pelo cadastro atual de insumos
+              </label>
+            )}
+          </div>
+          <p className="text-xs text-gray-500">
+            Deixe em branco o que não foi contado e digite 0 para o que acabou. O custo de cada insumo fica gravado
+            como estava no dia em que o inventário foi salvo pela primeira vez.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ======== CMV: REAL MENSAL ========
+function CmvMensalSection({
+  teorico,
+  calcularTeorico,
+  loadingTeorico,
+}: {
+  teorico: { start: string; end: string; custo: number; receita: number; pct: number } | null;
+  calcularTeorico: (start: string, end: string) => void;
+  loadingTeorico: boolean;
+}) {
+  const fmtMoney = (n: number | null) => (n === null || n === undefined ? "—" : formatBRL(n));
+  const fmtPct = (n: number | null) => (n === null || n === undefined ? "—" : `${Number(n).toFixed(1)}%`);
+  const cmvColor = (v: number | null) => (v === null ? "" : v <= 35 ? "text-green-600" : v <= 45 ? "text-yellow-600" : "text-red-600");
+  const fmtQtd = (n: number) => Number(n || 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 });
+
+  // por padrão, o último mês fechado
+  const hoje = new Date();
+  const [mes, setMes] = useState(mesKeyFromDate(new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1)));
+  const [loading, setLoading] = useState(false);
+  const [dados, setDados] = useState<any>(null);
+  const [comprasManual, setComprasManual] = useState("");
+  const [salvandoCompras, setSalvandoCompras] = useState(false);
+
+  const [ano, m] = mes.split("-").map(Number);
+  const ultimoDia = new Date(ano, m, 0).getDate();
+  const mesStart = `${mes}-01`;
+  const mesEnd = `${mes}-${String(ultimoDia).padStart(2, "0")}`;
+
+  const calcular = async () => {
+    setLoading(true);
+    try {
+      const resp = await fetch(`${SYNC_ENDPOINT}?action=cmv_mensal&mes=${encodeURIComponent(mes)}&_ts=${Date.now()}`);
+      const json = await resp.json();
+      if (!json?.ok) throw new Error(json?.error || "Erro ao calcular o CMV do mês.");
+      setDados(json);
+      setComprasManual(json.compras?.manual !== null && json.compras?.manual !== undefined ? String(json.compras.manual) : "");
+    } catch (err: any) {
+      alert(`Erro: ${String(err?.message || err)}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { setDados(null); }, [mes]);
+
+  const salvarComprasManual = async (limpar: boolean) => {
+    if (salvandoCompras) return;
+    setSalvandoCompras(true);
+    try {
+      const data = await adminPost("save_cmv_compras_manual", { mes, valor: limpar ? "" : comprasManual.replace(",", ".") });
+      if (!data?.ok) throw new Error(data?.error || "erro desconhecido");
+      await calcular();
+    } catch (err: any) {
+      alert(`Não foi possível salvar. Erro: ${String(err?.message || err)}`);
+    } finally {
+      setSalvandoCompras(false);
+    }
+  };
+
+  const d = dados;
+  const teoricoDoMes = teorico && teorico.start === mesStart && teorico.end === mesEnd ? teorico : null;
+
+  return (
+    <div className="border rounded-xl p-4 bg-white space-y-4">
+      <div>
+        <h3 className="font-semibold text-base">CMV Real (mensal)</h3>
+        <p className="text-xs text-gray-500 mt-1">
+          Fórmula: <span className="font-mono">Estoque inicial + Compras do mês − Estoque final</span>. O estoque
+          inicial é o inventário do dia 01 do mês e o estoque final é o inventário do dia 01 do mês seguinte.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <label className="text-xs text-gray-600 block">Mês</label>
+          <select className="input" value={mes} onChange={(e) => setMes(e.target.value)}>
+            {mesesOptions().slice(1).map((x) => <option key={x} value={x}>{mesLabel(x)}</option>)}
+          </select>
+        </div>
+        <button className="btn btn-primary" onClick={calcular} disabled={loading}>
+          {loading ? "Calculando..." : "Calcular CMV Real"}
+        </button>
+      </div>
+
+      {d && (
+        <div className="space-y-4">
+          {!d.completo && (
+            <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1">
+              <div className="font-medium">Ainda não dá para fechar o CMV de {mesLabel(d.mes)}:</div>
+              {!d.estoqueInicial.existe && <div>• Falta o inventário de {d.estoqueInicial.data} (estoque inicial).</div>}
+              {!d.estoqueFinal.existe && <div>• Falta o inventário de {d.estoqueFinal.data} (estoque final).</div>}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="border rounded-xl p-3 text-center bg-gray-50">
+              <div className="text-xs text-gray-500 mb-1">Estoque inicial</div>
+              <div className="text-xs text-gray-400">{d.estoqueInicial.data}</div>
+              <div className="text-lg font-semibold">{d.estoqueInicial.existe ? fmtMoney(d.estoqueInicial.valorTotal) : "—"}</div>
+            </div>
+            <div className="border rounded-xl p-3 text-center bg-gray-50">
+              <div className="text-xs text-gray-500 mb-1">+ Compras</div>
+              <div className="text-xs text-gray-400">{d.compras.fonte === "manual" ? "valor informado" : `${d.compras.lancamentos} lançamentos`}</div>
+              <div className="text-lg font-semibold text-blue-600">{fmtMoney(d.compras.total)}</div>
+            </div>
+            <div className="border rounded-xl p-3 text-center bg-gray-50">
+              <div className="text-xs text-gray-500 mb-1">− Estoque final</div>
+              <div className="text-xs text-gray-400">{d.estoqueFinal.data}</div>
+              <div className="text-lg font-semibold">{d.estoqueFinal.existe ? fmtMoney(d.estoqueFinal.valorTotal) : "—"}</div>
+            </div>
+            <div className={`border-2 rounded-xl p-3 text-center ${d.cmvPct === null ? "border-gray-200 bg-gray-50" : d.cmvPct <= 35 ? "border-green-400 bg-green-50" : d.cmvPct <= 45 ? "border-yellow-400 bg-yellow-50" : "border-red-400 bg-red-50"}`}>
+              <div className="text-xs text-gray-500 mb-1">CMV Real</div>
+              <div className="text-lg font-bold">{fmtMoney(d.cmvReal)}</div>
+              <div className={`text-sm font-semibold ${cmvColor(d.cmvPct)}`}>{fmtPct(d.cmvPct)}</div>
+            </div>
+          </div>
+
+          <div className="text-xs text-gray-500">
+            Receita do mês (base de vendas): <span className="font-medium text-gray-700">{d.receita === null ? "não disponível" : fmtMoney(d.receita)}</span>
+          </div>
+
+          {/* Compras do mês */}
+          <div className="border rounded-xl p-3 space-y-2">
+            <div className="text-sm font-medium">Compras do mês</div>
+            <div className="text-xs text-gray-500">
+              Registro de Compras do sistema: {fmtMoney(d.compras.totalRegistro)} ({d.compras.lancamentos} lançamentos).
+              Enquanto a base de compras não estiver completa, informe aqui o total comprado no mês; ele passa a valer no cálculo.
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-1">
+                <label className="text-xs text-gray-600 block">Total de compras informado (R$)</label>
+                <input type="number" step="0.01" min={0} className="input w-44" value={comprasManual}
+                  onChange={(e) => setComprasManual(e.target.value)} placeholder="usar o Registro de Compras" />
               </div>
+              <button className="btn btn-ghost text-sm" onClick={() => salvarComprasManual(false)} disabled={salvandoCompras || comprasManual === ""}>
+                {salvandoCompras ? "Salvando..." : "Usar este valor"}
+              </button>
+              {d.compras.fonte === "manual" && (
+                <button className="btn btn-ghost text-sm" onClick={() => salvarComprasManual(true)} disabled={salvandoCompras}>
+                  Voltar a usar o Registro de Compras
+                </button>
+              )}
+            </div>
+          </div>
 
-              {/* Comparativo Teórico vs Real */}
-              {rowsTeo.length > 0 && (
-                <div className="border rounded-xl p-3 bg-white">
-                  <div className="text-sm font-medium mb-2">Comparativo</div>
+          {/* Comparativo teórico x real */}
+          {d.completo && (
+            <div className="border rounded-xl p-3 bg-white">
+              <div className="text-sm font-medium mb-2">Comparativo com o CMV Teórico</div>
+              {teoricoDoMes ? (
+                <>
                   <div className="grid grid-cols-2 gap-3 text-center text-sm">
                     <div>
                       <div className="text-xs text-gray-500">CMV Teórico</div>
-                      <div className="font-semibold">{fmtMoney(totalCusto)}</div>
-                      <div className={`text-sm font-bold ${cmvColor(cmvGeral)}`}>{fmtPct(cmvGeral)}</div>
+                      <div className="font-semibold">{fmtMoney(teoricoDoMes.custo)}</div>
+                      <div className={`text-sm font-bold ${cmvColor(teoricoDoMes.pct)}`}>{fmtPct(teoricoDoMes.pct)}</div>
                     </div>
                     <div>
                       <div className="text-xs text-gray-500">CMV Real</div>
                       <div className="font-semibold">{fmtMoney(d.cmvReal)}</div>
-                      {cmvPct !== null && <div className={`text-sm font-bold ${cmvColor(cmvPct)}`}>{fmtPct(cmvPct)}</div>}
+                      <div className={`text-sm font-bold ${cmvColor(d.cmvPct)}`}>{fmtPct(d.cmvPct)}</div>
                     </div>
                   </div>
-                  {cmvPct !== null && Math.abs(cmvPct - cmvGeral) > 5 && (
-                    <div className="mt-2 text-xs text-amber-600">
-                      ⚠ Diferença de {Math.abs(cmvPct - cmvGeral).toFixed(1)}pp entre teórico e real — pode indicar desperdício, perdas ou compras não lançadas.
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Compras do período */}
-              {d.compras.rows.length > 0 && (
-                <details className="border rounded-xl">
-                  <summary className="px-4 py-3 cursor-pointer text-sm font-medium">
-                    Compras do período ({d.compras.rows.length} lançamentos — {fmtMoney(d.compras.total)})
-                  </summary>
-                  <div className="overflow-auto px-2 pb-3">
-                    <table className="min-w-full border text-sm mt-2">
-                      <thead className="bg-gray-100">
-                        <tr>
-                          <th className="border px-3 py-1 text-left">Data</th>
-                          <th className="border px-3 py-1 text-left">Insumo</th>
-                          <th className="border px-3 py-1 text-right">Qtd</th>
-                          <th className="border px-3 py-1 text-right">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {d.compras.rows.map((r: any, i: number) => (
-                          <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
-                            <td className="border px-3 py-1">{r.data}</td>
-                            <td className="border px-3 py-1">{r.insumo}</td>
-                            <td className="border px-3 py-1 text-right">{r.quantidade}</td>
-                            <td className="border px-3 py-1 text-right">{fmtMoney(r.custoTotal)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="mt-2 text-xs text-gray-600">
+                    Diferença: {fmtMoney(d.cmvReal - teoricoDoMes.custo)}
+                    {d.cmvPct !== null && ` (${(d.cmvPct - teoricoDoMes.pct).toFixed(1)} pontos percentuais)`}. Diferença
+                    positiva indica desperdício, perdas, consumo interno ou compras lançadas a mais.
                   </div>
-                </details>
-              )}
-
-              {/* Alertas de itens sem custo no catálogo */}
-              {(ei.semCusto?.length > 0 || ef.semCusto?.length > 0) && (
-                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1">
-                  <div className="font-medium">⚠ Itens do inventário sem custo no Cadastro de Insumos (contabilizados como R$ 0):</div>
-                  <div>{[...new Set([...(ei.semCusto || []), ...(ef.semCusto || [])])].join(", ")}</div>
-                  <div>Cadastre esses itens na aba "Insumos" com o custo por unidade para um cálculo preciso.</div>
-                </div>
+                </>
+              ) : (
+                <button className="btn btn-ghost text-sm" onClick={() => calcularTeorico(mesStart, mesEnd)} disabled={loadingTeorico}>
+                  {loadingTeorico ? "Calculando..." : `Calcular o CMV Teórico de ${mesLabel(d.mes)}`}
+                </button>
               )}
             </div>
-          );
-        })()}
+          )}
+
+          {/* Consumo real por insumo */}
+          {d.completo && d.insumos.length > 0 && (
+            <details className="border rounded-xl">
+              <summary className="px-4 py-3 cursor-pointer text-sm font-medium">
+                Consumo real por insumo ({d.insumos.length} insumos)
+              </summary>
+              <div className="overflow-auto px-2 pb-3">
+                <table className="min-w-full border text-sm mt-2">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="border px-3 py-1 text-left">Insumo</th>
+                      <th className="border px-3 py-1 text-right">Inicial</th>
+                      <th className="border px-3 py-1 text-right">+ Compras</th>
+                      <th className="border px-3 py-1 text-right">− Final</th>
+                      <th className="border px-3 py-1 text-right">Consumo (qtd)</th>
+                      <th className="border px-3 py-1 text-right">Consumo (R$)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {d.insumos.map((r: any, i: number) => (
+                      <tr key={i} className={r.qtdConsumo < 0 ? "bg-red-50" : i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                        <td className="border px-3 py-1">{r.insumo} {r.unidade && <span className="text-xs text-gray-400">({r.unidade})</span>}</td>
+                        <td className="border px-3 py-1 text-right">{fmtQtd(r.qtdInicial)}</td>
+                        <td className="border px-3 py-1 text-right">{fmtQtd(r.qtdCompras)}</td>
+                        <td className="border px-3 py-1 text-right">{fmtQtd(r.qtdFinal)}</td>
+                        <td className="border px-3 py-1 text-right font-medium">{fmtQtd(r.qtdConsumo)}</td>
+                        <td className="border px-3 py-1 text-right">{fmtMoney(r.valorConsumo)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="text-xs text-gray-500 mt-2">
+                  Esta tabela usa as compras lançadas por insumo no Registro de Compras. Linhas em vermelho (consumo
+                  negativo) indicam compra não lançada ou erro de contagem.
+                  {d.compras.fonte === "manual" && " Como o total de compras do mês foi informado manualmente, a soma desta tabela pode não bater com o CMV Real acima."}
+                </p>
+              </div>
+            </details>
+          )}
+
+          {(d.estoqueInicial.semCusto?.length > 0 || d.estoqueFinal.semCusto?.length > 0) && (
+            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              ⚠ Itens inventariados sem custo (contam como R$ 0):{" "}
+              {[...new Set([...(d.estoqueInicial.semCusto || []), ...(d.estoqueFinal.semCusto || [])])].join(", ")}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ======== CONSUMO DOS SÓCIOS ========
+const SOCIOS_PADRAO = ["Eduardo", "Arycarlos", "Beatriz"];
+const SOCIO_LS_KEY = "fattoria_consumo_socio";
+
+function ConsumoSociosTab() {
+  type Item = { product: string; quantity: string };
+  type Linha = { id: string; data: string; socio: string; produto: string; quantidade: number; observacao: string };
+
+  const hoje = new Date();
+  const [socios, setSocios] = useState<string[]>(SOCIOS_PADRAO);
+  const [socio, setSocio] = useState<string>(() => {
+    try { return localStorage.getItem(SOCIO_LS_KEY) || ""; } catch { return ""; }
+  });
+  const [outroSocio, setOutroSocio] = useState("");
+  const [dateRaw, setDateRaw] = useState(toInputDate(hoje));
+  const [itens, setItens] = useState<Item[]>([{ product: "", quantity: "1" }]);
+  const [obs, setObs] = useState("");
+  const [produtos, setProdutos] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  // histórico
+  const [start, setStart] = useState(toInputDate(new Date(hoje.getFullYear(), hoje.getMonth(), 1)));
+  const [end, setEnd] = useState(toInputDate(hoje));
+  const [filtroSocio, setFiltroSocio] = useState("Tudo");
+  const [loading, setLoading] = useState(false);
+  const [rows, setRows] = useState<Linha[]>([]);
+  const [resumo, setResumo] = useState<{ socio: string; produto: string; quantidade: number }[]>([]);
+  const [excluindo, setExcluindo] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`${SYNC_ENDPOINT}?action=products`)
+      .then((r) => r.json())
+      .then((j) => { if (j?.ok && Array.isArray(j.products)) setProdutos(j.products); })
+      .catch(() => {});
+  }, []);
+
+  const carregar = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ action: "consumo_socios_lista", start, end, socio: filtroSocio, _ts: String(Date.now()) });
+      const data = await (await fetch(`${SYNC_ENDPOINT}?${params.toString()}`)).json();
+      if (!data?.ok) throw new Error(data?.error || "Erro ao carregar.");
+      setRows(data.rows || []);
+      setResumo(data.resumo || []);
+      setSocios(Array.from(new Set([...SOCIOS_PADRAO, ...(data.socios || [])])));
+    } catch (err: any) {
+      alert(`Erro: ${String(err?.message || err)}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const socioFinal = socio === "__outro__" ? outroSocio.trim() : socio;
+
+  const salvar = async () => {
+    if (saving) return;
+    if (!socioFinal) { alert("Selecione o sócio."); return; }
+    if (!dateRaw) { alert("Selecione a data."); return; }
+    const limpos = itens.filter((i) => i.product && parseFloat(i.quantity) > 0);
+    if (!limpos.length) { alert("Adicione pelo menos um item."); return; }
+    const [y, m, d] = dateRaw.split("-");
+    setSaving(true);
+    try {
+      const data = await adminPost("save_consumo_socios", { date: `${d}/${m}/${y}`, socio: socioFinal, itens: limpos, observacao: obs });
+      if (!data?.ok) throw new Error(data?.error || "erro desconhecido");
+      try { localStorage.setItem(SOCIO_LS_KEY, socioFinal); } catch {}
+      if (socio === "__outro__") { setSocio(socioFinal); setOutroSocio(""); }
+      setItens([{ product: "", quantity: "1" }]);
+      setObs("");
+      await carregar();
+    } catch (err: any) {
+      alert(`Não foi possível salvar. Erro: ${String(err?.message || err)}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const excluir = async (r: Linha) => {
+    if (!confirm(`Excluir ${r.quantidade}x ${r.produto} de ${r.socio} em ${r.data}?`)) return;
+    setExcluindo(r.id);
+    try {
+      const data = await adminPost("delete_consumo_socio", { id: r.id });
+      if (!data?.ok) throw new Error(data?.error || "erro desconhecido");
+      await carregar();
+    } catch (err: any) {
+      alert(`Não foi possível excluir. Erro: ${String(err?.message || err)}`);
+    } finally {
+      setExcluindo(null);
+    }
+  };
+
+  const setItem = (idx: number, field: keyof Item, value: string) =>
+    setItens((prev) => prev.map((it, i) => (i === idx ? { ...it, [field]: value } : it)));
+
+  const listaSocios = socio && socio !== "__outro__" && !socios.includes(socio) ? [...socios, socio] : socios;
+  const resumoPorSocio = useMemo(() => {
+    const map: Record<string, { produto: string; quantidade: number }[]> = {};
+    resumo.forEach((r) => { (map[r.socio] = map[r.socio] || []).push({ produto: r.produto, quantidade: r.quantidade }); });
+    return Object.keys(map).sort().map((s) => ({ socio: s, itens: map[s] }));
+  }, [resumo]);
+
+  return (
+    <div className="space-y-6">
+      {/* Lançamento */}
+      <div className="border rounded-xl p-4 bg-white space-y-3">
+        <h3 className="font-semibold text-base">Lançar consumo</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Sócio</label>
+            <select className="input w-full" value={socio} onChange={(e) => setSocio(e.target.value)}>
+              <option value="">Selecione</option>
+              {listaSocios.map((s) => <option key={s} value={s}>{s}</option>)}
+              <option value="__outro__">Outro...</option>
+            </select>
+            {socio === "__outro__" && (
+              <input className="input w-full mt-1" value={outroSocio} onChange={(e) => setOutroSocio(e.target.value)} placeholder="Nome do sócio" />
+            )}
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm text-gray-600">Data</label>
+            <input type="date" className="input w-full" value={dateRaw} onChange={(e) => setDateRaw(e.target.value)} />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="font-semibold text-sm">Itens consumidos</div>
+            <button type="button" className="btn btn-ghost text-xs" onClick={() => setItens((p) => [...p, { product: "", quantity: "1" }])}>
+              + Adicionar item
+            </button>
+          </div>
+          {itens.map((item, idx) => (
+            <div key={idx} className="grid grid-cols-12 gap-2 items-end">
+              <div className="col-span-8">
+                <label className="text-xs text-gray-600 block mb-1">Produto</label>
+                <select className="input w-full" value={item.product} onChange={(e) => setItem(idx, "product", e.target.value)}>
+                  <option value="">Selecione</option>
+                  {produtos.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div className="col-span-3">
+                <label className="text-xs text-gray-600 block mb-1">Qtd.</label>
+                <input type="number" min={1} className="input w-full" value={item.quantity} onChange={(e) => setItem(idx, "quantity", e.target.value)} />
+              </div>
+              <div className="col-span-1 pb-2 text-center">
+                {itens.length > 1 && (
+                  <button type="button" className="text-red-500" title="Remover item" onClick={() => setItens((p) => p.filter((_, i) => i !== idx))}>
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-sm text-gray-600">Observação (opcional)</label>
+          <input className="input w-full" value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Ex.: jantar com a família" />
+        </div>
+
+        <button className="btn btn-primary" onClick={salvar} disabled={saving}>
+          {saving ? "Salvando..." : "Lançar consumo"}
+        </button>
+      </div>
+
+      {/* Histórico */}
+      <div className="border rounded-xl p-4 bg-white space-y-4">
+        <h3 className="font-semibold text-base">Consumo no período</h3>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="space-y-1">
+            <label className="text-xs text-gray-600 block">De</label>
+            <input type="date" className="input" value={start} onChange={(e) => setStart(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-gray-600 block">Até</label>
+            <input type="date" className="input" value={end} onChange={(e) => setEnd(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-gray-600 block">Sócio</label>
+            <select className="input" value={filtroSocio} onChange={(e) => setFiltroSocio(e.target.value)}>
+              <option value="Tudo">Todos</option>
+              {socios.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <button className="btn btn-primary text-sm" onClick={carregar} disabled={loading}>
+            {loading ? "Carregando..." : "Filtrar"}
+          </button>
+        </div>
+
+        {!loading && rows.length === 0 && <div className="text-sm text-gray-500">Nenhum consumo lançado nesse período.</div>}
+
+        {resumoPorSocio.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {resumoPorSocio.map((s) => (
+              <div key={s.socio} className="border rounded-xl p-3 bg-gray-50">
+                <div className="font-semibold text-sm mb-1">{s.socio}</div>
+                <ul className="text-sm space-y-0.5">
+                  {s.itens.map((it) => (
+                    <li key={it.produto} className="flex justify-between gap-2">
+                      <span>{it.produto}</span>
+                      <span className="font-medium">{it.quantidade}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {rows.length > 0 && (
+          <div className="overflow-auto">
+            <table className="min-w-full border text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="border px-3 py-2 text-left">Data</th>
+                  <th className="border px-3 py-2 text-left">Sócio</th>
+                  <th className="border px-3 py-2 text-left">Produto</th>
+                  <th className="border px-3 py-2 text-right">Qtd.</th>
+                  <th className="border px-3 py-2 text-left">Observação</th>
+                  <th className="border px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id}>
+                    <td className="border px-3 py-2 whitespace-nowrap">{r.data}</td>
+                    <td className="border px-3 py-2">{r.socio}</td>
+                    <td className="border px-3 py-2">{r.produto}</td>
+                    <td className="border px-3 py-2 text-right">{r.quantidade}</td>
+                    <td className="border px-3 py-2 text-gray-600">{r.observacao}</td>
+                    <td className="border px-3 py-2 text-center">
+                      <button className="text-xs text-red-500 hover:underline" onClick={() => excluir(r)} disabled={excluindo === r.id}>
+                        {excluindo === r.id ? "..." : "Excluir"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
