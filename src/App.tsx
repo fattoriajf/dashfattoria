@@ -9040,10 +9040,28 @@ function CMVTab() {
   const [totalReceita, setTotalReceita] = useState(0);
   const [cmvGeral, setCmvGeral] = useState(0);
   const [grupos, setGrupos] = useState<string[]>([]);
-  const [grupoSel, setGrupoSel] = useState("Tudo");
+  // categorias selecionadas (vazio = todas); valem para o teórico e para o real
+  const [gruposSel, setGruposSel] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem("fattoria_cmv_grupos");
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+  });
+  const toggleGrupo = (g: string) =>
+    setGruposSel((prev) => {
+      const next = prev.includes(g) ? prev.filter((x) => x !== g) : [...prev, g];
+      try { localStorage.setItem("fattoria_cmv_grupos", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  const limparGrupos = () => {
+    try { localStorage.removeItem("fattoria_cmv_grupos"); } catch {}
+    setGruposSel([]);
+  };
+  const gruposKey = [...gruposSel].sort().join("||");
 
   // período em que o teórico foi calculado por último (para o comparativo com o CMV real do mês)
-  const [periodoTeo, setPeriodoTeo] = useState<{ start: string; end: string } | null>(null);
+  const [periodoTeo, setPeriodoTeo] = useState<{ start: string; end: string; gruposKey: string } | null>(null);
 
   const fmtMoney = (n: number | null) =>
     n === null ? "—" : new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
@@ -9092,12 +9110,13 @@ function CMVTab() {
       const dashUrl = `${SYNC_ENDPOINT}?action=dashboard_base_rows` +
         `&start=${encodeURIComponent(toDDMMYYYY(startRaw))}` +
         `&end=${encodeURIComponent(toDDMMYYYY(endRaw))}` +
-        `&grupo=${encodeURIComponent(grupoSel)}&descricao=Tudo&weekday=Tudo&_ts=${Date.now()}`;
+        `&grupo=Tudo&descricao=Tudo&weekday=Tudo&_ts=${Date.now()}`;
       const dashData = await (await fetch(dashUrl)).json();
       if (!dashData?.ok) throw new Error(dashData?.error || "Erro no Dashboard.");
 
       const agg: Record<string, any> = {};
       (dashData.rows || []).forEach((r: any) => {
+        if (gruposSel.length && !gruposSel.includes(String(r.grupo || "").trim())) return;
         const key = String(r.descricao || "").toLowerCase().trim();
         if (!key) return;
         if (!agg[key]) agg[key] = { descricao: String(r.descricao || ""), qtdVendida: 0, receitaTotal: 0 };
@@ -9120,7 +9139,7 @@ function CMVTab() {
       setTotalCusto(totCusto);
       setTotalReceita(totReceita);
       setCmvGeral(totReceita > 0 ? (totCusto / totReceita) * 100 : 0);
-      setPeriodoTeo({ start: startRaw, end: endRaw });
+      setPeriodoTeo({ start: startRaw, end: endRaw, gruposKey });
     } catch (err: any) {
       alert(`Erro: ${String(err)}`);
     } finally {
@@ -9146,6 +9165,40 @@ function CMVTab() {
   return (
     <div className="space-y-6">
 
+      {/* ── CATEGORIAS (valem para o teórico e para o real) ── */}
+      <div className="border rounded-xl p-4 bg-white space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="font-semibold text-base">Categorias do cálculo</h3>
+            <p className="text-xs text-gray-500 mt-1">
+              Marque as categorias que entram no CMV. O faturamento usado no cálculo (teórico e real) será só o delas.
+              Sem nenhuma marcada, entram todas.
+            </p>
+          </div>
+          {gruposSel.length > 0 && (
+            <button className="btn btn-ghost text-xs" onClick={limparGrupos}>Limpar (usar todas)</button>
+          )}
+        </div>
+        {grupos.length === 0 ? (
+          <div className="text-xs text-gray-500">Carregando categorias...</div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {grupos.map((g) => {
+              const on = gruposSel.includes(g);
+              return (
+                <label key={g} className={`flex items-center gap-2 border rounded-full px-3 py-1 text-sm cursor-pointer ${on ? "bg-blue-50 border-blue-400 text-blue-800" : "bg-white"}`}>
+                  <input type="checkbox" checked={on} onChange={() => toggleGrupo(g)} />
+                  {g}
+                </label>
+              );
+            })}
+          </div>
+        )}
+        <div className="text-xs text-gray-600">
+          Calculando sobre: <span className="font-medium">{gruposSel.length ? gruposSel.join(", ") : "todas as categorias"}</span>
+        </div>
+      </div>
+
       {/* ── CMV TEÓRICO ── */}
       <div className="border rounded-xl p-4 bg-white space-y-4">
         <div>
@@ -9155,13 +9208,6 @@ function CMVTab() {
           </p>
         </div>
         {dateInputs}
-        <div className="space-y-1">
-          <label className="text-sm text-gray-600">Categoria</label>
-          <select className="input w-full sm:w-64" value={grupoSel} onChange={e => setGrupoSel(e.target.value)}>
-            <option value="Tudo">Todos os produtos</option>
-            {grupos.map(g => <option key={g} value={g}>{g}</option>)}
-          </select>
-        </div>
         <button className="btn btn-primary w-full sm:w-auto" onClick={() => loadTeorico()} disabled={loadingTeo}>
           {loadingTeo ? "Calculando..." : "Calcular CMV Teórico"}
         </button>
@@ -9240,6 +9286,8 @@ function CMVTab() {
         teorico={rowsTeo.length > 0 && periodoTeo ? { ...periodoTeo, custo: totalCusto, receita: totalReceita, pct: cmvGeral } : null}
         calcularTeorico={(start, end) => loadTeorico(start, end)}
         loadingTeorico={loadingTeo}
+        grupos={gruposSel}
+        gruposKey={gruposKey}
       />
     </div>
   );
@@ -9499,10 +9547,14 @@ function CmvMensalSection({
   teorico,
   calcularTeorico,
   loadingTeorico,
+  grupos,
+  gruposKey,
 }: {
-  teorico: { start: string; end: string; custo: number; receita: number; pct: number } | null;
+  teorico: { start: string; end: string; gruposKey: string; custo: number; receita: number; pct: number } | null;
   calcularTeorico: (start: string, end: string) => void;
   loadingTeorico: boolean;
+  grupos: string[];
+  gruposKey: string;
 }) {
   const fmtMoney = (n: number | null) => (n === null || n === undefined ? "—" : formatBRL(n));
   const fmtPct = (n: number | null) => (n === null || n === undefined ? "—" : `${Number(n).toFixed(1)}%`);
@@ -9516,6 +9568,14 @@ function CmvMensalSection({
   const [dados, setDados] = useState<any>(null);
   const [comprasManual, setComprasManual] = useState("");
   const [salvandoCompras, setSalvandoCompras] = useState(false);
+  // considerar só as compras dos insumos que estão nos inventários
+  const [soInventariados, setSoInventariados] = useState<boolean>(() => {
+    try { return localStorage.getItem("fattoria_cmv_so_inventariados") !== "0"; } catch { return true; }
+  });
+  const trocarSoInventariados = (v: boolean) => {
+    try { localStorage.setItem("fattoria_cmv_so_inventariados", v ? "1" : "0"); } catch {}
+    setSoInventariados(v);
+  };
 
   const [ano, m] = mes.split("-").map(Number);
   const ultimoDia = new Date(ano, m, 0).getDate();
@@ -9525,7 +9585,8 @@ function CmvMensalSection({
   const calcular = async () => {
     setLoading(true);
     try {
-      const resp = await fetch(`${SYNC_ENDPOINT}?action=cmv_mensal&mes=${encodeURIComponent(mes)}&_ts=${Date.now()}`);
+      const params = new URLSearchParams({ action: "cmv_mensal", mes, grupos: grupos.join("||"), so_inventariados: soInventariados ? "1" : "0", _ts: String(Date.now()) });
+      const resp = await fetch(`${SYNC_ENDPOINT}?${params.toString()}`);
       const json = await resp.json();
       if (!json?.ok) throw new Error(json?.error || "Erro ao calcular o CMV do mês.");
       setDados(json);
@@ -9537,7 +9598,8 @@ function CmvMensalSection({
     }
   };
 
-  useEffect(() => { setDados(null); }, [mes]);
+  // mudou o mês, as categorias ou a opção de compras: o resultado na tela deixa de valer
+  useEffect(() => { setDados(null); }, [mes, gruposKey, soInventariados]);
 
   const salvarComprasManual = async (limpar: boolean) => {
     if (salvandoCompras) return;
@@ -9554,7 +9616,7 @@ function CmvMensalSection({
   };
 
   const d = dados;
-  const teoricoDoMes = teorico && teorico.start === mesStart && teorico.end === mesEnd ? teorico : null;
+  const teoricoDoMes = teorico && teorico.start === mesStart && teorico.end === mesEnd && teorico.gruposKey === gruposKey ? teorico : null;
 
   return (
     <div className="border rounded-xl p-4 bg-white space-y-4">
@@ -9576,6 +9638,21 @@ function CmvMensalSection({
         <button className="btn btn-primary" onClick={calcular} disabled={loading}>
           {loading ? "Calculando..." : "Calcular CMV Real"}
         </button>
+      </div>
+
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" className="mt-1" checked={soInventariados} onChange={(e) => trocarSoInventariados(e.target.checked)} />
+        <span>
+          Considerar só as compras dos insumos inventariados
+          <span className="block text-xs text-gray-500">
+            Use quando o inventário cobre só uma parte do cardápio (ex.: só os insumos das pizzas). As compras dos
+            outros insumos ficam fora da conta.
+          </span>
+        </span>
+      </label>
+
+      <div className="text-xs text-gray-600">
+        Faturamento considerado: <span className="font-medium">{grupos.length ? grupos.join(", ") : "todas as categorias"}</span>
       </div>
 
       {d && (
@@ -9612,8 +9689,16 @@ function CmvMensalSection({
           </div>
 
           <div className="text-xs text-gray-500">
-            Receita do mês (base de vendas): <span className="font-medium text-gray-700">{d.receita === null ? "não disponível" : fmtMoney(d.receita)}</span>
+            Receita do mês ({d.grupos?.length ? d.grupos.join(", ") : "todas as categorias"}):{" "}
+            <span className="font-medium text-gray-700">{d.receita === null ? "não disponível" : fmtMoney(d.receita)}</span>
           </div>
+
+          {d.compras.soInventariados && d.compras.excluidas?.total > 0 && (
+            <div className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+              {fmtMoney(d.compras.excluidas.total)} em compras de insumos não inventariados ficaram fora da conta:{" "}
+              {d.compras.excluidas.insumos.join(", ")}.
+            </div>
+          )}
 
           {/* Compras do mês */}
           <div className="border rounded-xl p-3 space-y-2">
