@@ -10080,7 +10080,6 @@ function ComprasTab() {
   const [formData, setFormData] = useState(todayStr);
   const [formInsumo, setFormInsumo] = useState("");
   const [formQtd, setFormQtd] = useState("");
-  const [formCustoUn, setFormCustoUn] = useState("");
   const [formCustoTotal, setFormCustoTotal] = useState("");
   const [formObs, setFormObs] = useState("");
 
@@ -10109,40 +10108,24 @@ function ComprasTab() {
 
   useEffect(() => { loadData(); }, [filterStart, filterEnd]);
 
-  // Quando usuário muda insumo, pré-preenche custo unitário do catálogo
-  const handleInsumoChange = (nome: string) => {
-    setFormInsumo(nome);
-    const ins = insumos.find(i => i.insumo === nome);
-    if (ins && ins.custoPorUnidade > 0) {
-      setFormCustoUn(String(ins.custoPorUnidade));
-      const qtd = parseFloat(formQtd);
-      if (!isNaN(qtd) && qtd > 0) setFormCustoTotal(String((qtd * ins.custoPorUnidade).toFixed(2)));
-    }
-  };
-
-  const handleQtdChange = (v: string) => {
-    setFormQtd(v);
-    const qtd = parseFloat(v);
-    const un = parseFloat(formCustoUn);
-    if (!isNaN(qtd) && !isNaN(un)) setFormCustoTotal(String((qtd * un).toFixed(2)));
-  };
-
-  const handleCustoUnChange = (v: string) => {
-    setFormCustoUn(v);
-    const qtd = parseFloat(formQtd);
-    const un = parseFloat(v);
-    if (!isNaN(qtd) && !isNaN(un)) setFormCustoTotal(String((qtd * un).toFixed(2)));
-  };
+  // Você informa quantidade + valor total pago; o custo unitário (ex.: R$/kg) é calculado
+  const numBR = (v: string) => parseFloat(String(v || "").replace(",", "."));
+  const qtdNum = numBR(formQtd);
+  const totalNum = numBR(formCustoTotal);
+  const custoUnCalc = qtdNum > 0 && totalNum > 0 ? totalNum / qtdNum : null;
+  const insumoSel = insumos.find(i => i.insumo === formInsumo);
+  const unidadeSel = insumoSel?.unidade || "";
 
   const resetForm = () => {
     setFormData(todayStr); setFormInsumo(""); setFormQtd("");
-    setFormCustoUn(""); setFormCustoTotal(""); setFormObs("");
+    setFormCustoTotal(""); setFormObs("");
     setShowForm(false);
   };
 
   const handleSave = async () => {
     if (!formInsumo) { alert("Selecione um insumo."); return; }
-    if (!formQtd)    { alert("Informe a quantidade."); return; }
+    if (!(qtdNum > 0)) { alert("Informe a quantidade."); return; }
+    if (!(totalNum > 0)) { alert("Informe o valor total pago."); return; }
     setSaving(true);
     try {
       await fetch(SYNC_ENDPOINT, {
@@ -10152,9 +10135,9 @@ function ComprasTab() {
           action: "save_compra",
           date: toDDMMYYYY(formData),
           insumo: formInsumo,
-          quantidade: parseFloat(formQtd),
-          custoUnitario: parseFloat(formCustoUn) || 0,
-          custoTotal: parseFloat(formCustoTotal) || 0,
+          quantidade: qtdNum,
+          custoUnitario: custoUnCalc || 0,
+          custoTotal: totalNum,
           observacao: formObs,
         }),
       });
@@ -10215,7 +10198,7 @@ function ComprasTab() {
             <div className="space-y-1">
               <label className="text-xs text-gray-600">Insumo</label>
               {insumos.length > 0 ? (
-                <select className="input w-full" value={formInsumo} onChange={e => handleInsumoChange(e.target.value)}>
+                <select className="input w-full" value={formInsumo} onChange={e => setFormInsumo(e.target.value)}>
                   <option value="">Selecione...</option>
                   {insumos.map(ins => <option key={ins.insumo} value={ins.insumo}>{ins.insumo}</option>)}
                 </select>
@@ -10225,17 +10208,24 @@ function ComprasTab() {
             </div>
             <div className="space-y-1">
               <label className="text-xs text-gray-600">
-                Quantidade {insumos.find(i => i.insumo === formInsumo)?.unidade ? `(${insumos.find(i => i.insumo === formInsumo)?.unidade})` : ""}
+                Quantidade {unidadeSel ? `(${unidadeSel})` : ""}
               </label>
-              <input type="number" step="0.001" className="input w-full" value={formQtd} onChange={e => handleQtdChange(e.target.value)} placeholder="0" />
+              <input type="number" step="0.001" min={0} inputMode="decimal" className="input w-full" value={formQtd} onChange={e => setFormQtd(e.target.value)} placeholder="0" />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-gray-600">Custo unitário (R$)</label>
-              <input type="number" step="0.001" className="input w-full" value={formCustoUn} onChange={e => handleCustoUnChange(e.target.value)} placeholder="0,00" />
+              <label className="text-xs text-gray-600">Valor total pago (R$)</label>
+              <input type="number" step="0.01" min={0} inputMode="decimal" className="input w-full" value={formCustoTotal} onChange={e => setFormCustoTotal(e.target.value)} placeholder="0,00" />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-gray-600">Custo total (R$)</label>
-              <input type="number" step="0.01" className="input w-full" value={formCustoTotal} onChange={e => setFormCustoTotal(e.target.value)} placeholder="0,00" />
+              <label className="text-xs text-gray-600">Custo {unidadeSel ? `por ${unidadeSel}` : "unitário"} (calculado)</label>
+              <div className="input w-full bg-gray-100 text-gray-700 flex items-center font-medium">
+                {custoUnCalc !== null ? `${fmtMoney(custoUnCalc)}${unidadeSel ? ` / ${unidadeSel}` : ""}` : "—"}
+              </div>
+              {insumoSel && insumoSel.custoPorUnidade > 0 && (
+                <div className="text-xs text-gray-500">
+                  No cadastro de insumos: {fmtMoney(insumoSel.custoPorUnidade)}{unidadeSel ? ` / ${unidadeSel}` : ""}
+                </div>
+              )}
             </div>
             <div className="space-y-1">
               <label className="text-xs text-gray-600">Observação</label>
