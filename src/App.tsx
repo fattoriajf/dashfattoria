@@ -8380,6 +8380,7 @@ type Insumo = {
 
 type FichaIngrediente = {
   ingrediente: string;
+  tipo?: "insumo" | "preparo";
   quantidade: number;
   unidade: string;
   custoPorUnidade: number;
@@ -8404,9 +8405,405 @@ type FichaProduto = {
   ingredientes: FichaIngrediente[];
 };
 
+type FichaPreparo = {
+  nome: string;
+  rendimento: number;
+  unidade: string;
+  custoTotal: number;
+  custoPorUnidade: number;
+  erro?: string;
+  ingredientes: (FichaIngrediente & { tipo?: "insumo" | "preparo"; naoEncontrado?: boolean })[];
+};
+
+type ItemFicha = { nome: string; tipo: "insumo" | "preparo"; unidade: string; custoPorUnidade: number };
+
+function ingKey(ing: { ingrediente: string; tipo?: string }) {
+  return `${ing.tipo === "preparo" ? "preparo" : "insumo"}|${ing.ingrediente}`;
+}
+
+// valor do select: "insumo::Nome" ou "preparo::Nome"
+function itemDaFicha(valor: string, insumos: Insumo[], preparos: FichaPreparo[]): ItemFicha | null {
+  if (!valor) return null;
+  const i = valor.indexOf("::");
+  const tipo = valor.slice(0, i) === "preparo" ? "preparo" : "insumo";
+  const nome = valor.slice(i + 2);
+  if (tipo === "preparo") {
+    const p = preparos.find((x) => x.nome === nome);
+    return p ? { nome: p.nome, tipo, unidade: p.unidade, custoPorUnidade: p.custoPorUnidade } : null;
+  }
+  const ins = insumos.find((x) => x.insumo === nome);
+  return ins ? { nome: ins.insumo, tipo, unidade: ins.unidade, custoPorUnidade: ins.custoPorUnidade } : null;
+}
+
+function OpcoesIngrediente({
+  value, onChange, insumos, preparos, excluirPreparo,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  insumos: Insumo[];
+  preparos: FichaPreparo[];
+  excluirPreparo?: string;
+}) {
+  const preps = preparos.filter((p) => p.nome !== excluirPreparo);
+  return (
+    <select className="input w-full" value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">Selecione...</option>
+      {preps.length > 0 && (
+        <optgroup label="Preparos (fichas de preparo)">
+          {preps.map((p) => <option key={`p-${p.nome}`} value={`preparo::${p.nome}`}>{p.nome}</option>)}
+        </optgroup>
+      )}
+      <optgroup label="Insumos">
+        {insumos.map((ins) => <option key={`i-${ins.insumo}`} value={`insumo::${ins.insumo}`}>{ins.insumo}</option>)}
+      </optgroup>
+    </select>
+  );
+}
+
+// ======== FICHAS DE PREPARO (massa, molhos, pesto, camarão, frango...) ========
+function PreparosSection({
+  insumos, preparos, onChange, loading,
+}: {
+  insumos: Insumo[];
+  preparos: FichaPreparo[];
+  onChange: () => Promise<void>;
+  loading: boolean;
+}) {
+  const fmtMoney = (n: number) => formatBRL(n);
+  const fmtQtd = (n: number) => Number(n || 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 });
+
+  const [selecionado, setSelecionado] = useState<string | null>(null);
+  const [novos, setNovos] = useState<FichaPreparo[]>([]); // criados aqui, ainda sem ingrediente salvo
+  const [showNovo, setShowNovo] = useState(false);
+  const [novoNome, setNovoNome] = useState("");
+  const [novoRend, setNovoRend] = useState("");
+  const [novoUnid, setNovoUnid] = useState("kg");
+
+  const [addSel, setAddSel] = useState("");
+  const [addQtd, setAddQtd] = useState("");
+  const [addDesp, setAddDesp] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const [editKey, setEditKey] = useState<string | null>(null);
+  const [editQtd, setEditQtd] = useState("");
+  const [editDesp, setEditDesp] = useState("");
+
+  const [editRend, setEditRend] = useState<string | null>(null);
+  const [editUnid, setEditUnid] = useState("kg");
+
+  const lista = useMemo(() => {
+    const nomes = new Set(preparos.map((p) => p.nome.toLowerCase()));
+    return [...preparos, ...novos.filter((n) => !nomes.has(n.nome.toLowerCase()))].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  }, [preparos, novos]);
+
+  const atual = selecionado ? lista.find((p) => p.nome === selecionado) || null : null;
+  const itemSel = itemDaFicha(addSel, insumos, preparos);
+
+  const enviar = async (action: string, body: Record<string, any>) => {
+    const data = await adminPost(action, body);
+    if (!data?.ok) throw new Error(data?.error || "erro desconhecido");
+    return data;
+  };
+
+  const criar = () => {
+    const nome = novoNome.trim();
+    const rend = parseFloat(novoRend.replace(",", "."));
+    if (!nome) { alert("Informe o nome do preparo."); return; }
+    if (!(rend > 0)) { alert("Informe quanto a receita rende depois de pronta."); return; }
+    if (lista.some((p) => p.nome.toLowerCase() === nome.toLowerCase())) { alert("Já existe um preparo com esse nome."); return; }
+    setNovos((prev) => [...prev, { nome, rendimento: rend, unidade: novoUnid, custoTotal: 0, custoPorUnidade: 0, ingredientes: [] }]);
+    setSelecionado(nome);
+    setShowNovo(false);
+    setNovoNome(""); setNovoRend(""); setNovoUnid("kg");
+  };
+
+  const adicionar = async () => {
+    if (!atual || saving) return;
+    if (!itemSel) { alert("Selecione um insumo ou preparo."); return; }
+    if (!(parseFloat(addQtd.replace(",", ".")) > 0)) { alert("Informe a quantidade."); return; }
+    setSaving(true);
+    try {
+      await enviar("save_preparo_item", {
+        preparo: atual.nome, rendimento: atual.rendimento, unidade: atual.unidade,
+        insumo: itemSel.nome, tipoItem: itemSel.tipo, quantidade: addQtd.replace(",", "."), desperdicio: addDesp || "0",
+      });
+      setAddSel(""); setAddQtd(""); setAddDesp("");
+      setNovos((prev) => prev.filter((n) => n.nome !== atual.nome));
+      await onChange();
+    } catch (err: any) {
+      alert(`Não foi possível salvar. ${String(err?.message || err)}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const salvarEdicao = async (ing: FichaPreparo["ingredientes"][number]) => {
+    if (!atual || saving) return;
+    setSaving(true);
+    try {
+      await enviar("save_preparo_item", {
+        preparo: atual.nome, insumo: ing.ingrediente, tipoItem: ing.tipo || "insumo",
+        quantidade: editQtd.replace(",", "."), desperdicio: editDesp || "0",
+      });
+      setEditKey(null);
+      await onChange();
+    } catch (err: any) {
+      alert(`Não foi possível salvar. ${String(err?.message || err)}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remover = async (ing: FichaPreparo["ingredientes"][number]) => {
+    if (!atual || !confirm(`Remover "${ing.ingrediente}" do preparo "${atual.nome}"?`)) return;
+    try {
+      await enviar("delete_preparo_item", { preparo: atual.nome, insumo: ing.ingrediente, tipoItem: ing.tipo || "insumo" });
+      await onChange();
+    } catch (err: any) {
+      alert(`Não foi possível remover. ${String(err?.message || err)}`);
+    }
+  };
+
+  const salvarRendimento = async () => {
+    if (!atual || editRend === null) return;
+    const rend = parseFloat(editRend.replace(",", "."));
+    if (!(rend > 0)) { alert("O rendimento precisa ser maior que zero."); return; }
+    if (atual.ingredientes.length === 0) {
+      setNovos((prev) => prev.map((n) => (n.nome === atual.nome ? { ...n, rendimento: rend, unidade: editUnid } : n)));
+      setEditRend(null);
+      return;
+    }
+    try {
+      await enviar("update_preparo", { preparo: atual.nome, rendimento: rend, unidade: editUnid });
+      setEditRend(null);
+      await onChange();
+    } catch (err: any) {
+      alert(`Não foi possível salvar. ${String(err?.message || err)}`);
+    }
+  };
+
+  const excluirPreparo = async (p: FichaPreparo) => {
+    if (!confirm(`Excluir o preparo "${p.nome}"?`)) return;
+    if (p.ingredientes.length === 0) {
+      setNovos((prev) => prev.filter((n) => n.nome !== p.nome));
+      setSelecionado(null);
+      return;
+    }
+    try {
+      await enviar("delete_preparo", { preparo: p.nome });
+      setSelecionado(null);
+      await onChange();
+    } catch (err: any) {
+      alert(String(err?.message || err));
+    }
+  };
+
+  return (
+    <div className="border rounded-xl p-4 bg-white space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h3 className="font-semibold text-base">Fichas de preparo</h3>
+          <p className="text-xs text-gray-500 mt-1">
+            Itens produzidos na casa e usados nas pizzas. O custo por kg sai da receita ÷ rendimento e é usado
+            automaticamente nas fichas das pizzas e no inventário mensal.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button className="btn btn-ghost text-sm" onClick={() => onChange()} disabled={loading}>{loading ? "Carregando..." : "Atualizar"}</button>
+          <button className="btn btn-primary text-sm" onClick={() => { setShowNovo(true); setSelecionado(null); }}>+ Novo preparo</button>
+        </div>
+      </div>
+
+      {showNovo && (
+        <div className="border rounded-xl p-3 bg-gray-50 space-y-3">
+          <div className="font-medium text-sm">Novo preparo</div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Nome</label>
+              <input className="input w-full" value={novoNome} onChange={(e) => setNovoNome(e.target.value)} placeholder="Ex.: Massa, Molho de tomate" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Rendimento (depois de pronto)</label>
+              <input type="number" step="0.001" min={0} className="input w-full" value={novoRend} onChange={(e) => setNovoRend(e.target.value)} placeholder="Ex.: 4" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Unidade</label>
+              <select className="input w-full" value={novoUnid} onChange={(e) => setNovoUnid(e.target.value)}>
+                <option value="kg">kg</option>
+                <option value="L">L</option>
+                <option value="un">un</option>
+              </select>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button className="btn btn-primary text-sm" onClick={criar}>Avançar →</button>
+            <button className="btn btn-ghost text-sm" onClick={() => setShowNovo(false)}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {!loading && lista.length === 0 && !showNovo && (
+        <div className="text-sm text-gray-500">Nenhum preparo cadastrado. Comece pela massa e pelos molhos.</div>
+      )}
+
+      <div className="space-y-2">
+        {lista.map((p) => {
+          const aberto = selecionado === p.nome;
+          return (
+            <div key={p.nome} className={`border rounded-xl overflow-hidden ${aberto ? "border-purple-400" : "border-gray-200"}`}>
+              <div
+                className={`flex items-center justify-between px-4 py-3 cursor-pointer ${aberto ? "bg-purple-50" : "bg-white hover:bg-gray-50"}`}
+                onClick={() => { setSelecionado(aberto ? null : p.nome); setEditKey(null); setEditRend(null); setAddSel(""); }}
+              >
+                <div>
+                  <div className="font-medium">{p.nome}</div>
+                  <div className="text-xs text-gray-500 space-x-3">
+                    <span>Rende {fmtQtd(p.rendimento)} {p.unidade}</span>
+                    <span>Receita: {fmtMoney(p.custoTotal)}</span>
+                    <span className="font-medium text-gray-700">{fmtMoney(p.custoPorUnidade)} / {p.unidade}</span>
+                    {p.erro && p.erro !== "sem rendimento" && <span className="text-red-600">⚠ {p.erro}</span>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button className="text-xs text-red-500 hover:underline" onClick={(e) => { e.stopPropagation(); excluirPreparo(p); }}>Excluir</button>
+                  <span className="text-gray-400 text-xs">{aberto ? "▲" : "▼"}</span>
+                </div>
+              </div>
+
+              {aberto && (
+                <div className="px-4 py-3 bg-white border-t space-y-3">
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="text-gray-600">Rendimento:</span>
+                    {editRend !== null ? (
+                      <>
+                        <input type="number" step="0.001" min={0} className="input w-24 text-sm" value={editRend} onChange={(e) => setEditRend(e.target.value)} />
+                        <select className="input text-sm" value={editUnid} onChange={(e) => setEditUnid(e.target.value)}>
+                          <option value="kg">kg</option><option value="L">L</option><option value="un">un</option>
+                        </select>
+                        <button className="btn btn-primary text-xs" onClick={salvarRendimento}>Salvar</button>
+                        <button className="btn btn-ghost text-xs" onClick={() => setEditRend(null)}>Cancelar</button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-semibold">{fmtQtd(p.rendimento)} {p.unidade}</span>
+                        <button className="text-xs text-blue-600 hover:underline" onClick={() => { setEditRend(String(p.rendimento)); setEditUnid(p.unidade || "kg"); }}>Editar</button>
+                      </>
+                    )}
+                  </div>
+
+                  {p.ingredientes.length > 0 ? (
+                    <div className="overflow-auto">
+                      <table className="min-w-full border text-sm">
+                        <thead className="bg-gray-100">
+                          <tr>
+                            <th className="border px-3 py-2 text-left">Ingrediente</th>
+                            <th className="border px-3 py-2 text-right">Qtd</th>
+                            <th className="border px-3 py-2 text-left">Unidade</th>
+                            <th className="border px-3 py-2 text-right">Custo/un</th>
+                            <th className="border px-3 py-2 text-right">Desperdício %</th>
+                            <th className="border px-3 py-2 text-right">Custo total</th>
+                            <th className="border px-3 py-2"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {p.ingredientes.map((ing) => {
+                            const k = ingKey(ing);
+                            const editando = editKey === k;
+                            return (
+                              <tr key={k} className={editando ? "bg-blue-50" : ""}>
+                                <td className="border px-3 py-2">
+                                  {ing.ingrediente}
+                                  {ing.tipo === "preparo" && <span className="ml-1 text-xs text-purple-700 bg-purple-50 border border-purple-200 rounded px-1">preparo</span>}
+                                  {ing.naoEncontrado && <span className="ml-1 text-xs text-red-600">(não encontrado no cadastro)</span>}
+                                </td>
+                                <td className="border px-3 py-2 text-right">
+                                  {editando ? <input type="number" step="0.001" className="input w-20 text-sm text-right" value={editQtd} onChange={(e) => setEditQtd(e.target.value)} /> : fmtQtd(ing.quantidade)}
+                                </td>
+                                <td className="border px-3 py-2">{ing.unidade || "—"}</td>
+                                <td className="border px-3 py-2 text-right">{fmtMoney(ing.custoPorUnidade)}</td>
+                                <td className="border px-3 py-2 text-right">
+                                  {editando ? <input type="number" step="0.1" min={0} max={95} className="input w-20 text-sm text-right" value={editDesp} onChange={(e) => setEditDesp(e.target.value)} /> : ing.desperdicio ? `${ing.desperdicio}%` : "—"}
+                                </td>
+                                <td className="border px-3 py-2 text-right">
+                                  {editando && editQtd ? fmtMoney(parseFloat(editQtd) * ing.custoPorUnidade * fatorDesperdicio(editDesp)) : fmtMoney(ing.custoTotal)}
+                                </td>
+                                <td className="border px-3 py-2 text-center whitespace-nowrap">
+                                  {editando ? (
+                                    <>
+                                      <button className="text-xs text-blue-600 hover:underline font-medium mr-2" onClick={() => salvarEdicao(ing)} disabled={saving}>{saving ? "..." : "Salvar"}</button>
+                                      <button className="text-xs text-gray-400 hover:underline" onClick={() => setEditKey(null)}>Cancelar</button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <button className="text-xs text-blue-500 hover:underline mr-2" onClick={() => { setEditKey(k); setEditQtd(String(ing.quantidade)); setEditDesp(ing.desperdicio ? String(ing.desperdicio) : ""); }}>Editar</button>
+                                      <button className="text-xs text-red-500 hover:underline" onClick={() => remover(ing)}>Excluir</button>
+                                    </>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          <tr className="bg-gray-50 font-semibold">
+                            <td colSpan={5} className="border px-3 py-2">Custo da receita</td>
+                            <td className="border px-3 py-2 text-right">{fmtMoney(p.custoTotal)}</td>
+                            <td className="border px-3 py-2"></td>
+                          </tr>
+                          <tr className="bg-purple-50 font-semibold">
+                            <td colSpan={5} className="border px-3 py-2">Custo por {p.unidade} (receita ÷ {fmtQtd(p.rendimento)} {p.unidade})</td>
+                            <td className="border px-3 py-2 text-right">{fmtMoney(p.custoPorUnidade)}</td>
+                            <td className="border px-3 py-2"></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-gray-500">Nenhum ingrediente ainda. Adicione abaixo; o preparo é salvo junto com o primeiro ingrediente.</div>
+                  )}
+
+                  <div className="border rounded-xl p-3 bg-gray-50 space-y-3">
+                    <div className="font-medium text-sm">Adicionar ingrediente</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                      <div className="space-y-1">
+                        <label className="text-xs text-gray-600">Insumo ou preparo</label>
+                        <OpcoesIngrediente value={addSel} onChange={setAddSel} insumos={insumos} preparos={preparos} excluirPreparo={p.nome} />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs text-gray-600">Quantidade {itemSel?.unidade ? `(${itemSel.unidade})` : ""}</label>
+                        <input type="number" step="0.001" min={0} className="input w-full" value={addQtd} onChange={(e) => setAddQtd(e.target.value)} placeholder="0" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs text-gray-600">Desperdício (%)</label>
+                        <input type="number" step="0.1" min={0} max={95} className="input w-full" value={addDesp} onChange={(e) => setAddDesp(e.target.value)} placeholder="0" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs text-gray-600">Custo estimado</label>
+                        <div className="input w-full bg-gray-100 text-gray-600 flex items-center text-sm">
+                          {itemSel && addQtd ? fmtMoney(parseFloat(addQtd.replace(",", ".")) * itemSel.custoPorUnidade * fatorDesperdicio(addDesp)) : "—"}
+                        </div>
+                      </div>
+                    </div>
+                    <button className="btn btn-primary text-sm" onClick={adicionar} disabled={saving}>{saving ? "Salvando..." : "Adicionar"}</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="text-xs text-gray-500">
+        Rendimento é o que a receita rende depois de pronta (ex.: 5 kg de tomate viram 4 kg de molho). Para perdas como
+        casca do camarão, use o rendimento ou o desperdício do insumo, não os dois.
+      </p>
+    </div>
+  );
+}
+
 function FichaTecnicaTab() {
+  const [aba, setAba] = useState<"produtos" | "preparos">("produtos");
   const [produtos, setProdutos] = useState<FichaProduto[]>([]);
   const [insumos, setInsumos] = useState<Insumo[]>([]);
+  const [preparos, setPreparos] = useState<FichaPreparo[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedProduto, setSelectedProduto] = useState<string | null>(null);
 
@@ -8439,14 +8836,17 @@ function FichaTecnicaTab() {
     if (!SYNC_ENDPOINT) return;
     setLoading(true);
     try {
-      const [fichasResp, insumosResp] = await Promise.all([
+      const [fichasResp, insumosResp, preparosResp] = await Promise.all([
         fetch(`${SYNC_ENDPOINT}?action=fichas_lista&_ts=${Date.now()}`),
         fetch(`${SYNC_ENDPOINT}?action=insumos_lista&_ts=${Date.now()}`),
+        fetch(`${SYNC_ENDPOINT}?action=preparos_lista&_ts=${Date.now()}`),
       ]);
       const fichasData = await fichasResp.json();
       const insumosData = await insumosResp.json();
+      const preparosData = await preparosResp.json();
       if (fichasData?.ok && Array.isArray(fichasData.produtos)) setProdutos(fichasData.produtos as FichaProduto[]);
       if (insumosData?.ok && Array.isArray(insumosData.insumos)) setInsumos(insumosData.insumos as Insumo[]);
+      if (preparosData?.ok && Array.isArray(preparosData.preparos)) setPreparos(preparosData.preparos as FichaPreparo[]);
     } catch (err) {
       console.error(err);
     } finally {
@@ -8466,7 +8866,8 @@ function FichaTecnicaTab() {
   useEffect(() => { loadTudo(); }, []);
 
   const produto = selectedProduto ? produtos.find(p => p.nome === selectedProduto) : null;
-  const insumoSelecionado = insumos.find(i => i.insumo === novoInsumoSel);
+  // ingrediente pode ser insumo do catálogo ou ficha de preparo (valor do select: "insumo::Nome" / "preparo::Nome")
+  const insumoSelecionado = itemDaFicha(novoInsumoSel, insumos, preparos);
 
   const resetIngredienteForm = () => {
     setNovoInsumoSel(""); setNovoQtd(""); setNovoDesp("");
@@ -8475,7 +8876,7 @@ function FichaTecnicaTab() {
 
   const handleSaveIngrediente = async () => {
     if (saving || !selectedProduto) return;
-    if (!novoInsumoSel) { alert("Selecione um insumo do catálogo."); return; }
+    if (!novoInsumoSel || !insumoSelecionado) { alert("Selecione um insumo ou preparo."); return; }
     if (!novoQtd) { alert("Informe a quantidade."); return; }
 
     const precoAtual = novoPrecoVenda || String(produto?.precoVenda || 0);
@@ -8483,7 +8884,8 @@ function FichaTecnicaTab() {
       action: "save_ficha_item",
       produto: selectedProduto,
       precoVenda: precoAtual,
-      insumo: novoInsumoSel,
+      insumo: insumoSelecionado.nome,
+      tipoItem: insumoSelecionado.tipo,
       quantidade: novoQtd,
       desperdicio: novoDesp || "0",
     };
@@ -8516,6 +8918,7 @@ function FichaTecnicaTab() {
       produto: selectedProduto,
       precoVenda: editPrecoVal,
       insumo: ing.ingrediente,
+      tipoItem: ing.tipo || "insumo",
       quantidade: ing.quantidade,
     };
     try {
@@ -8529,7 +8932,8 @@ function FichaTecnicaTab() {
     } catch (err: any) { alert(`Erro: ${String(err)}`); }
   };
 
-  const handleEditIngrediente = async (prodNome: string, ingNome: string) => {
+  const handleEditIngrediente = async (prodNome: string, ing: FichaIngrediente) => {
+    const ingNome = ing.ingrediente;
     if (!editIngQtd || !selectedProduto) return;
     const p = produtos.find(x => x.nome === prodNome);
     setSaving(true);
@@ -8542,6 +8946,7 @@ function FichaTecnicaTab() {
           produto: prodNome,
           precoVenda: String(p?.precoVenda || 0),
           insumo: ingNome,
+          tipoItem: ing.tipo || "insumo",
           quantidade: editIngQtd,
           desperdicio: editIngDesp || "0",
         }),
@@ -8554,13 +8959,14 @@ function FichaTecnicaTab() {
     finally { setSaving(false); }
   };
 
-  const handleDeleteIngrediente = async (prodNome: string, ingNome: string) => {
+  const handleDeleteIngrediente = async (prodNome: string, ing: FichaIngrediente) => {
+    const ingNome = ing.ingrediente;
     if (!confirm(`Excluir "${ingNome}" da ficha de "${prodNome}"?`)) return;
     try {
       await fetch(SYNC_ENDPOINT, {
         method: "POST", mode: "no-cors",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ action: "delete_ficha_item", produto: prodNome, insumo: ingNome }),
+        body: JSON.stringify({ action: "delete_ficha_item", produto: prodNome, insumo: ingNome, tipoItem: ing.tipo || "insumo" }),
       });
       await loadProdutos();
     } catch (err: any) { alert(`Erro: ${String(err)}`); }
@@ -8597,13 +9003,39 @@ function FichaTecnicaTab() {
 
   if (!SYNC_ENDPOINT) return <div className="text-sm text-red-600">Endpoint não configurado.</div>;
 
+  const abas = (
+    <div className="flex gap-2">
+      <button className={`btn text-sm ${aba === "produtos" ? "btn-primary" : "btn-ghost"}`} onClick={() => setAba("produtos")}>
+        Produtos (pizzas)
+      </button>
+      <button className={`btn text-sm ${aba === "preparos" ? "btn-primary" : "btn-ghost"}`} onClick={() => setAba("preparos")}>
+        Preparos (massa, molhos...)
+      </button>
+    </div>
+  );
+
+  if (aba === "preparos") {
+    return (
+      <div className="space-y-4">
+        {abas}
+        <PreparosSection
+          insumos={insumos}
+          preparos={preparos}
+          onChange={async () => { await loadTudo(); }}
+          loading={loading}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
+      {abas}
       <div className="border rounded-xl p-4 bg-white space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-base">Fichas Técnicas</h3>
           <div className="flex gap-2">
-            <button className="btn btn-ghost text-sm" onClick={loadProdutos} disabled={loading}>
+            <button className="btn btn-ghost text-sm" onClick={loadTudo} disabled={loading}>
               {loading ? "Carregando..." : "Atualizar"}
             </button>
             <button className="btn btn-primary text-sm" onClick={() => { setShowNewProduto(true); setSelectedProduto(null); resetIngredienteForm(); }}>
@@ -8706,17 +9138,20 @@ function FichaTecnicaTab() {
                         </thead>
                         <tbody>
                           {p.ingredientes.map((ing, idx) => (
-                            <tr key={idx} className={editingIng === ing.ingrediente ? "bg-blue-50" : ""}>
-                              <td className="border px-3 py-2">{ing.ingrediente}</td>
+                            <tr key={idx} className={editingIng === ingKey(ing) ? "bg-blue-50" : ""}>
+                              <td className="border px-3 py-2">
+                                {ing.ingrediente}
+                                {ing.tipo === "preparo" && <span className="ml-1 text-xs text-purple-700 bg-purple-50 border border-purple-200 rounded px-1">preparo</span>}
+                              </td>
                               <td className="border px-3 py-2 text-right">
-                                {editingIng === ing.ingrediente ? (
+                                {editingIng === ingKey(ing) ? (
                                   <input
                                     type="number" step="0.001" autoFocus
                                     className="input w-20 text-sm text-right"
                                     value={editIngQtd}
                                     onChange={e => setEditIngQtd(e.target.value)}
                                     onKeyDown={e => {
-                                      if (e.key === "Enter") handleEditIngrediente(p.nome, ing.ingrediente);
+                                      if (e.key === "Enter") handleEditIngrediente(p.nome, ing);
                                       if (e.key === "Escape") { setEditingIng(null); setEditIngQtd(""); setEditIngDesp(""); }
                                     }}
                                   />
@@ -8727,14 +9162,14 @@ function FichaTecnicaTab() {
                               <td className="border px-3 py-2">{ing.unidade || "—"}</td>
                               <td className="border px-3 py-2 text-right">{fmtMoney(ing.custoPorUnidade)}</td>
                               <td className="border px-3 py-2 text-right">
-                                {editingIng === ing.ingrediente ? (
+                                {editingIng === ingKey(ing) ? (
                                   <input
                                     type="number" step="0.1" min={0} max={95}
                                     className="input w-20 text-sm text-right"
                                     value={editIngDesp}
                                     onChange={e => setEditIngDesp(e.target.value)}
                                     onKeyDown={e => {
-                                      if (e.key === "Enter") handleEditIngrediente(p.nome, ing.ingrediente);
+                                      if (e.key === "Enter") handleEditIngrediente(p.nome, ing);
                                       if (e.key === "Escape") { setEditingIng(null); setEditIngQtd(""); setEditIngDesp(""); }
                                     }}
                                   />
@@ -8743,15 +9178,15 @@ function FichaTecnicaTab() {
                                 )}
                               </td>
                               <td className="border px-3 py-2 text-right">
-                                {editingIng === ing.ingrediente && editIngQtd
+                                {editingIng === ingKey(ing) && editIngQtd
                                   ? fmtMoney(parseFloat(editIngQtd) * ing.custoPorUnidade * fatorDesperdicio(editIngDesp))
                                   : fmtMoney(ing.custoTotal)}
                               </td>
                               <td className="border px-3 py-2 text-center">
-                                {editingIng === ing.ingrediente ? (
+                                {editingIng === ingKey(ing) ? (
                                   <div className="flex gap-2 justify-center">
                                     <button className="text-xs text-blue-600 hover:underline font-medium"
-                                      onClick={() => handleEditIngrediente(p.nome, ing.ingrediente)}
+                                      onClick={() => handleEditIngrediente(p.nome, ing)}
                                       disabled={saving}>
                                       {saving ? "..." : "Salvar"}
                                     </button>
@@ -8763,11 +9198,11 @@ function FichaTecnicaTab() {
                                 ) : (
                                   <div className="flex gap-2 justify-center">
                                     <button className="text-xs text-blue-500 hover:underline"
-                                      onClick={() => { setEditingIng(ing.ingrediente); setEditIngQtd(String(ing.quantidade)); setEditIngDesp(ing.desperdicio ? String(ing.desperdicio) : ""); }}>
+                                      onClick={() => { setEditingIng(ingKey(ing)); setEditIngQtd(String(ing.quantidade)); setEditIngDesp(ing.desperdicio ? String(ing.desperdicio) : ""); }}>
                                       Editar
                                     </button>
                                     <button className="text-xs text-red-500 hover:underline"
-                                      onClick={() => handleDeleteIngrediente(p.nome, ing.ingrediente)}>
+                                      onClick={() => handleDeleteIngrediente(p.nome, ing)}>
                                       Excluir
                                     </button>
                                   </div>
@@ -8790,18 +9225,13 @@ function FichaTecnicaTab() {
                   {showNewIngrediente ? (
                     <div className="border rounded-xl p-3 bg-gray-50 space-y-3">
                       <div className="font-medium text-sm">Adicionar insumo</div>
-                      {insumos.length === 0 ? (
+                      {insumos.length === 0 && preparos.length === 0 ? (
                         <div className="text-sm text-amber-600">Cadastre insumos na aba "Insumos" antes de montar a ficha.</div>
                       ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                           <div className="space-y-1">
                             <label className="text-xs text-gray-600">Insumo</label>
-                            <select className="input w-full" value={novoInsumoSel} onChange={e => setNovoInsumoSel(e.target.value)}>
-                              <option value="">Selecione...</option>
-                              {insumos.map(ins => (
-                                <option key={ins.insumo} value={ins.insumo}>{ins.insumo}</option>
-                              ))}
-                            </select>
+                            <OpcoesIngrediente value={novoInsumoSel} onChange={setNovoInsumoSel} insumos={insumos} preparos={preparos} />
                           </div>
                           <div className="space-y-1">
                             <label className="text-xs text-gray-600">Quantidade</label>
@@ -8825,12 +9255,12 @@ function FichaTecnicaTab() {
                       )}
                       {insumoSelecionado && (
                         <div className="text-xs text-gray-500">
-                          {insumoSelecionado.unidade} · {fmtMoney(insumoSelecionado.custoPorUnidade)}/un (do catálogo)
+                          {insumoSelecionado.unidade} · {fmtMoney(insumoSelecionado.custoPorUnidade)}/{insumoSelecionado.unidade || "un"} ({insumoSelecionado.tipo === "preparo" ? "da ficha de preparo" : "do catálogo"})
                           {" · "}Desperdício: % do insumo que se perde. Ex.: peça de 2 kg que rende 1,8 kg = 10.
                         </div>
                       )}
                       <div className="flex gap-2">
-                        <button className="btn btn-primary text-sm" onClick={handleSaveIngrediente} disabled={saving || insumos.length === 0}>
+                        <button className="btn btn-primary text-sm" onClick={handleSaveIngrediente} disabled={saving || (insumos.length === 0 && preparos.length === 0)}>
                           {saving ? "Salvando..." : "Salvar"}
                         </button>
                         <button className="btn btn-ghost text-sm" onClick={resetIngredienteForm}>Cancelar</button>
@@ -9294,7 +9724,7 @@ function CMVTab() {
 }
 
 // ======== CMV: INVENTÁRIO MENSAL (dia 01) ========
-type InvCmvItem = { insumo: string; unidade: string; quantidade: number; custoUnitario: number; valor: number };
+type InvCmvItem = { insumo: string; tipo?: "insumo" | "preparo"; unidade: string; quantidade: number; custoUnitario: number; valor: number };
 
 function InventarioCmvSection() {
   const fmtMoney = (n: number) => formatBRL(n);
@@ -9303,6 +9733,7 @@ function InventarioCmvSection() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [catalogo, setCatalogo] = useState<{ insumo: string; unidade: string; custoPorUnidade: number }[]>([]);
+  const [preparosCat, setPreparosCat] = useState<{ preparo: string; unidade: string; custoPorUnidade: number }[]>([]);
   const [salvo, setSalvo] = useState<InvCmvItem[]>([]);
   const [atualizadoEm, setAtualizadoEm] = useState("");
   const [qtds, setQtds] = useState<Record<string, string>>({});
@@ -9311,7 +9742,9 @@ function InventarioCmvSection() {
   const [atualizarCustos, setAtualizarCustos] = useState(false);
   const [temRascunho, setTemRascunho] = useState(false);
 
-  const rascunhoKey = `fattoria_inventario_cmv_${mes}`;
+  const rascunhoKey = `fattoria_inventario_cmv_v2_${mes}`;
+  // chave de cada linha: insumo e preparo podem ter o mesmo nome (ex.: "Molho de tomate" comprado x receita da casa)
+  const chaveDe = (tipo: string | undefined, nome: string) => `${tipo === "preparo" ? "preparo" : "insumo"}|${nome}`;
 
   const carregar = async () => {
     setLoading(true);
@@ -9327,9 +9760,10 @@ function InventarioCmvSection() {
       setSalvo(itens);
       setAtualizadoEm(inv.inventario?.atualizadoEm || "");
       setCatalogo(ins?.ok && Array.isArray(ins.insumos) ? ins.insumos : []);
+      setPreparosCat(Array.isArray(inv.preparos) ? inv.preparos : []);
 
       const base: Record<string, string> = {};
-      itens.forEach((it) => { base[it.insumo] = String(it.quantidade); });
+      itens.forEach((it) => { base[chaveDe(it.tipo, it.insumo)] = String(it.quantidade); });
       // rascunho local: contagem em andamento que ainda não foi salva
       let rascunho: Record<string, string> | null = null;
       try {
@@ -9359,33 +9793,44 @@ function InventarioCmvSection() {
     setTemRascunho(true);
   };
 
-  // linhas: catálogo de insumos + itens já salvos que saíram do catálogo
+  // linhas: preparos + catálogo de insumos + itens já salvos que saíram do cadastro
+  type LinhaInv = { key: string; insumo: string; tipo: "insumo" | "preparo"; unidade: string; custo: number; foraDoCatalogo: boolean };
   const linhas = useMemo(() => {
-    const salvoMap = new Map(salvo.map((it) => [it.insumo.toLowerCase(), it] as const));
-    const out = catalogo.map((c) => {
-      const s = salvoMap.get(c.insumo.toLowerCase());
-      const custo = !atualizarCustos && s && s.custoUnitario > 0 ? s.custoUnitario : c.custoPorUnidade;
-      return { insumo: c.insumo, unidade: c.unidade, custo, foraDoCatalogo: false };
+    const salvoMap = new Map(salvo.map((it) => [chaveDe(it.tipo, it.insumo).toLowerCase(), it] as const));
+    const custoDe = (key: string, atual: number) => {
+      const s = salvoMap.get(key.toLowerCase());
+      return !atualizarCustos && s && s.custoUnitario > 0 ? s.custoUnitario : atual;
+    };
+    const out: LinhaInv[] = [];
+    preparosCat.forEach((p) => {
+      const key = chaveDe("preparo", p.preparo);
+      out.push({ key, insumo: p.preparo, tipo: "preparo", unidade: p.unidade, custo: custoDe(key, p.custoPorUnidade), foraDoCatalogo: false });
     });
-    const noCatalogo = new Set(catalogo.map((c) => c.insumo.toLowerCase()));
+    catalogo.forEach((c) => {
+      const key = chaveDe("insumo", c.insumo);
+      out.push({ key, insumo: c.insumo, tipo: "insumo", unidade: c.unidade, custo: custoDe(key, c.custoPorUnidade), foraDoCatalogo: false });
+    });
+    const conhecidos = new Set(out.map((l) => l.key.toLowerCase()));
     salvo.forEach((it) => {
-      if (!noCatalogo.has(it.insumo.toLowerCase())) out.push({ insumo: it.insumo, unidade: it.unidade, custo: it.custoUnitario, foraDoCatalogo: true });
+      const key = chaveDe(it.tipo, it.insumo);
+      if (!conhecidos.has(key.toLowerCase())) out.push({ key, insumo: it.insumo, tipo: it.tipo === "preparo" ? "preparo" : "insumo", unidade: it.unidade, custo: it.custoUnitario, foraDoCatalogo: true });
     });
-    return out.sort((a, b) => a.insumo.localeCompare(b.insumo, "pt-BR"));
-  }, [catalogo, salvo, atualizarCustos]);
+    return out.sort((a, b) => (a.tipo === b.tipo ? a.insumo.localeCompare(b.insumo, "pt-BR") : a.tipo === "preparo" ? -1 : 1));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalogo, preparosCat, salvo, atualizarCustos]);
 
   const num = (v: string | undefined) => {
     const n = parseFloat(String(v ?? "").replace(",", "."));
     return isNaN(n) ? 0 : n;
   };
-  const contado = (insumo: string) => (qtds[insumo] ?? "") !== "";
-  const totalContados = linhas.filter((l) => contado(l.insumo)).length;
-  const valorTotal = linhas.reduce((acc, l) => acc + num(qtds[l.insumo]) * l.custo, 0);
-  const semCusto = linhas.filter((l) => num(qtds[l.insumo]) > 0 && !(l.custo > 0)).map((l) => l.insumo);
+  const contado = (key: string) => (qtds[key] ?? "") !== "";
+  const totalContados = linhas.filter((l) => contado(l.key)).length;
+  const valorTotal = linhas.reduce((acc, l) => acc + num(qtds[l.key]) * l.custo, 0);
+  const semCusto = linhas.filter((l) => num(qtds[l.key]) > 0 && !(l.custo > 0)).map((l) => l.insumo);
 
   const visiveis = linhas.filter((l) => {
     if (busca && !l.insumo.toLowerCase().includes(busca.toLowerCase())) return false;
-    if (soPendentes && contado(l.insumo)) return false;
+    if (soPendentes && contado(l.key)) return false;
     return true;
   });
 
@@ -9396,7 +9841,7 @@ function InventarioCmvSection() {
     if (pendentes > 0 && !confirm(`${pendentes} insumo(s) ainda sem contagem. Eles ficam fora do inventário (valor R$ 0). Salvar assim mesmo?`)) return;
     setSaving(true);
     try {
-      const itens = linhas.filter((l) => contado(l.insumo)).map((l) => ({ insumo: l.insumo, quantidade: String(qtds[l.insumo]).replace(",", ".") }));
+      const itens = linhas.filter((l) => contado(l.key)).map((l) => ({ insumo: l.insumo, tipo: l.tipo, quantidade: String(qtds[l.key]).replace(",", ".") }));
       const data = await adminPost("save_inventario_cmv", { mes, itens, atualizarCustos });
       if (!data?.ok) throw new Error(data?.error || "erro desconhecido");
       try { localStorage.removeItem(rascunhoKey); } catch {}
@@ -9490,9 +9935,10 @@ function InventarioCmvSection() {
                 </thead>
                 <tbody>
                   {visiveis.map((l) => (
-                    <tr key={l.insumo} className={contado(l.insumo) ? "bg-white" : "bg-amber-50/40"}>
+                    <tr key={l.key} className={contado(l.key) ? "bg-white" : "bg-amber-50/40"}>
                       <td className="border px-3 py-1.5">
                         {l.insumo}
+                        {l.tipo === "preparo" && <span className="ml-1 text-xs text-purple-700 bg-purple-50 border border-purple-200 rounded px-1">preparo</span>}
                         {l.foraDoCatalogo && <span className="text-xs text-amber-600 ml-1">(fora do cadastro)</span>}
                       </td>
                       <td className="border px-3 py-1.5">{l.unidade || "—"}</td>
@@ -9501,12 +9947,12 @@ function InventarioCmvSection() {
                         <input
                           type="number" step="0.001" min={0} inputMode="decimal"
                           className="input w-28 text-sm text-right"
-                          value={qtds[l.insumo] ?? ""}
-                          onChange={(e) => setQtd(l.insumo, e.target.value)}
+                          value={qtds[l.key] ?? ""}
+                          onChange={(e) => setQtd(l.key, e.target.value)}
                           placeholder="—"
                         />
                       </td>
-                      <td className="border px-3 py-1.5 text-right">{contado(l.insumo) ? fmtMoney(num(qtds[l.insumo]) * l.custo) : "—"}</td>
+                      <td className="border px-3 py-1.5 text-right">{contado(l.key) ? fmtMoney(num(qtds[l.key]) * l.custo) : "—"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -9533,7 +9979,7 @@ function InventarioCmvSection() {
             )}
           </div>
           <p className="text-xs text-gray-500">
-            Deixe em branco o que não foi contado e digite 0 para o que acabou. O custo de cada insumo fica gravado
+            Conte também os preparos prontos (massa, molhos...): eles valem o custo da ficha de preparo. Deixe em branco o que não foi contado e digite 0 para o que acabou. O custo de cada insumo fica gravado
             como estava no dia em que o inventário foi salvo pela primeira vez.
           </p>
         </>
@@ -9777,7 +10223,10 @@ function CmvMensalSection({
                   <tbody>
                     {d.insumos.map((r: any, i: number) => (
                       <tr key={i} className={r.qtdConsumo < 0 ? "bg-red-50" : i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
-                        <td className="border px-3 py-1">{r.insumo} {r.unidade && <span className="text-xs text-gray-400">({r.unidade})</span>}</td>
+                        <td className="border px-3 py-1">
+                          {r.insumo} {r.unidade && <span className="text-xs text-gray-400">({r.unidade})</span>}
+                          {r.tipo === "preparo" && <span className="ml-1 text-xs text-purple-700 bg-purple-50 border border-purple-200 rounded px-1">preparo</span>}
+                        </td>
                         <td className="border px-3 py-1 text-right">{fmtQtd(r.qtdInicial)}</td>
                         <td className="border px-3 py-1 text-right">{fmtQtd(r.qtdCompras)}</td>
                         <td className="border px-3 py-1 text-right">{fmtQtd(r.qtdFinal)}</td>
