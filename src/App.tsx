@@ -8372,15 +8372,20 @@ function ColaboradoresTab() {
 }
 
 // ======== TIPOS COMPARTILHADOS ========
+// tipo: "insumo" (alimento) | "material" (saquinho, caixa: entra no CMV) | "uso_geral" (filme, luva: fora do CMV)
+type TipoInsumo = "insumo" | "material" | "uso_geral";
 type Insumo = {
   insumo: string;
   unidade: string;
   custoPorUnidade: number;
+  tipo?: TipoInsumo;
 };
+const TIPO_INSUMO_LABEL: Record<TipoInsumo, string> = { insumo: "Insumo", material: "Material", uso_geral: "Uso geral" };
 
 type FichaIngrediente = {
   ingrediente: string;
   tipo?: "insumo" | "preparo";
+  categoria?: "insumo" | "material" | "uso_geral" | "preparo";
   quantidade: number;
   unidade: string;
   custoPorUnidade: number;
@@ -8399,6 +8404,8 @@ type FichaProduto = {
   nome: string;
   precoVenda: number;
   custoTotal: number;
+  custoMateriais?: number;
+  custoIngredientes?: number;
   margem: number;
   margemPct: number;
   cmvPct: number;
@@ -8454,8 +8461,13 @@ function OpcoesIngrediente({
         </optgroup>
       )}
       <optgroup label="Insumos">
-        {insumos.map((ins) => <option key={`i-${ins.insumo}`} value={`insumo::${ins.insumo}`}>{ins.insumo}</option>)}
+        {insumos.filter((ins) => !ins.tipo || ins.tipo === "insumo").map((ins) => <option key={`i-${ins.insumo}`} value={`insumo::${ins.insumo}`}>{ins.insumo}</option>)}
       </optgroup>
+      {insumos.some((ins) => ins.tipo === "material") && (
+        <optgroup label="Materiais (saquinho, caixa...)">
+          {insumos.filter((ins) => ins.tipo === "material").map((ins) => <option key={`m-${ins.insumo}`} value={`insumo::${ins.insumo}`}>{ins.insumo}</option>)}
+        </optgroup>
+      )}
     </select>
   );
 }
@@ -8714,6 +8726,7 @@ function PreparosSection({
                                 <td className="border px-3 py-2">
                                   {ing.ingrediente}
                                   {ing.tipo === "preparo" && <span className="ml-1 text-xs text-purple-700 bg-purple-50 border border-purple-200 rounded px-1">preparo</span>}
+                                  {ing.categoria === "material" && <span className="ml-1 text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded px-1">material</span>}
                                   {ing.naoEncontrado && <span className="ml-1 text-xs text-red-600">(não encontrado no cadastro)</span>}
                                 </td>
                                 <td className="border px-3 py-2 text-right">
@@ -9082,7 +9095,7 @@ function FichaTecnicaTab() {
                 <div>
                   <div className="font-medium">{p.nome}</div>
                   <div className="text-xs text-gray-500 space-x-3">
-                    <span>Custo: {fmtMoney(p.custoTotal)}</span>
+                    <span>Custo: {fmtMoney(p.custoTotal)}{p.custoMateriais ? ` (materiais ${fmtMoney(p.custoMateriais)})` : ""}</span>
                     <span>Venda: {fmtMoney(p.precoVenda)}</span>
                     <span className={p.margemPct >= 50 ? "text-green-600 font-medium" : p.margemPct >= 30 ? "text-yellow-600 font-medium" : "text-red-600 font-medium"}>
                       Margem: {fmtPct(p.margemPct)}
@@ -9142,6 +9155,7 @@ function FichaTecnicaTab() {
                               <td className="border px-3 py-2">
                                 {ing.ingrediente}
                                 {ing.tipo === "preparo" && <span className="ml-1 text-xs text-purple-700 bg-purple-50 border border-purple-200 rounded px-1">preparo</span>}
+                                {ing.categoria === "material" && <span className="ml-1 text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded px-1">material</span>}
                               </td>
                               <td className="border px-3 py-2 text-right">
                                 {editingIng === ingKey(ing) ? (
@@ -9210,6 +9224,13 @@ function FichaTecnicaTab() {
                               </td>
                             </tr>
                           ))}
+                          {(p.custoMateriais || 0) > 0 && (
+                            <tr className="bg-gray-50 text-gray-600">
+                              <td colSpan={5} className="border px-3 py-1.5">Ingredientes {fmtMoney(p.custoIngredientes || 0)} + materiais {fmtMoney(p.custoMateriais || 0)}</td>
+                              <td className="border px-3 py-1.5"></td>
+                              <td className="border px-3 py-1.5"></td>
+                            </tr>
+                          )}
                           <tr className="bg-gray-50 font-semibold">
                             <td colSpan={5} className="border px-3 py-2">Custo total do produto</td>
                             <td className="border px-3 py-2 text-right">{fmtMoney(p.custoTotal)}</td>
@@ -9283,7 +9304,6 @@ function FichaTecnicaTab() {
 
 // ======== INSUMOS ========
 function InsumosTab() {
-  type Insumo = { insumo: string; unidade: string; custoPorUnidade: number };
 
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -9296,6 +9316,8 @@ function InsumosTab() {
   const [formNome, setFormNome] = useState("");
   const [formUnidade, setFormUnidade] = useState("");
   const [formCusto, setFormCusto] = useState("");
+  const [formTipo, setFormTipo] = useState<TipoInsumo>("insumo");
+  const [filtroTipo, setFiltroTipo] = useState<"todos" | TipoInsumo>("todos");
 
   const fmtMoney = (n: number) =>
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
@@ -9323,6 +9345,7 @@ function InsumosTab() {
     setFormNome("");
     setFormUnidade("");
     setFormCusto("");
+    setFormTipo("insumo");
   };
 
   const openNew = () => {
@@ -9335,6 +9358,7 @@ function InsumosTab() {
     setFormNome(ins.insumo);
     setFormUnidade(ins.unidade);
     setFormCusto(String(ins.custoPorUnidade));
+    setFormTipo(ins.tipo || "insumo");
     setShowForm(true);
   };
 
@@ -9351,6 +9375,7 @@ function InsumosTab() {
           insumo: formNome.trim(),
           unidade: formUnidade.trim(),
           custoPorUnidade: isNaN(custo) ? 0 : custo,
+          tipo: formTipo,
         }),
       });
       resetForm();
@@ -9388,7 +9413,7 @@ function InsumosTab() {
       {showForm && (
         <div className="border rounded-xl p-4 bg-gray-50 space-y-3">
           <div className="font-medium text-sm">{editNome ? `Editar: ${editNome}` : "Novo insumo"}</div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <div className="space-y-1">
               <label className="text-xs text-gray-600">Nome</label>
               <input className="input w-full" value={formNome} onChange={e => setFormNome(e.target.value)}
@@ -9403,6 +9428,14 @@ function InsumosTab() {
               <label className="text-xs text-gray-600">Custo por unidade (R$)</label>
               <input type="number" step="0.001" className="input w-full" value={formCusto}
                 onChange={e => setFormCusto(e.target.value)} placeholder="0,00" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Tipo</label>
+              <select className="input w-full" value={formTipo} onChange={e => setFormTipo(e.target.value as TipoInsumo)}>
+                <option value="insumo">Insumo (alimento)</option>
+                <option value="material">Material (saquinho, caixa: entra no CMV)</option>
+                <option value="uso_geral">Uso geral (filme, luva: fora do CMV)</option>
+              </select>
             </div>
           </div>
           <div className="flex gap-2">
@@ -9419,26 +9452,40 @@ function InsumosTab() {
       ) : insumos.length === 0 ? (
         <div className="text-sm text-gray-500">Nenhum insumo cadastrado ainda. Clique em "Novo insumo" para começar.</div>
       ) : (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            {(["todos", "insumo", "material", "uso_geral"] as const).map((t) => (
+              <button key={t} className={`btn text-xs ${filtroTipo === t ? "btn-primary" : "btn-ghost"}`} onClick={() => setFiltroTipo(t)}>
+                {t === "todos" ? "Todos" : TIPO_INSUMO_LABEL[t]} ({t === "todos" ? insumos.length : insumos.filter(i => (i.tipo || "insumo") === t).length})
+              </button>
+            ))}
+          </div>
         <div className="overflow-auto">
           <table className="min-w-full border text-sm">
             <thead className="bg-gray-100">
               <tr>
                 <th className="border px-3 py-2 text-left">Nome</th>
+                <th className="border px-3 py-2 text-left">Tipo</th>
                 <th className="border px-3 py-2 text-left">Unidade</th>
                 <th className="border px-3 py-2 text-right">Custo/un</th>
                 <th className="border px-3 py-2"></th>
               </tr>
             </thead>
             <tbody>
-              {insumos.map(ins => (
+              {insumos.filter(ins => filtroTipo === "todos" || (ins.tipo || "insumo") === filtroTipo).map(ins => (
                 <tr key={ins.insumo}>
                   <td className="border px-3 py-2">{ins.insumo}</td>
+                  <td className="border px-3 py-2">
+                    <span className={`text-xs rounded px-1.5 py-0.5 border ${ins.tipo === "material" ? "text-teal-700 bg-teal-50 border-teal-200" : ins.tipo === "uso_geral" ? "text-gray-600 bg-gray-100 border-gray-200" : "text-amber-800 bg-amber-50 border-amber-200"}`}>
+                      {TIPO_INSUMO_LABEL[ins.tipo || "insumo"]}
+                    </span>
+                  </td>
                   <td className="border px-3 py-2">{ins.unidade || "—"}</td>
                   <td className="border px-3 py-2 text-right">{fmtMoney(ins.custoPorUnidade)}</td>
                   <td className="border px-3 py-2 text-center">
                     <div className="flex gap-2 justify-center">
                       <button className="text-xs text-blue-500 hover:underline" onClick={() => openEdit(ins)}>
-                        Editar preço
+                        Editar
                       </button>
                       <button className="text-xs text-red-500 hover:underline" onClick={() => handleDelete(ins.insumo)}>
                         Excluir
@@ -9449,6 +9496,11 @@ function InsumosTab() {
               ))}
             </tbody>
           </table>
+        </div>
+          <p className="text-xs text-gray-500">
+            Material entra no custo das fichas e no CMV (ex.: saquinho de porcionamento). Uso geral não entra em ficha
+            nem no CMV (ex.: plástico filme, luva).
+          </p>
         </div>
       )}
     </div>
@@ -9732,7 +9784,7 @@ function InventarioCmvSection() {
   const [mes, setMes] = useState(mesKeyFromDate(new Date()));
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [catalogo, setCatalogo] = useState<{ insumo: string; unidade: string; custoPorUnidade: number }[]>([]);
+  const [catalogo, setCatalogo] = useState<{ insumo: string; unidade: string; custoPorUnidade: number; tipo?: TipoInsumo }[]>([]);
   const [preparosCat, setPreparosCat] = useState<{ preparo: string; unidade: string; custoPorUnidade: number }[]>([]);
   const [salvo, setSalvo] = useState<InvCmvItem[]>([]);
   const [atualizadoEm, setAtualizadoEm] = useState("");
@@ -9759,7 +9811,8 @@ function InventarioCmvSection() {
       const itens: InvCmvItem[] = inv.inventario?.itens || [];
       setSalvo(itens);
       setAtualizadoEm(inv.inventario?.atualizadoEm || "");
-      setCatalogo(ins?.ok && Array.isArray(ins.insumos) ? ins.insumos : []);
+      // itens de uso geral (filme, luva...) não entram no inventário do CMV
+      setCatalogo(ins?.ok && Array.isArray(ins.insumos) ? ins.insumos.filter((x: Insumo) => x.tipo !== "uso_geral") : []);
       setPreparosCat(Array.isArray(inv.preparos) ? inv.preparos : []);
 
       const base: Record<string, string> = {};
@@ -9794,7 +9847,7 @@ function InventarioCmvSection() {
   };
 
   // linhas: preparos + catálogo de insumos + itens já salvos que saíram do cadastro
-  type LinhaInv = { key: string; insumo: string; tipo: "insumo" | "preparo"; unidade: string; custo: number; foraDoCatalogo: boolean };
+  type LinhaInv = { key: string; insumo: string; tipo: "insumo" | "preparo"; material?: boolean; unidade: string; custo: number; foraDoCatalogo: boolean };
   const linhas = useMemo(() => {
     const salvoMap = new Map(salvo.map((it) => [chaveDe(it.tipo, it.insumo).toLowerCase(), it] as const));
     const custoDe = (key: string, atual: number) => {
@@ -9808,7 +9861,7 @@ function InventarioCmvSection() {
     });
     catalogo.forEach((c) => {
       const key = chaveDe("insumo", c.insumo);
-      out.push({ key, insumo: c.insumo, tipo: "insumo", unidade: c.unidade, custo: custoDe(key, c.custoPorUnidade), foraDoCatalogo: false });
+      out.push({ key, insumo: c.insumo, tipo: "insumo", material: c.tipo === "material", unidade: c.unidade, custo: custoDe(key, c.custoPorUnidade), foraDoCatalogo: false });
     });
     const conhecidos = new Set(out.map((l) => l.key.toLowerCase()));
     salvo.forEach((it) => {
@@ -9939,6 +9992,7 @@ function InventarioCmvSection() {
                       <td className="border px-3 py-1.5">
                         {l.insumo}
                         {l.tipo === "preparo" && <span className="ml-1 text-xs text-purple-700 bg-purple-50 border border-purple-200 rounded px-1">preparo</span>}
+                        {l.material && <span className="ml-1 text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded px-1">material</span>}
                         {l.foraDoCatalogo && <span className="text-xs text-amber-600 ml-1">(fora do cadastro)</span>}
                       </td>
                       <td className="border px-3 py-1.5">{l.unidade || "—"}</td>
@@ -10139,6 +10193,19 @@ function CmvMensalSection({
             <span className="font-medium text-gray-700">{d.receita === null ? "não disponível" : fmtMoney(d.receita)}</span>
           </div>
 
+          {d.consumoMateriais !== null && d.consumoMateriais !== undefined && d.consumoMateriais !== 0 && (
+            <div className="text-xs text-gray-600">
+              Do CMV Real, <span className="font-medium">{fmtMoney(d.consumoMateriais)}</span> são materiais (saquinho, caixa...) e{" "}
+              <span className="font-medium">{fmtMoney((d.cmvReal || 0) - d.consumoMateriais)}</span> são ingredientes.
+            </div>
+          )}
+
+          {d.compras.usoGeral?.total > 0 && (
+            <div className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+              {fmtMoney(d.compras.usoGeral.total)} em compras de uso geral ficaram fora do CMV: {d.compras.usoGeral.insumos.join(", ")}.
+            </div>
+          )}
+
           {d.compras.soInventariados && d.compras.excluidas?.total > 0 && (
             <div className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
               {fmtMoney(d.compras.excluidas.total)} em compras de insumos não inventariados ficaram fora da conta:{" "}
@@ -10226,6 +10293,7 @@ function CmvMensalSection({
                         <td className="border px-3 py-1">
                           {r.insumo} {r.unidade && <span className="text-xs text-gray-400">({r.unidade})</span>}
                           {r.tipo === "preparo" && <span className="ml-1 text-xs text-purple-700 bg-purple-50 border border-purple-200 rounded px-1">preparo</span>}
+                          {r.categoria === "material" && <span className="ml-1 text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded px-1">material</span>}
                         </td>
                         <td className="border px-3 py-1 text-right">{fmtQtd(r.qtdInicial)}</td>
                         <td className="border px-3 py-1 text-right">{fmtQtd(r.qtdCompras)}</td>
