@@ -10578,7 +10578,8 @@ function ConsumoSociosTab() {
 
 // ======== COMPRAS ========
 function ComprasTab() {
-  type Insumo = { insumo: string; unidade: string; custoPorUnidade: number };
+  type ItemCompra = { insumo: string; quantidade: string; total: string; atualizar: boolean };
+  const itemVazio = (): ItemCompra => ({ insumo: "", quantidade: "", total: "", atualizar: true });
 
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [rows, setRows] = useState<any[]>([]);
@@ -10595,9 +10596,9 @@ function ComprasTab() {
 
   // form
   const [formData, setFormData] = useState(todayStr);
-  const [formInsumo, setFormInsumo] = useState("");
-  const [formQtd, setFormQtd] = useState("");
-  const [formCustoTotal, setFormCustoTotal] = useState("");
+  const [itens, setItens] = useState<ItemCompra[]>([itemVazio()]);
+  const [formFrete, setFormFrete] = useState("");
+  const [formRateio, setFormRateio] = useState<"peso" | "valor">("peso");
   const [formObs, setFormObs] = useState("");
 
   const fmtMoney = (n: number) =>
@@ -10625,43 +10626,72 @@ function ComprasTab() {
 
   useEffect(() => { loadData(); }, [filterStart, filterEnd]);
 
-  // Você informa quantidade + valor total pago; o custo unitário (ex.: R$/kg) é calculado
+  // Você informa quantidade + valor pago de cada item; o frete é dividido entre os itens
   const numBR = (v: string) => parseFloat(String(v || "").replace(",", "."));
-  const qtdNum = numBR(formQtd);
-  const totalNum = numBR(formCustoTotal);
-  const custoUnCalc = qtdNum > 0 && totalNum > 0 ? totalNum / qtdNum : null;
-  const insumoSel = insumos.find(i => i.insumo === formInsumo);
-  const unidadeSel = insumoSel?.unidade || "";
+  const insumoDe = (nome: string) => insumos.find(i => i.insumo === nome);
+  const freteNum = Math.max(numBR(formFrete) || 0, 0);
+  const itensValidos = itens.filter(it => it.insumo && numBR(it.quantidade) > 0 && numBR(it.total) > 0);
+  // pelo peso só quando todos os itens estão em kg; senão, pelo valor
+  const todosEmKg = itensValidos.length > 0 && itensValidos.every(it => (insumoDe(it.insumo)?.unidade || "").trim().toLowerCase() === "kg");
+  const rateioEfetivo: "peso" | "valor" = formRateio === "peso" && todosEmKg ? "peso" : "valor";
+
+  // mesma conta do servidor: centavos fecham no último item
+  const partesFrete = useMemo(() => {
+    const out = itens.map(() => 0);
+    const idx = itens.map((it, i) => (itensValidos.includes(it) ? i : -1)).filter(i => i >= 0);
+    if (!(freteNum > 0) || !idx.length) return out;
+    const base = idx.map(i => (rateioEfetivo === "peso" ? numBR(itens[i].quantidade) : numBR(itens[i].total)));
+    const soma = base.reduce((x, y) => x + y, 0) || 1;
+    let acc = 0;
+    idx.forEach((i, k) => {
+      if (k === idx.length - 1) out[i] = Math.round((freteNum - acc) * 100) / 100;
+      else { out[i] = Math.round((freteNum * base[k]) / soma * 100) / 100; acc += out[i]; }
+    });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itens, freteNum, rateioEfetivo, insumos]);
+
+  const setItem = (i: number, patch: Partial<ItemCompra>) =>
+    setItens(prev => prev.map((it, k) => (k === i ? { ...it, ...patch } : it)));
+
+  const totalNota = itensValidos.reduce((x, it) => x + numBR(it.total), 0) + freteNum;
 
   const resetForm = () => {
-    setFormData(todayStr); setFormInsumo(""); setFormQtd("");
-    setFormCustoTotal(""); setFormObs("");
+    setFormData(todayStr); setItens([itemVazio()]); setFormFrete(""); setFormRateio("peso"); setFormObs("");
     setShowForm(false);
   };
 
   const handleSave = async () => {
-    if (!formInsumo) { alert("Selecione um insumo."); return; }
-    if (!(qtdNum > 0)) { alert("Informe a quantidade."); return; }
-    if (!(totalNum > 0)) { alert("Informe o valor total pago."); return; }
+    const preenchidos = itens.filter(it => it.insumo || it.quantidade || it.total);
+    if (!preenchidos.length) { alert("Adicione pelo menos um item."); return; }
+    for (const it of preenchidos) {
+      if (!it.insumo) { alert("Selecione o insumo de todos os itens."); return; }
+      if (!(numBR(it.quantidade) > 0)) { alert(`Informe a quantidade de "${it.insumo}".`); return; }
+      if (!(numBR(it.total) > 0)) { alert(`Informe o valor pago de "${it.insumo}".`); return; }
+    }
     setSaving(true);
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method: "POST", mode: "no-cors",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "save_compra",
-          date: toDDMMYYYY(formData),
-          insumo: formInsumo,
-          quantidade: qtdNum,
-          custoUnitario: custoUnCalc || 0,
-          custoTotal: totalNum,
-          observacao: formObs,
-        }),
+      const data = await adminPost("save_compra_lote", {
+        date: toDDMMYYYY(formData),
+        observacao: formObs,
+        frete: freteNum,
+        rateio: formRateio,
+        itens: preenchidos.map(it => ({ insumo: it.insumo, quantidade: numBR(it.quantidade), custoTotal: numBR(it.total) })),
+        atualizarCadastro: preenchidos.filter(it => it.atualizar && insumoDe(it.insumo)).map(it => it.insumo),
       });
+      if (!data?.ok) throw new Error(data?.error || "erro desconhecido");
+      const atual = (data.atualizados || []) as { insumo: string; de: number; para: number }[];
       resetForm();
-      setTimeout(() => loadData(), 2000);
-    } catch { alert("Erro ao salvar."); }
-    finally { setSaving(false); }
+      await loadData();
+      if (atual.length) {
+        alert("Compra salva. Custo atualizado no cadastro de insumos:\n" +
+          atual.map(a => `• ${a.insumo}: ${fmtMoney(a.de)} → ${fmtMoney(a.para)}`).join("\n"));
+      }
+    } catch (err: any) {
+      alert(`Não foi possível salvar. ${String(err?.message || err)}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = async (ts: string) => {
@@ -10713,45 +10743,97 @@ function ComprasTab() {
               <input type="date" className="input w-full" value={formData} onChange={e => setFormData(e.target.value)} />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-gray-600">Insumo</label>
-              {insumos.length > 0 ? (
-                <select className="input w-full" value={formInsumo} onChange={e => setFormInsumo(e.target.value)}>
-                  <option value="">Selecione...</option>
-                  {insumos.map(ins => <option key={ins.insumo} value={ins.insumo}>{ins.insumo}</option>)}
-                </select>
-              ) : (
-                <input className="input w-full" value={formInsumo} onChange={e => setFormInsumo(e.target.value)} placeholder="Nome do insumo" />
-              )}
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs text-gray-600">
-                Quantidade {unidadeSel ? `(${unidadeSel})` : ""}
-              </label>
-              <input type="number" step="0.001" min={0} inputMode="decimal" className="input w-full" value={formQtd} onChange={e => setFormQtd(e.target.value)} placeholder="0" />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs text-gray-600">Valor total pago (R$)</label>
-              <input type="number" step="0.01" min={0} inputMode="decimal" className="input w-full" value={formCustoTotal} onChange={e => setFormCustoTotal(e.target.value)} placeholder="0,00" />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs text-gray-600">Custo {unidadeSel ? `por ${unidadeSel}` : "unitário"} (calculado)</label>
-              <div className="input w-full bg-gray-100 text-gray-700 flex items-center font-medium">
-                {custoUnCalc !== null ? `${fmtMoney(custoUnCalc)}${unidadeSel ? ` / ${unidadeSel}` : ""}` : "—"}
-              </div>
-              {insumoSel && insumoSel.custoPorUnidade > 0 && (
-                <div className="text-xs text-gray-500">
-                  No cadastro de insumos: {fmtMoney(insumoSel.custoPorUnidade)}{unidadeSel ? ` / ${unidadeSel}` : ""}
-                </div>
-              )}
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs text-gray-600">Observação</label>
+              <label className="text-xs text-gray-600">Observação (fornecedor, nota...)</label>
               <input className="input w-full" value={formObs} onChange={e => setFormObs(e.target.value)} placeholder="Opcional" />
             </div>
           </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium">Itens da compra</div>
+              <button type="button" className="btn btn-ghost text-xs" onClick={() => setItens(p => [...p, itemVazio()])}>+ Adicionar item</button>
+            </div>
+            {itens.map((it, i) => {
+              const ins = insumoDe(it.insumo);
+              const un = ins?.unidade || "";
+              const qtd = numBR(it.quantidade);
+              const total = numBR(it.total);
+              const parte = partesFrete[i] || 0;
+              const custoUn = qtd > 0 && total > 0 ? (total + parte) / qtd : null;
+              return (
+                <div key={i} className="border rounded-lg p-3 bg-white space-y-2">
+                  <div className="grid grid-cols-12 gap-2 items-end">
+                    <div className="col-span-12 sm:col-span-5 space-y-1">
+                      <label className="text-xs text-gray-600">Insumo</label>
+                      {insumos.length > 0 ? (
+                        <select className="input w-full" value={it.insumo} onChange={e => setItem(i, { insumo: e.target.value })}>
+                          <option value="">Selecione...</option>
+                          {insumos.map(x => <option key={x.insumo} value={x.insumo}>{x.insumo}</option>)}
+                        </select>
+                      ) : (
+                        <input className="input w-full" value={it.insumo} onChange={e => setItem(i, { insumo: e.target.value })} placeholder="Nome do insumo" />
+                      )}
+                    </div>
+                    <div className="col-span-5 sm:col-span-3 space-y-1">
+                      <label className="text-xs text-gray-600">Quantidade {un ? `(${un})` : ""}</label>
+                      <input type="number" step="0.001" min={0} inputMode="decimal" className="input w-full" value={it.quantidade} onChange={e => setItem(i, { quantidade: e.target.value })} placeholder="0" />
+                    </div>
+                    <div className="col-span-5 sm:col-span-3 space-y-1">
+                      <label className="text-xs text-gray-600">Valor pago (R$)</label>
+                      <input type="number" step="0.01" min={0} inputMode="decimal" className="input w-full" value={it.total} onChange={e => setItem(i, { total: e.target.value })} placeholder="0,00" />
+                    </div>
+                    <div className="col-span-2 sm:col-span-1 pb-2 text-center">
+                      {itens.length > 1 && (
+                        <button type="button" className="text-red-500" title="Remover item" onClick={() => setItens(p => p.filter((_, k) => k !== i))}>
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {custoUn !== null && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="text-gray-600">
+                        {parte > 0 && <>+ {fmtMoney(parte)} de frete · </>}
+                        Custo: <span className="font-semibold text-gray-800">{fmtMoney(custoUn)}{un ? ` / ${un}` : ""}</span>
+                        {ins && ins.custoPorUnidade > 0 && <span className="text-gray-400"> (cadastro: {fmtMoney(ins.custoPorUnidade)})</span>}
+                      </div>
+                      {ins && (
+                        <label className="flex items-center gap-1.5">
+                          <input type="checkbox" checked={it.atualizar} onChange={e => setItem(i, { atualizar: e.target.checked })} />
+                          Atualizar o custo no cadastro de insumos
+                        </label>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Frete da compra (R$)</label>
+              <input type="number" step="0.01" min={0} inputMode="decimal" className="input w-full" value={formFrete} onChange={e => setFormFrete(e.target.value)} placeholder="0,00" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">Dividir o frete</label>
+              <select className="input w-full" value={formRateio} onChange={e => setFormRateio(e.target.value as "peso" | "valor")}>
+                <option value="peso">Pelo peso (kg)</option>
+                <option value="valor">Pelo valor de cada item</option>
+              </select>
+              {freteNum > 0 && formRateio === "peso" && itensValidos.length > 0 && !todosEmKg && (
+                <div className="text-xs text-amber-700">Há item que não está em kg, então o frete será dividido pelo valor.</div>
+              )}
+            </div>
+          </div>
+
+          {itensValidos.length > 0 && (
+            <div className="text-sm text-gray-700">Total da compra: <span className="font-semibold">{fmtMoney(totalNota)}</span></div>
+          )}
+
           <div className="flex gap-2">
             <button className="btn btn-primary text-sm" onClick={handleSave} disabled={saving}>
-              {saving ? "Salvando..." : "Salvar"}
+              {saving ? "Salvando..." : "Salvar compra"}
             </button>
             <button className="btn btn-ghost text-sm" onClick={resetForm}>Cancelar</button>
           </div>
