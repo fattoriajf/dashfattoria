@@ -8402,6 +8402,7 @@ function fatorDesperdicio(pct: number | string | undefined) {
 
 type FichaProduto = {
   nome: string;
+  categoria?: string;
   precoVenda: number;
   custoTotal: number;
   custoMateriais?: number;
@@ -8824,6 +8825,22 @@ function FichaTecnicaTab() {
   const [showNewProduto, setShowNewProduto] = useState(false);
   const [novoProduto, setNovoProduto] = useState("");
   const [novoPrecoVenda, setNovoPrecoVenda] = useState("");
+  const [novaCategoria, setNovaCategoria] = useState("");
+
+  // visualização: filtro por categoria, busca e ordenação
+  const [filtroCat, setFiltroCat] = useState<string>("__todas__");
+  const [busca, setBusca] = useState("");
+  const [ordem, setOrdem] = useState<string>(() => {
+    try { return localStorage.getItem("fattoria_fichas_ordem") || "nome"; } catch { return "nome"; }
+  });
+  const trocarOrdem = (v: string) => {
+    try { localStorage.setItem("fattoria_fichas_ordem", v); } catch {}
+    setOrdem(v);
+  };
+
+  // edição da categoria do produto
+  const [editingCat, setEditingCat] = useState(false);
+  const [editCatVal, setEditCatVal] = useState("");
 
   // form novo ingrediente
   const [showNewIngrediente, setShowNewIngrediente] = useState(false);
@@ -8901,6 +8918,8 @@ function FichaTecnicaTab() {
       tipoItem: insumoSelecionado.tipo,
       quantidade: novoQtd,
       desperdicio: novoDesp || "0",
+      // produto novo (ainda sem ingrediente salvo): grava a categoria escolhida
+      ...(produto && produto.ingredientes.length === 0 && produto.categoria ? { categoria: produto.categoria } : {}),
     };
 
     setSaving(true);
@@ -9005,14 +9024,79 @@ function FichaTecnicaTab() {
     setSelectedProduto(nome);
     if (!produtos.find(p => p.nome === nome)) {
       setProdutos(prev => [...prev, {
-        nome, precoVenda: parseFloat(novoPrecoVenda), custoTotal: 0,
+        nome, categoria: novaCategoria.trim(), precoVenda: parseFloat(novoPrecoVenda), custoTotal: 0,
         margem: parseFloat(novoPrecoVenda), margemPct: 100, cmvPct: 0, ingredientes: []
       }]);
     }
     setShowNewProduto(false);
     setNovoProduto("");
+    setNovaCategoria("");
     setShowNewIngrediente(true);
   };
+
+  const handleSaveCategoria = async (prodNome: string) => {
+    const p = produtos.find(x => x.nome === prodNome);
+    const cat = editCatVal.trim();
+    if (p && p.ingredientes.length === 0) {
+      // produto ainda não salvo: só guarda localmente
+      setProdutos(prev => prev.map(x => (x.nome === prodNome ? { ...x, categoria: cat } : x)));
+      setEditingCat(false);
+      return;
+    }
+    try {
+      const data = await adminPost("update_categoria_produto", { produto: prodNome, categoria: cat });
+      if (!data?.ok) throw new Error(data?.error || "erro desconhecido");
+      setProdutos(prev => prev.map(x => (x.nome === prodNome ? { ...x, categoria: cat } : x)));
+      setEditingCat(false);
+    } catch (err: any) {
+      alert(`Não foi possível salvar a categoria. ${String(err?.message || err)}`);
+    }
+  };
+
+  // categorias existentes (para filtro e sugestões)
+  const categorias = Array.from(new Set(produtos.map(p => (p.categoria || "").trim()).filter(Boolean)))
+    .sort((x, y) => x.localeCompare(y, "pt-BR"));
+  const temSemCategoria = produtos.some(p => !(p.categoria || "").trim());
+  const sugestoesCategoria = Array.from(new Set([...categorias, "Entradas", "Pizzas salgadas", "Pizzas doces", "Sobremesas", "Drinks", "Bebidas"]));
+
+  const ordenar = (lista: FichaProduto[]) => {
+    const l = [...lista];
+    const porNome = (x: FichaProduto, y: FichaProduto) => x.nome.localeCompare(y.nome, "pt-BR");
+    switch (ordem) {
+      case "cmv_desc": return l.sort((x, y) => y.cmvPct - x.cmvPct || porNome(x, y));
+      case "cmv_asc": return l.sort((x, y) => x.cmvPct - y.cmvPct || porNome(x, y));
+      case "margem_desc": return l.sort((x, y) => y.margemPct - x.margemPct || porNome(x, y));
+      case "margem_asc": return l.sort((x, y) => x.margemPct - y.margemPct || porNome(x, y));
+      case "custo_desc": return l.sort((x, y) => y.custoTotal - x.custoTotal || porNome(x, y));
+      case "preco_desc": return l.sort((x, y) => y.precoVenda - x.precoVenda || porNome(x, y));
+      default: return l.sort(porNome);
+    }
+  };
+
+  const visiveis = produtos.filter(p => {
+    const cat = (p.categoria || "").trim();
+    if (filtroCat === "__sem__" && cat) return false;
+    if (filtroCat !== "__todas__" && filtroCat !== "__sem__" && cat !== filtroCat) return false;
+    if (busca && !p.nome.toLowerCase().includes(busca.toLowerCase())) return false;
+    return true;
+  });
+
+  // agrupa por categoria (sem categoria por último)
+  const grupos = (() => {
+    const map = new Map<string, FichaProduto[]>();
+    visiveis.forEach(p => {
+      const cat = (p.categoria || "").trim() || "Sem categoria";
+      map.set(cat, [...(map.get(cat) || []), p]);
+    });
+    return Array.from(map.entries())
+      .sort(([x], [y]) => (x === "Sem categoria" ? 1 : y === "Sem categoria" ? -1 : x.localeCompare(y, "pt-BR")))
+      .map(([cat, itens]) => {
+        const comCusto = itens.filter(p => p.precoVenda > 0 && p.ingredientes.length > 0);
+        const venda = comCusto.reduce((acc, p) => acc + p.precoVenda, 0);
+        const custo = comCusto.reduce((acc, p) => acc + p.custoTotal, 0);
+        return { cat, itens: ordenar(itens), cmvMedio: venda > 0 ? (custo / venda) * 100 : null };
+      });
+  })();
 
   if (!SYNC_ENDPOINT) return <div className="text-sm text-red-600">Endpoint não configurado.</div>;
 
@@ -9071,6 +9155,11 @@ function FichaTecnicaTab() {
                 <input type="number" step="0.01" className="input w-full" value={novoPrecoVenda}
                   onChange={e => setNovoPrecoVenda(e.target.value)} placeholder="0,00" />
               </div>
+              <div className="space-y-1 sm:col-span-2">
+                <label className="text-xs text-gray-600">Categoria</label>
+                <input className="input w-full" list="fichas-categorias" value={novaCategoria}
+                  onChange={e => setNovaCategoria(e.target.value)} placeholder="Ex.: Pizzas salgadas" />
+              </div>
             </div>
             <div className="flex gap-2">
               <button className="btn btn-primary text-sm" onClick={handleCreateProduto}>Avançar →</button>
@@ -9085,12 +9174,67 @@ function FichaTecnicaTab() {
           </div>
         )}
 
-        <div className="space-y-2">
-          {produtos.map(p => (
+        <datalist id="fichas-categorias">
+          {sugestoesCategoria.map(c => <option key={c} value={c} />)}
+        </datalist>
+
+        {produtos.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-2">
+              <button className={`btn text-xs ${filtroCat === "__todas__" ? "btn-primary" : "btn-ghost"}`} onClick={() => setFiltroCat("__todas__")}>
+                Todas ({produtos.length})
+              </button>
+              {categorias.map(c => (
+                <button key={c} className={`btn text-xs ${filtroCat === c ? "btn-primary" : "btn-ghost"}`} onClick={() => setFiltroCat(c)}>
+                  {c} ({produtos.filter(p => (p.categoria || "").trim() === c).length})
+                </button>
+              ))}
+              {temSemCategoria && (
+                <button className={`btn text-xs ${filtroCat === "__sem__" ? "btn-primary" : "btn-ghost"}`} onClick={() => setFiltroCat("__sem__")}>
+                  Sem categoria ({produtos.filter(p => !(p.categoria || "").trim()).length})
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="space-y-1 flex-1 min-w-[160px]">
+                <label className="text-xs text-gray-600 block">Buscar produto</label>
+                <input className="input w-full" value={busca} onChange={e => setBusca(e.target.value)} placeholder="Digite o nome..." />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-gray-600 block">Ordenar por</label>
+                <select className="input" value={ordem} onChange={e => trocarOrdem(e.target.value)}>
+                  <option value="nome">Nome (A–Z)</option>
+                  <option value="cmv_desc">CMV % (maior → menor)</option>
+                  <option value="cmv_asc">CMV % (menor → maior)</option>
+                  <option value="margem_desc">Margem % (maior → menor)</option>
+                  <option value="margem_asc">Margem % (menor → maior)</option>
+                  <option value="custo_desc">Custo (maior → menor)</option>
+                  <option value="preco_desc">Preço de venda (maior → menor)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {produtos.length > 0 && visiveis.length === 0 && (
+          <div className="text-sm text-gray-500">Nenhum produto encontrado com esse filtro.</div>
+        )}
+
+        {grupos.map(g => (
+        <div key={g.cat} className="space-y-2">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 pt-2 border-b pb-1">
+            <h4 className="font-semibold text-sm text-gray-700">{g.cat} <span className="text-gray-400 font-normal">({g.itens.length})</span></h4>
+            {g.cmvMedio !== null && (
+              <span className={`text-xs ${g.cmvMedio <= 35 ? "text-green-600" : g.cmvMedio <= 45 ? "text-yellow-600" : "text-red-600"}`}>
+                CMV médio da categoria: {fmtPct(g.cmvMedio)}
+              </span>
+            )}
+          </div>
+          {g.itens.map(p => (
             <div key={p.nome} className={`border rounded-xl overflow-hidden ${selectedProduto === p.nome ? "border-blue-400" : "border-gray-200"}`}>
               <div
                 className={`flex items-center justify-between px-4 py-3 cursor-pointer ${selectedProduto === p.nome ? "bg-blue-50" : "bg-white hover:bg-gray-50"}`}
-                onClick={() => { setSelectedProduto(selectedProduto === p.nome ? null : p.nome); resetIngredienteForm(); setEditingPreco(false); }}
+                onClick={() => { setSelectedProduto(selectedProduto === p.nome ? null : p.nome); resetIngredienteForm(); setEditingPreco(false); setEditingCat(false); }}
               >
                 <div>
                   <div className="font-medium">{p.nome}</div>
@@ -9130,6 +9274,25 @@ function FichaTecnicaTab() {
                         <button className="text-xs text-blue-600 hover:underline"
                           onClick={() => { setEditingPreco(true); setEditPrecoVal(String(p.precoVenda)); }}>
                           Editar preço
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3 text-sm">
+                    <span className="text-gray-600">Categoria:</span>
+                    {editingCat ? (
+                      <>
+                        <input className="input w-48 text-sm" list="fichas-categorias" value={editCatVal} onChange={e => setEditCatVal(e.target.value)} placeholder="Ex.: Pizzas salgadas" autoFocus />
+                        <button className="btn btn-primary text-xs" onClick={() => handleSaveCategoria(p.nome)}>Salvar</button>
+                        <button className="btn btn-ghost text-xs" onClick={() => setEditingCat(false)}>Cancelar</button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-semibold">{p.categoria || <span className="text-gray-400 font-normal">sem categoria</span>}</span>
+                        <button className="text-xs text-blue-600 hover:underline"
+                          onClick={() => { setEditingCat(true); setEditCatVal(p.categoria || ""); }}>
+                          {p.categoria ? "Alterar" : "Definir"}
                         </button>
                       </>
                     )}
@@ -9297,6 +9460,7 @@ function FichaTecnicaTab() {
             </div>
           ))}
         </div>
+        ))}
       </div>
     </div>
   );
