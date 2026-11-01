@@ -9958,6 +9958,27 @@ function InventarioCmvSection() {
   const [atualizarCustos, setAtualizarCustos] = useState(false);
   const [temRascunho, setTemRascunho] = useState(false);
 
+  // filtro por categoria de produto: mostra só o que é usado nas fichas dessas categorias
+  const [fichasInv, setFichasInv] = useState<FichaProduto[]>([]);
+  const [preparosInv, setPreparosInv] = useState<FichaPreparo[]>([]);
+  const [catsInv, setCatsInv] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem("fattoria_inventario_cats");
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+  });
+  const toggleCatInv = (c: string) =>
+    setCatsInv((prev) => {
+      const next = prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c];
+      try { localStorage.setItem("fattoria_inventario_cats", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  const limparCatsInv = () => {
+    try { localStorage.removeItem("fattoria_inventario_cats"); } catch {}
+    setCatsInv([]);
+  };
+
   const rascunhoKey = `fattoria_inventario_cmv_v2_${mes}`;
   // chave de cada linha: insumo e preparo podem ter o mesmo nome (ex.: "Molho de tomate" comprado x receita da casa)
   const chaveDe = (tipo: string | undefined, nome: string) => `${tipo === "preparo" ? "preparo" : "insumo"}|${nome}`;
@@ -9965,12 +9986,18 @@ function InventarioCmvSection() {
   const carregar = async () => {
     setLoading(true);
     try {
-      const [rInv, rIns] = await Promise.all([
+      const [rInv, rIns, rFichas, rPrep] = await Promise.all([
         fetch(`${SYNC_ENDPOINT}?action=inventario_cmv&mes=${encodeURIComponent(mes)}&_ts=${Date.now()}`),
         fetch(`${SYNC_ENDPOINT}?action=insumos_lista&_ts=${Date.now()}`),
+        fetch(`${SYNC_ENDPOINT}?action=fichas_lista&_ts=${Date.now()}`),
+        fetch(`${SYNC_ENDPOINT}?action=preparos_lista&_ts=${Date.now()}`),
       ]);
       const inv = await rInv.json();
       const ins = await rIns.json();
+      const fichas = await rFichas.json().catch(() => null);
+      const preps = await rPrep.json().catch(() => null);
+      setFichasInv(fichas?.ok && Array.isArray(fichas.produtos) ? fichas.produtos : []);
+      setPreparosInv(preps?.ok && Array.isArray(preps.preparos) ? preps.preparos : []);
       if (!inv?.ok) throw new Error(inv?.error || "Erro ao carregar o inventário.");
       const itens: InvCmvItem[] = inv.inventario?.itens || [];
       setSalvo(itens);
@@ -10045,7 +10072,42 @@ function InventarioCmvSection() {
   const valorTotal = linhas.reduce((acc, l) => acc + num(qtds[l.key]) * l.custo, 0);
   const semCusto = linhas.filter((l) => num(qtds[l.key]) > 0 && !(l.custo > 0)).map((l) => l.insumo);
 
+  // categorias de produto que têm ficha
+  const categoriasProduto = useMemo(
+    () => Array.from(new Set(fichasInv.map((p) => (p.categoria || "").trim() || "Sem categoria"))).sort((x, y) =>
+      x === "Sem categoria" ? 1 : y === "Sem categoria" ? -1 : x.localeCompare(y, "pt-BR")),
+    [fichasInv]
+  );
+
+  // insumos e preparos usados nas fichas das categorias marcadas (inclui o que está dentro dos preparos)
+  const usadosNasCats = useMemo(() => {
+    if (!catsInv.length) return null;
+    const usados = new Set<string>();
+    const prepMap = new Map(preparosInv.map((p) => [p.nome.toLowerCase(), p] as const));
+    const visitados = new Set<string>();
+    const marcar = (nome: string, tipo: string | undefined) => {
+      if (tipo === "preparo") {
+        const k = nome.toLowerCase();
+        usados.add(chaveDe("preparo", nome).toLowerCase());
+        if (visitados.has(k)) return;
+        visitados.add(k);
+        (prepMap.get(k)?.ingredientes || []).forEach((ing) => marcar(ing.ingrediente, ing.tipo));
+      } else {
+        usados.add(chaveDe("insumo", nome).toLowerCase());
+      }
+    };
+    fichasInv
+      .filter((p) => catsInv.includes((p.categoria || "").trim() || "Sem categoria"))
+      .forEach((p) => p.ingredientes.forEach((ing) => marcar(ing.ingrediente, ing.tipo)));
+    return usados;
+  }, [catsInv, fichasInv, preparosInv]);
+
+  const naCategoria = (l: { key: string }) => !usadosNasCats || usadosNasCats.has(l.key.toLowerCase());
+  const linhasCat = linhas.filter(naCategoria);
+  const contadosCat = linhasCat.filter((l) => contado(l.key)).length;
+
   const visiveis = linhas.filter((l) => {
+    if (!naCategoria(l)) return false;
     if (busca && !l.insumo.toLowerCase().includes(busca.toLowerCase())) return false;
     if (soPendentes && contado(l.key)) return false;
     return true;
@@ -10053,9 +10115,10 @@ function InventarioCmvSection() {
 
   const salvar = async () => {
     if (saving) return;
-    const pendentes = linhas.length - totalContados;
+    // com categoria marcada, avisa só do que falta contar dentro dela
+    const pendentes = usadosNasCats ? linhasCat.length - contadosCat : linhas.length - totalContados;
     if (totalContados === 0) { alert("Preencha a quantidade de pelo menos um insumo."); return; }
-    if (pendentes > 0 && !confirm(`${pendentes} insumo(s) ainda sem contagem. Eles ficam fora do inventário (valor R$ 0). Salvar assim mesmo?`)) return;
+    if (pendentes > 0 && !confirm(`${pendentes} insumo(s)${usadosNasCats ? " das categorias selecionadas" : ""} ainda sem contagem. Eles ficam fora do inventário (valor R$ 0). Salvar assim mesmo?`)) return;
     setSaving(true);
     try {
       const itens = linhas.filter((l) => contado(l.key)).map((l) => ({ insumo: l.insumo, tipo: l.tipo, quantidade: String(qtds[l.key]).replace(",", ".") }));
@@ -10112,10 +10175,35 @@ function InventarioCmvSection() {
             </label>
           </div>
 
+          {categoriasProduto.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs text-gray-600">
+                  Categoria de produto: mostra só os insumos e preparos usados nas fichas dessas categorias
+                </div>
+                {catsInv.length > 0 && <button className="btn btn-ghost text-xs" onClick={limparCatsInv}>Mostrar tudo</button>}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {categoriasProduto.map((c) => {
+                  const on = catsInv.includes(c);
+                  return (
+                    <label key={c} className={`flex items-center gap-2 border rounded-full px-3 py-1 text-sm cursor-pointer ${on ? "bg-blue-50 border-blue-400 text-blue-800" : "bg-white"}`}>
+                      <input type="checkbox" checked={on} onChange={() => toggleCatInv(c)} />
+                      {c}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div className="border rounded-xl p-3 text-center bg-gray-50">
               <div className="text-xs text-gray-500">Contados</div>
-              <div className="text-lg font-semibold">{totalContados} de {linhas.length}</div>
+              <div className="text-lg font-semibold">
+                {usadosNasCats ? `${contadosCat} de ${linhasCat.length}` : `${totalContados} de ${linhas.length}`}
+              </div>
+              {usadosNasCats && <div className="text-xs text-gray-400">nas categorias · {totalContados} no total</div>}
             </div>
             <div className="border rounded-xl p-3 text-center bg-gray-50">
               <div className="text-xs text-gray-500">Valor do estoque</div>
