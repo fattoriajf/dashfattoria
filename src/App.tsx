@@ -9706,6 +9706,11 @@ function CMVTab() {
   };
   const gruposKey = [...gruposSel].sort().join("||");
 
+  // resultado do CMV Real mensal (para o PDF)
+  const [dadosReal, setDadosReal] = useState<{ d: any; periodo: { start: string; end: string; gruposKey: string } } | null>(null);
+  const [exportando, setExportando] = useState(false);
+  useEffect(() => { carregarLibsPdf().catch(() => {}); }, []); // já deixa o PDF pronto para o clique
+
   // período em que o teórico foi calculado por último (para o comparativo com o CMV real do mês)
   const [periodoTeo, setPeriodoTeo] = useState<{ start: string; end: string; gruposKey: string } | null>(null);
 
@@ -9793,6 +9798,28 @@ function CMVTab() {
     }
   };
 
+  const exportarPdf = async () => {
+    if (exportando) return;
+    setExportando(true);
+    try {
+      const teo = rowsTeo.length > 0 && periodoTeo
+        ? { start: periodoTeo.start, end: periodoTeo.end, custo: totalCusto, receita: totalReceita, pct: cmvGeral, rows: rowsTeo }
+        : null;
+      const mesmoPeriodo = !!(teo && dadosReal && periodoTeo &&
+        periodoTeo.start === dadosReal.periodo.start && periodoTeo.end === dadosReal.periodo.end && periodoTeo.gruposKey === dadosReal.periodo.gruposKey);
+      await exportarCmvPdf({
+        categorias: gruposSel,
+        teorico: teo,
+        real: dadosReal?.d || null,
+        comparativo: mesmoPeriodo ? { custoTeo: totalCusto, pctTeo: cmvGeral } : null,
+      });
+    } catch (err: any) {
+      alert(`Não foi possível gerar o PDF. ${String(err?.message || err)}`);
+    } finally {
+      setExportando(false);
+    }
+  };
+
   if (!SYNC_ENDPOINT) return <div className="text-sm text-red-600">Endpoint não configurado.</div>;
 
   const dateInputs = (
@@ -9810,6 +9837,18 @@ function CMVTab() {
 
   return (
     <div className="space-y-6">
+
+      {/* ── EXPORTAR PDF ── */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-xs text-gray-500">
+          {rowsTeo.length === 0 && !dadosReal
+            ? "Calcule o CMV Teórico e/ou o CMV Real para exportar o relatório."
+            : `O PDF inclui: ${[dadosReal ? `CMV Real de ${mesLabel(dadosReal.d.mes)}` : "", rowsTeo.length && periodoTeo ? "CMV Teórico" : ""].filter(Boolean).join(" e ")}.`}
+        </div>
+        <button className="btn btn-primary text-sm" disabled={exportando || (rowsTeo.length === 0 && !dadosReal)} onClick={exportarPdf}>
+          {exportando ? "Gerando PDF..." : "Exportar PDF"}
+        </button>
+      </div>
 
       {/* ── CATEGORIAS (valem para o teórico e para o real) ── */}
       <div className="border rounded-xl p-4 bg-white space-y-3">
@@ -9934,9 +9973,170 @@ function CMVTab() {
         loadingTeorico={loadingTeo}
         grupos={gruposSel}
         gruposKey={gruposKey}
+        onDados={(d, periodo) => setDadosReal(d ? { d, periodo } : null)}
       />
     </div>
   );
+}
+
+// ======== CMV: EXPORTAR PDF ========
+// jsPDF é carregado da CDN só quando a aba CMV é aberta (não muda o package.json)
+const PDF_LIBS = [
+  "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js",
+  "https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js",
+];
+let pdfLibsPromise: Promise<void> | null = null;
+function carregarLibsPdf(): Promise<void> {
+  if (pdfLibsPromise) return pdfLibsPromise;
+  const carregar = (src: string) =>
+    new Promise<void>((resolve, reject) => {
+      const el = document.createElement("script");
+      el.src = src;
+      el.async = false;
+      el.onload = () => resolve();
+      el.onerror = () => reject(new Error(`Não foi possível carregar ${src}`));
+      document.head.appendChild(el);
+    });
+  pdfLibsPromise = PDF_LIBS.reduce((p, src) => p.then(() => carregar(src)), Promise.resolve()).catch((e) => {
+    pdfLibsPromise = null;
+    throw e;
+  });
+  return pdfLibsPromise;
+}
+
+type RelatorioCmv = {
+  categorias: string[];
+  teorico: null | {
+    start: string; end: string; custo: number; receita: number; pct: number;
+    rows: { produto: string; qtdVendida: number; custoUnitario: number | null; custoTotal: number | null; receitaTotal: number; cmvPct: number | null; temFicha: boolean }[];
+  };
+  real: any | null; // resposta do cmv_mensal
+  comparativo: null | { custoTeo: number; pctTeo: number };
+};
+
+// fontes padrão do PDF não têm alguns símbolos: troca por equivalentes simples
+const pdfTxt = (v: any) =>
+  String(v ?? "").replace(/[−–—]/g, "-").replace(/→/g, "->").replace(/≤/g, "<=").replace(/·/g, "-").replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
+
+async function exportarCmvPdf(rel: RelatorioCmv) {
+  await carregarLibsPdf();
+  const jsPDF = (window as any).jspdf?.jsPDF;
+  if (!jsPDF) throw new Error("Biblioteca de PDF não carregou.");
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const brl = (n: number | null | undefined) => (n === null || n === undefined ? "-" : formatBRL(Number(n)));
+  const pct = (n: number | null | undefined) => (n === null || n === undefined ? "-" : `${Number(n).toFixed(1).replace(".", ",")}%`);
+  const qtd = (n: number) => Number(n || 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 });
+  const dataBR = (ymd: string) => { const [y, m, d] = ymd.split("-"); return `${d}/${m}/${y}`; };
+  const W = doc.internal.pageSize.getWidth();
+  let y = 16;
+
+  const titulo = (t: string) => {
+    y += 3;
+    if (y > 260) { doc.addPage(); y = 16; }
+    doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.setTextColor(30);
+    doc.text(pdfTxt(t), 14, y); y += 6;
+  };
+  const linhaTxt = (t: string, size = 9, cor = 90) => {
+    doc.setFont("helvetica", "normal"); doc.setFontSize(size); doc.setTextColor(cor);
+    const partes = doc.splitTextToSize(pdfTxt(t), W - 28);
+    if (y + partes.length * 4.2 > 285) { doc.addPage(); y = 16; }
+    doc.text(partes, 14, y); y += partes.length * 4.2 + 1;
+  };
+  const tabela = (head: string[], body: any[][], opts: any = {}) => {
+    (doc as any).autoTable({
+      startY: y, head: [head.map(pdfTxt)], body: body.map((r) => r.map(pdfTxt)),
+      theme: "grid", styles: { fontSize: 8, cellPadding: 1.6 }, headStyles: { fillColor: [60, 60, 60] },
+      margin: { left: 14, right: 14 }, ...opts,
+    });
+    y = (doc as any).lastAutoTable.finalY + 6;
+  };
+
+  // cabeçalho
+  doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.setTextColor(20);
+  doc.text("Fattoria - Relatório de CMV", 14, y); y += 6;
+  linhaTxt(`Gerado em ${new Date().toLocaleString("pt-BR")}`, 8, 120);
+  linhaTxt(`Categorias: ${rel.categorias.length ? rel.categorias.join(", ") : "todas as categorias"}`, 9, 60);
+  y += 2;
+
+  // ---- CMV Real ----
+  const d = rel.real;
+  if (d) {
+    titulo(`CMV Real - ${mesLabel(d.mes)}`);
+    if (!d.completo) {
+      linhaTxt(`Cálculo incompleto: ${!d.estoqueInicial.existe ? `falta o inventário de ${d.estoqueInicial.data}. ` : ""}${!d.estoqueFinal.existe ? `falta o inventário de ${d.estoqueFinal.data}.` : ""}`, 9, 150);
+    }
+    tabela(["", "Valor"], [
+      [`Estoque inicial (${d.estoqueInicial.data})`, d.estoqueInicial.existe ? brl(d.estoqueInicial.valorTotal) : "-"],
+      [`+ Compras do mês (${d.compras.fonte === "manual" ? "valor informado" : `${d.compras.lancamentos} lançamentos`})`, brl(d.compras.total)],
+      [`- Estoque final (${d.estoqueFinal.data})`, d.estoqueFinal.existe ? brl(d.estoqueFinal.valorTotal) : "-"],
+      ["= CMV Real", brl(d.cmvReal)],
+      [`Receita do mês`, d.receita === null ? "não disponível" : brl(d.receita)],
+      ["CMV Real %", pct(d.cmvPct)],
+    ], { columnStyles: { 1: { halign: "right", cellWidth: 45 } }, didParseCell: (h: any) => { if (h.section === "body" && (h.row.index === 3 || h.row.index === 5)) h.cell.styles.fontStyle = "bold"; } });
+    if (d.consumoMateriais) linhaTxt(`Do CMV Real, ${brl(d.consumoMateriais)} são materiais (saquinho, caixa...) e ${brl((d.cmvReal || 0) - d.consumoMateriais)} são ingredientes.`);
+    if (d.compras.usoGeral?.total > 0) linhaTxt(`${brl(d.compras.usoGeral.total)} em compras de uso geral ficaram fora do CMV: ${d.compras.usoGeral.insumos.join(", ")}.`);
+    if (d.compras.soInventariados && d.compras.excluidas?.total > 0) linhaTxt(`${brl(d.compras.excluidas.total)} em compras de insumos não inventariados ficaram fora da conta: ${d.compras.excluidas.insumos.join(", ")}.`);
+
+    if (rel.comparativo && d.cmvReal !== null) {
+      y += 1;
+      titulo("Comparativo Teórico x Real");
+      tabela(["", "Teórico", "Real", "Diferença"], [
+        ["CMV (R$)", brl(rel.comparativo.custoTeo), brl(d.cmvReal), brl(d.cmvReal - rel.comparativo.custoTeo)],
+        ["CMV (%)", pct(rel.comparativo.pctTeo), pct(d.cmvPct), d.cmvPct === null ? "-" : `${(d.cmvPct - rel.comparativo.pctTeo).toFixed(1).replace(".", ",")} p.p.`],
+      ], { columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" } } });
+    }
+
+    if (d.completo && d.insumos?.length) {
+      titulo("Consumo real por insumo");
+      tabela(["Insumo", "Inicial", "+ Compras", "- Final", "Consumo", "Consumo (R$)"],
+        d.insumos.map((r: any) => [
+          `${r.insumo}${r.unidade ? ` (${r.unidade})` : ""}${r.tipo === "preparo" ? " [preparo]" : r.categoria === "material" ? " [material]" : ""}`,
+          qtd(r.qtdInicial), qtd(r.qtdCompras), qtd(r.qtdFinal), qtd(r.qtdConsumo), brl(r.valorConsumo),
+        ]),
+        { columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" } } });
+    }
+  }
+
+  // ---- CMV Teórico ----
+  const t = rel.teorico;
+  if (t) {
+    titulo(`CMV Teórico - ${dataBR(t.start)} a ${dataBR(t.end)}`);
+    tabela(["Receita", "Custo teórico", "CMV Teórico %"], [[brl(t.receita), brl(t.custo), pct(t.pct)]],
+      { columnStyles: { 0: { halign: "right" }, 1: { halign: "right" }, 2: { halign: "right" } } });
+    tabela(["Produto", "Qtd vendida", "Custo unit.", "Custo total", "Receita", "CMV %"],
+      [
+        ...t.rows.map((r) => [`${r.produto}${r.temFicha ? "" : " (sem ficha)"}`, qtd(r.qtdVendida), brl(r.custoUnitario), brl(r.custoTotal), brl(r.receitaTotal), pct(r.cmvPct)]),
+        ["Total", "", "", brl(t.custo), brl(t.receita), pct(t.pct)],
+      ],
+      {
+        columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" } },
+        didParseCell: (h: any) => { if (h.section === "body" && h.row.index === t.rows.length) h.cell.styles.fontStyle = "bold"; },
+      });
+    if (t.rows.some((r) => !r.temFicha)) linhaTxt("Produtos marcados como (sem ficha) não têm ficha técnica: o custo deles não entra no CMV Teórico, mas a receita entra.", 8, 120);
+  }
+
+  // rodapé com páginas
+  const total = doc.getNumberOfPages();
+  for (let i = 1; i <= total; i++) {
+    doc.setPage(i);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(150);
+    doc.text(`Fattoria - Gestão Interna   |   página ${i} de ${total}`, 14, 292);
+  }
+
+  const nome = `CMV ${d ? mesLabel(d.mes) : t ? `${dataBR(t.start)} a ${dataBR(t.end)}` : ""}`.trim().replace(/[\/\\:]/g, "-") + ".pdf";
+  const blob: Blob = doc.output("blob");
+  const arquivo = new File([blob], nome, { type: "application/pdf" });
+  const nav: any = navigator;
+  // celular: abre o compartilhar (WhatsApp...); computador: baixa o arquivo
+  if (nav.canShare && nav.canShare({ files: [arquivo] })) {
+    try {
+      await nav.share({ files: [arquivo], title: nome });
+      return;
+    } catch (e: any) {
+      if (e?.name === "AbortError") return; // usuário cancelou
+    }
+  }
+  doc.save(nome);
 }
 
 // ======== CMV: INVENTÁRIO MENSAL (dia 01) ========
@@ -10301,12 +10501,14 @@ function CmvMensalSection({
   loadingTeorico,
   grupos,
   gruposKey,
+  onDados,
 }: {
   teorico: { start: string; end: string; gruposKey: string; custo: number; receita: number; pct: number } | null;
   calcularTeorico: (start: string, end: string) => void;
   loadingTeorico: boolean;
   grupos: string[];
   gruposKey: string;
+  onDados?: (d: any | null, periodo: { start: string; end: string; gruposKey: string }) => void;
 }) {
   const fmtMoney = (n: number | null) => (n === null || n === undefined ? "—" : formatBRL(n));
   const fmtPct = (n: number | null) => (n === null || n === undefined ? "—" : `${Number(n).toFixed(1)}%`);
@@ -10352,6 +10554,11 @@ function CmvMensalSection({
 
   // mudou o mês, as categorias ou a opção de compras: o resultado na tela deixa de valer
   useEffect(() => { setDados(null); }, [mes, gruposKey, soInventariados]);
+  // avisa a aba CMV (para o PDF) sempre que o resultado muda
+  useEffect(() => {
+    onDados?.(dados, { start: mesStart, end: mesEnd, gruposKey });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dados]);
 
   const salvarComprasManual = async (limpar: boolean) => {
     if (salvandoCompras) return;
