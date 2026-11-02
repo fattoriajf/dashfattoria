@@ -10086,6 +10086,23 @@ async function exportarCmvPdf(rel: RelatorioCmv) {
       ], { columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" } } });
     }
 
+    const cc = d.consumoComparativo;
+    if (d.completo && cc && !cc.erro && cc.linhas?.length) {
+      titulo("Consumo teórico x real por insumo");
+      linhaTxt("Teórico = vendas do mês x fichas técnicas (com desperdício e preparos). Real = inventário. Diferença positiva: saiu mais do que a ficha prevê.", 8, 110);
+      const porcaoPdf = (v: number, un: string) => (String(un).toLowerCase() === "kg" ? `${Math.round(v * 1000)} g` : `${qtd(v)} ${un}`);
+      tabela(["Insumo", "Teórico", "Real", "Diferença", "%", "Dif. (R$)", "Porção (ficha -> real)"],
+        cc.linhas.map((l: any) => [
+          `${l.insumo}${l.unidade ? ` (${l.unidade})` : ""}`,
+          qtd(l.teorico), qtd(l.real), `${l.diferenca > 0 ? "+" : ""}${qtd(l.diferenca)}`,
+          l.diferencaPct === null ? "-" : `${l.diferencaPct > 0 ? "+" : ""}${l.diferencaPct.toFixed(1).replace(".", ",")}%`,
+          brl(l.valorDiferenca),
+          l.porcao ? `${porcaoPdf(l.porcao.esperada, l.unidade)} -> ${porcaoPdf(l.porcao.real, l.unidade)}` : l.produtos.length > 1 ? "vários produtos" : "-",
+        ]),
+        { columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" } } });
+      if (cc.produtosSemFicha?.length) linhaTxt(`Vendidos sem ficha técnica (fora do teórico): ${cc.produtosSemFicha.join(", ")}.`, 8, 110);
+    }
+
     if (d.completo && d.insumos?.length) {
       titulo("Consumo real por insumo");
       tabela(["Insumo", "Inicial", "+ Compras", "- Final", "Consumo", "Consumo (R$)"],
@@ -10724,6 +10741,82 @@ function CmvMensalSection({
                 <button className="btn btn-ghost text-sm" onClick={() => calcularTeorico(mesStart, mesEnd)} disabled={loadingTeorico}>
                   {loadingTeorico ? "Calculando..." : `Calcular o CMV Teórico de ${mesLabel(d.mes)}`}
                 </button>
+              )}
+            </div>
+          )}
+
+          {/* Consumo teórico x real por insumo */}
+          {d.completo && d.consumoComparativo && (
+            <div className="border rounded-xl p-3 space-y-2">
+              <div className="text-sm font-medium">Consumo teórico × real por insumo</div>
+              <div className="text-xs text-gray-500">
+                Teórico = vendas do mês (todas as categorias) × fichas técnicas, com desperdício e abrindo os preparos. Real =
+                inventário (inicial + compras − final), já descontando o que ficou guardado em preparos prontos. Diferença
+                positiva: saiu mais do que a ficha prevê.
+              </div>
+              {d.consumoComparativo.erro ? (
+                <div className="text-xs text-red-600">Não foi possível calcular: {d.consumoComparativo.erro}</div>
+              ) : d.consumoComparativo.linhas.length === 0 ? (
+                <div className="text-xs text-gray-500">Nenhum insumo inventariado é usado nas fichas.</div>
+              ) : (
+                <div className="overflow-auto">
+                  <table className="min-w-full border text-sm">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="border px-3 py-1 text-left">Insumo</th>
+                        <th className="border px-3 py-1 text-right">Teórico</th>
+                        <th className="border px-3 py-1 text-right">Real</th>
+                        <th className="border px-3 py-1 text-right">Diferença</th>
+                        <th className="border px-3 py-1 text-right">%</th>
+                        <th className="border px-3 py-1 text-right">Diferença (R$)</th>
+                        <th className="border px-3 py-1 text-left">Porção por unidade vendida</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {d.consumoComparativo.linhas.map((l: any, i: number) => {
+                        const p = l.diferencaPct;
+                        const cor = p === null ? "" : Math.abs(p) <= 5 ? "text-green-700" : Math.abs(p) <= 15 ? "text-yellow-700" : "text-red-700";
+                        const un = l.unidade || "";
+                        const porcaoTxt = (v: number) => (un.toLowerCase() === "kg" ? `${Math.round(v * 1000).toLocaleString("pt-BR")} g` : `${fmtQtd(v)} ${un}`);
+                        return (
+                          <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                            <td className="border px-3 py-1">
+                              {l.insumo} {un && <span className="text-xs text-gray-400">({un})</span>}
+                              {l.categoria === "material" && <span className="ml-1 text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded px-1">material</span>}
+                              {l.produtos.length > 0 && (
+                                <span className="block text-xs text-gray-400">
+                                  {l.produtos.length === 1 ? l.produtos[0] : `${l.produtos.length} produtos`}
+                                </span>
+                              )}
+                            </td>
+                            <td className="border px-3 py-1 text-right">{fmtQtd(l.teorico)}</td>
+                            <td className="border px-3 py-1 text-right">{fmtQtd(l.real)}</td>
+                            <td className={`border px-3 py-1 text-right font-medium ${cor}`}>{l.diferenca > 0 ? "+" : ""}{fmtQtd(l.diferenca)}</td>
+                            <td className={`border px-3 py-1 text-right font-medium ${cor}`}>{p === null ? "—" : `${p > 0 ? "+" : ""}${p.toFixed(1)}%`}</td>
+                            <td className={`border px-3 py-1 text-right ${cor}`}>{fmtMoney(l.valorDiferenca)}</td>
+                            <td className="border px-3 py-1 text-xs">
+                              {l.porcao ? (
+                                <>ficha {porcaoTxt(l.porcao.esperada)} → real <span className={`font-semibold ${cor}`}>{porcaoTxt(l.porcao.real)}</span> <span className="text-gray-400">({fmtQtd(l.porcao.vendidos)} vendidas)</span></>
+                              ) : (
+                                <span className="text-gray-400">{l.produtos.length > 1 ? "usado em mais de um produto" : "—"}</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {d.consumoComparativo.produtosSemFicha?.length > 0 && (
+                <div className="text-xs text-amber-700">
+                  Vendidos sem ficha técnica (não entram no teórico): {d.consumoComparativo.produtosSemFicha.join(", ")}.
+                </div>
+              )}
+              {d.consumoComparativo.insumosNaoInventariados?.length > 0 && (
+                <div className="text-xs text-gray-500">
+                  Usados nas fichas mas não contados no inventário (sem comparação): {d.consumoComparativo.insumosNaoInventariados.join(", ")}.
+                </div>
               )}
             </div>
           )}
