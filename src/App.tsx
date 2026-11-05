@@ -11335,6 +11335,7 @@ function ComprasTab() {
   const [formData, setFormData] = useState(todayStr);
   const [itens, setItens] = useState<ItemCompra[]>([itemVazio()]);
   const [formFrete, setFormFrete] = useState("");
+  const [formIcms, setFormIcms] = useState("");
   const [formRateio, setFormRateio] = useState<"peso" | "valor">("peso");
   const [formObs, setFormObs] = useState("");
 
@@ -11367,34 +11368,37 @@ function ComprasTab() {
   const numBR = (v: string) => parseFloat(String(v || "").replace(",", "."));
   const insumoDe = (nome: string) => insumos.find(i => i.insumo === nome);
   const freteNum = Math.max(numBR(formFrete) || 0, 0);
+  const icmsNum = Math.max(numBR(formIcms) || 0, 0);
   const itensValidos = itens.filter(it => it.insumo && numBR(it.quantidade) > 0 && numBR(it.total) > 0);
   // pelo peso só quando todos os itens estão em kg; senão, pelo valor
   const todosEmKg = itensValidos.length > 0 && itensValidos.every(it => (insumoDe(it.insumo)?.unidade || "").trim().toLowerCase() === "kg");
   const rateioEfetivo: "peso" | "valor" = formRateio === "peso" && todosEmKg ? "peso" : "valor";
 
   // mesma conta do servidor: centavos fecham no último item
-  const partesFrete = useMemo(() => {
+  const dividir = (valor: number, por: "peso" | "valor") => {
     const out = itens.map(() => 0);
     const idx = itens.map((it, i) => (itensValidos.includes(it) ? i : -1)).filter(i => i >= 0);
-    if (!(freteNum > 0) || !idx.length) return out;
-    const base = idx.map(i => (rateioEfetivo === "peso" ? numBR(itens[i].quantidade) : numBR(itens[i].total)));
+    if (!(valor > 0) || !idx.length) return out;
+    const base = idx.map(i => (por === "peso" ? numBR(itens[i].quantidade) : numBR(itens[i].total)));
     const soma = base.reduce((x, y) => x + y, 0) || 1;
     let acc = 0;
     idx.forEach((i, k) => {
-      if (k === idx.length - 1) out[i] = Math.round((freteNum - acc) * 100) / 100;
-      else { out[i] = Math.round((freteNum * base[k]) / soma * 100) / 100; acc += out[i]; }
+      if (k === idx.length - 1) out[i] = Math.round((valor - acc) * 100) / 100;
+      else { out[i] = Math.round((valor * base[k]) / soma * 100) / 100; acc += out[i]; }
     });
     return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [itens, freteNum, rateioEfetivo, insumos]);
+  };
+  const partesFrete = dividir(freteNum, rateioEfetivo);
+  // ICMS é percentual sobre o preço: sempre dividido pelo valor de cada item
+  const partesIcms = dividir(icmsNum, "valor");
 
   const setItem = (i: number, patch: Partial<ItemCompra>) =>
     setItens(prev => prev.map((it, k) => (k === i ? { ...it, ...patch } : it)));
 
-  const totalNota = itensValidos.reduce((x, it) => x + numBR(it.total), 0) + freteNum;
+  const totalNota = itensValidos.reduce((x, it) => x + numBR(it.total), 0) + freteNum + icmsNum;
 
   const resetForm = () => {
-    setFormData(todayStr); setItens([itemVazio()]); setFormFrete(""); setFormRateio("peso"); setFormObs("");
+    setFormData(todayStr); setItens([itemVazio()]); setFormFrete(""); setFormIcms(""); setFormRateio("peso"); setFormObs("");
     setShowForm(false);
   };
 
@@ -11412,6 +11416,7 @@ function ComprasTab() {
         date: toDDMMYYYY(formData),
         observacao: formObs,
         frete: freteNum,
+        icms: icmsNum,
         rateio: formRateio,
         itens: preenchidos.map(it => ({ insumo: it.insumo, quantidade: numBR(it.quantidade), custoTotal: numBR(it.total) })),
         atualizarCadastro: preenchidos.filter(it => it.atualizar && insumoDe(it.insumo)).map(it => it.insumo),
@@ -11496,7 +11501,8 @@ function ComprasTab() {
               const qtd = numBR(it.quantidade);
               const total = numBR(it.total);
               const parte = partesFrete[i] || 0;
-              const custoUn = qtd > 0 && total > 0 ? (total + parte) / qtd : null;
+              const parteIcms = partesIcms[i] || 0;
+              const custoUn = qtd > 0 && total > 0 ? (total + parte + parteIcms) / qtd : null;
               return (
                 <div key={i} className="border rounded-lg p-3 bg-white space-y-2">
                   <div className="grid grid-cols-12 gap-2 items-end">
@@ -11531,6 +11537,7 @@ function ComprasTab() {
                     <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                       <div className="text-gray-600">
                         {parte > 0 && <>+ {fmtMoney(parte)} de frete · </>}
+                        {parteIcms > 0 && <>+ {fmtMoney(parteIcms)} de ICMS · </>}
                         Custo: <span className="font-semibold text-gray-800">{fmtMoney(custoUn)}{un ? ` / ${un}` : ""}</span>
                         {ins && ins.custoPorUnidade > 0 && <span className="text-gray-400"> (cadastro: {fmtMoney(ins.custoPorUnidade)})</span>}
                       </div>
@@ -11547,7 +11554,12 @@ function ComprasTab() {
             })}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs text-gray-600">ICMS da nota (R$)</label>
+              <input type="number" step="0.01" min={0} inputMode="decimal" className="input w-full" value={formIcms} onChange={e => setFormIcms(e.target.value)} placeholder="0,00" />
+              {icmsNum > 0 && <div className="text-xs text-gray-500">Dividido pelo valor de cada item.</div>}
+            </div>
             <div className="space-y-1">
               <label className="text-xs text-gray-600">Frete da compra (R$)</label>
               <input type="number" step="0.01" min={0} inputMode="decimal" className="input w-full" value={formFrete} onChange={e => setFormFrete(e.target.value)} placeholder="0,00" />
