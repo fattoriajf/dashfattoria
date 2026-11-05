@@ -5244,6 +5244,45 @@ function EtiquetasTab() {
     }
   };
 
+  // ── Edição da etiqueta (peso, porções, responsável, fornecedor) ──
+  const [editEtq, setEditEtq] = useState<any | null>(null);
+  const [editPeso, setEditPeso] = useState('');
+  const [editPorcoes, setEditPorcoes] = useState('');
+  const [editResp, setEditResp] = useState('');
+  const [editForn, setEditForn] = useState('');
+  const [salvandoEtq, setSalvandoEtq] = useState(false);
+
+  const abrirEdicao = (item: any) => {
+    const cad = insumos.find((i: any) => i.nome === item.insumo);
+    const fns: string[] = cad?.fornecedores || (cad?.marca_fornecedor ? [cad.marca_fornecedor] : []);
+    setEditEtq(item);
+    setEditPeso(item.peso ? String(item.peso) : '');
+    setEditPorcoes(item.porcoes ? String(item.porcoes) : '');
+    setEditResp(item.responsavel ? String(item.responsavel) : '');
+    setEditForn(item.fornecedor ? String(item.fornecedor) : (fns.length === 1 ? fns[0] : ''));
+  };
+
+  const salvarEdicao = async (reimprimir: boolean) => {
+    if (!editEtq || salvandoEtq) return;
+    if (!editResp.trim()) { alert('Informe o responsável.'); return; }
+    const atualizado = { ...editEtq, peso: editPeso.trim(), porcoes: editPorcoes.trim(), responsavel: editResp.trim(), fornecedor: editForn.trim() };
+    setSalvandoEtq(true);
+    try {
+      const data = await adminPost('update_lote', {
+        id: editEtq.id, peso: atualizado.peso, porcoes: atualizado.porcoes, responsavel: atualizado.responsavel, fornecedor: atualizado.fornecedor,
+      });
+      if (!data?.ok) throw new Error(data?.error || 'erro desconhecido');
+      // atualiza a lista na hora, sem esperar recarregar
+      setEstoqueItens(prev => prev.map(i => (i.id === editEtq.id ? { ...i, ...atualizado } : i)));
+      setEditEtq(null);
+      if (reimprimir) await handleReimprimir(atualizado);
+    } catch (err: any) {
+      alert(`Não foi possível salvar. ${String(err?.message || err)}`);
+    } finally {
+      setSalvandoEtq(false);
+    }
+  };
+
   // ── salvar empresa ──
   const handleSaveEmpresa = async () => {
     setSavingEmp(true);
@@ -5919,6 +5958,13 @@ function EtiquetasTab() {
                   ) : (
                     <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                       <button
+                        onClick={() => abrirEdicao(item)}
+                        title="Corrigir peso, porções, responsável ou fornecedor"
+                        style={{ fontSize:12, padding:'5px 12px', borderRadius:6, border:'1px solid #d1d5db', background:'#fff', cursor:'pointer', fontWeight:600, color:'#374151' }}
+                      >
+                        ✏️ Editar
+                      </button>
+                      <button
                         onClick={() => handleReimprimir(item)}
                         disabled={reimprimindoId === item.id}
                         title="Imprimir de novo esta mesma etiqueta"
@@ -6320,6 +6366,65 @@ function EtiquetasTab() {
           </button>
         </div>
       )}
+
+      {/* ── Modal de edição da etiqueta ── */}
+      {editEtq && (() => {
+        const cad = insumos.find((i: any) => i.nome === editEtq.insumo);
+        const fns: string[] = cad?.fornecedores || (cad?.marca_fornecedor ? [cad.marca_fornecedor] : []);
+        return (
+          <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.4)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+            onClick={() => !salvandoEtq && setEditEtq(null)}>
+            <div style={{ background:'#fff', borderRadius:12, padding:18, width:'100%', maxWidth:420 }} onClick={e => e.stopPropagation()}>
+              <div style={{ fontWeight:700, fontSize:15, marginBottom:2 }}>Editar etiqueta</div>
+              <div style={{ fontSize:12, color:'#64748b', marginBottom:12 }}>{editEtq.insumo} · {editEtq.id}</div>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs text-gray-600">Peso</label>
+                    <input className="input w-full" value={editPeso} onChange={e => setEditPeso(e.target.value)} placeholder="Ex.: 500g" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-gray-600">Porções</label>
+                    <input className="input w-full" inputMode="numeric" value={editPorcoes} onChange={e => setEditPorcoes(e.target.value)} placeholder="Opcional" />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-gray-600">Responsável</label>
+                  {staff.length > 0 ? (
+                    <select className="input w-full" value={editResp} onChange={e => setEditResp(e.target.value)}>
+                      <option value="">Selecione...</option>
+                      {(staff.includes(editResp) || !editResp ? staff : [editResp, ...staff]).map((n: string) => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  ) : (
+                    <input className="input w-full" value={editResp} onChange={e => setEditResp(e.target.value)} />
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-gray-600">Fornecedor/marca</label>
+                  {fns.length > 1 ? (
+                    <select className="input w-full" value={editForn} onChange={e => setEditForn(e.target.value)}>
+                      <option value="">Selecione...</option>
+                      {(fns.includes(editForn) || !editForn ? fns : [editForn, ...fns]).map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  ) : (
+                    <input className="input w-full" value={editForn} onChange={e => setEditForn(e.target.value)} placeholder="Opcional" />
+                  )}
+                </div>
+                <div style={{ fontSize:11, color:'#94a3b8' }}>
+                  Manipulação, validade e conservação não mudam. Se alguma delas estiver errada, dê baixa e emita uma etiqueta nova.
+                </div>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button className="btn btn-primary text-sm" disabled={salvandoEtq} onClick={() => salvarEdicao(true)} style={{ background: BRAND.primary }}>
+                    {salvandoEtq ? 'Salvando...' : '🖨 Salvar e reimprimir'}
+                  </button>
+                  <button className="btn btn-ghost text-sm" disabled={salvandoEtq} onClick={() => salvarEdicao(false)}>Só salvar</button>
+                  <button className="btn btn-ghost text-sm" disabled={salvandoEtq} onClick={() => setEditEtq(null)}>Cancelar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
