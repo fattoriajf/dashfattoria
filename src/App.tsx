@@ -4989,32 +4989,11 @@ function EtiquetasTab() {
 
   const validadeDT = calcValidade();
 
-  // ── Impressão ──
-  const handlePrint = async () => {
-    if (!insumoSel) { setErroForm('Selecione um insumo antes de imprimir.'); return; }
-    const fnsAtual: string[] = insumoAtual?.fornecedores || (insumoAtual?.marca_fornecedor ? [insumoAtual.marca_fornecedor] : []);
-    if (fnsAtual.length > 1 && !fornecedorSel) { setErroForm('Selecione o fornecedor antes de imprimir.'); return; }
-    if (!responsavel.trim()) { setErroForm('Informe o responsável antes de imprimir.'); return; }
-    setErroForm('');
-    setIsPrinting(true); // ativa imediatamente, antes de qualquer fetch
-
-    // Busca código(s) sequencial(is) do backend.
-    // Fallback offline: usa timestamp como base para garantir unicidade, não random
-    const fallback = (n: number) => { const base = Date.now(); return Array.from({length: n}, (_, i) => `ETQ-F${base + i}`); };
-    let loteCodes: string[] = [];
-    try {
-      // Sempre usa next_lote_ids — funciona para 1 ou N códigos
-      const qtdCodigos = modoImpressao === 'lotes_separados' ? qtdEtiquetas : 1;
-      const r = await fetch(`${SYNC_ENDPOINT}?action=next_lote_ids&count=${qtdCodigos}&_ts=${Date.now()}`);
-      const d = await r.json();
-      loteCodes = (d?.ok && d?.codigos) ? d.codigos : fallback(qtdCodigos);
-    } catch {
-      loteCodes = fallback(modoImpressao === 'lotes_separados' ? qtdEtiquetas : 1);
-    }
-
-    const buildHTMLLabel = (code: string): string => {
-      const marcaVal = `${fornecedorSel || insumoAtual?.marca_fornecedor || '—'}${insumoAtual?.sif ? ' · SIF ' + insumoAtual.sif : ''}`;
-      const badge = conservacao === 'resfriado' ? 'RESFRIADO' : conservacao === 'congelado' ? 'CONGELADO' : 'TEMP. AMBIENTE';
+  // ── HTML da etiqueta (usado na impressão e na reimpressão) ──
+  const montarEtiquetaHTML = (e: { insumo: string; marca: string; sif: string; code: string; conservacao: string; manipTxt: string; validadeTxt: string; responsavel: string; porcoes: string; peso: string }): string => {
+      const code = e.code;
+      const marcaVal = `${e.marca || '—'}${e.sif ? ' · SIF ' + e.sif : ''}`;
+      const badge = e.conservacao === 'resfriado' ? 'RESFRIADO' : e.conservacao === 'congelado' ? 'CONGELADO' : 'TEMP. AMBIENTE';
       const footLine = [
         empresa.cnpj ? `CNPJ ${empresa.cnpj}` : '',
         empresa.endereco || '',
@@ -5060,7 +5039,7 @@ function EtiquetasTab() {
         .ftr-name { font-size: 2.7mm; font-weight: bold; letter-spacing: 0.4mm; }
         .ftr-info { font-size: 1.55mm; margin-top: 0.1mm; }
       </style></head><body>
-        <div class="hdr">${insumoSel.toUpperCase()}</div>
+        <div class="hdr">${String(e.insumo || '').toUpperCase()}</div>
         <div class="body">
           <div class="row">
             <span class="lbl">Marca/Fornecedor</span>
@@ -5071,20 +5050,20 @@ function EtiquetasTab() {
           <div class="sep"></div>
           <div class="row">
             <span class="lbl">Manipulação</span>
-            <span class="val">${fmtManip()}</span>
+            <span class="val">${e.manipTxt}</span>
           </div>
           <div class="vbox">
             <span class="vbox-lbl">VALIDADE</span>
-            <span class="vbox-val">${fmtDT(validadeDT)}</span>
+            <span class="vbox-val">${e.validadeTxt}</span>
           </div>
           <div class="sep"></div>
           <div class="resp">
             <div class="resp-col">
               <span class="lbl">Responsável</span>
-              <span class="val" style="text-align:left;font-size:2.5mm">${responsavel}</span>
+              <span class="val" style="text-align:left;font-size:2.5mm">${e.responsavel}</span>
               <div style="display:flex;gap:3mm;margin-top:0mm">
-                ${porcoes ? `<div><span class="lbl">Porções</span><br><span style="font-size:2.7mm;font-weight:bold">${porcoes}</span></div>` : ''}
-                <div><span class="lbl">Peso</span><br><span style="font-size:2.7mm;font-weight:bold">${peso || '—'}</span></div>
+                ${e.porcoes ? `<div><span class="lbl">Porções</span><br><span style="font-size:2.7mm;font-weight:bold">${e.porcoes}</span></div>` : ''}
+                <div><span class="lbl">Peso</span><br><span style="font-size:2.7mm;font-weight:bold">${e.peso || '—'}</span></div>
               </div>
             </div>
             <div class="qr-wrap">
@@ -5097,7 +5076,39 @@ function EtiquetasTab() {
           ${footLine ? `<div class="ftr-info">${footLine}</div>` : ''}
         </div>
       </body></html>`;
-    };
+  };
+
+  // ── Impressão ──
+  const handlePrint = async () => {
+    if (!insumoSel) { setErroForm('Selecione um insumo antes de imprimir.'); return; }
+    const fnsAtual: string[] = insumoAtual?.fornecedores || (insumoAtual?.marca_fornecedor ? [insumoAtual.marca_fornecedor] : []);
+    if (fnsAtual.length > 1 && !fornecedorSel) { setErroForm('Selecione o fornecedor antes de imprimir.'); return; }
+    if (!responsavel.trim()) { setErroForm('Informe o responsável antes de imprimir.'); return; }
+    setErroForm('');
+    setIsPrinting(true); // ativa imediatamente, antes de qualquer fetch
+
+    // Busca código(s) sequencial(is) do backend.
+    // Fallback offline: usa timestamp como base para garantir unicidade, não random
+    const fallback = (n: number) => { const base = Date.now(); return Array.from({length: n}, (_, i) => `ETQ-F${base + i}`); };
+    let loteCodes: string[] = [];
+    try {
+      // Sempre usa next_lote_ids — funciona para 1 ou N códigos
+      const qtdCodigos = modoImpressao === 'lotes_separados' ? qtdEtiquetas : 1;
+      const r = await fetch(`${SYNC_ENDPOINT}?action=next_lote_ids&count=${qtdCodigos}&_ts=${Date.now()}`);
+      const d = await r.json();
+      loteCodes = (d?.ok && d?.codigos) ? d.codigos : fallback(qtdCodigos);
+    } catch {
+      loteCodes = fallback(modoImpressao === 'lotes_separados' ? qtdEtiquetas : 1);
+    }
+
+    const buildHTMLLabel = (code: string): string => montarEtiquetaHTML({
+      insumo: insumoSel,
+      marca: fornecedorSel || insumoAtual?.marca_fornecedor || '',
+      sif: insumoAtual?.sif || '',
+      code, conservacao,
+      manipTxt: fmtManip(), validadeTxt: fmtDT(validadeDT),
+      responsavel, porcoes: String(porcoes || ''), peso: String(peso || ''),
+    });
 
     const qz = (window as any).qz;
 
@@ -5137,6 +5148,7 @@ function EtiquetasTab() {
               action: 'registrar_lotes_batch',
               codigos: loteCodes,
               insumo: insumoSel,
+              fornecedor: fornecedorSel || insumoAtual?.marca_fornecedor || '',
               conservacao,
               validade_dt: validadeDT ? validadeDT.toISOString() : '',
               manip_dt: `${manipData}T${manipHora}`,
@@ -5160,6 +5172,7 @@ function EtiquetasTab() {
               action: 'registrar_lote',
               id: loteCode,
               insumo: insumoSel,
+              fornecedor: fornecedorSel || insumoAtual?.marca_fornecedor || '',
               conservacao,
               validade_dt: validadeDT ? validadeDT.toISOString() : '',
               manip_dt: `${manipData}T${manipHora}`,
@@ -5179,6 +5192,55 @@ function EtiquetasTab() {
       setErroForm(`Erro ao imprimir: ${String(err)}`);
     } finally {
       setIsPrinting(false);
+    }
+  };
+
+  // ── Reimpressão: imprime de novo a mesma etiqueta (mesmo código e datas), sem criar lote novo ──
+  const [reimprimindoId, setReimprimindoId] = useState<string | null>(null);
+  const fmtIso = (v: any) => {
+    if (!v) return '-';
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? String(v) : fmtDT(d);
+  };
+  const handleReimprimir = async (item: any) => {
+    if (reimprimindoId) return;
+    const resp = window.prompt(`Reimprimir a etiqueta ${item.id} (${item.insumo}).\nQuantas etiquetas?`, '1');
+    if (resp === null) return;
+    const qtd = Math.max(1, Math.min(50, parseInt(resp, 10) || 1));
+    const qz = (window as any).qz;
+    if (!qz) { alert('QZ Tray não encontrado. Verifique se está instalado e rodando no tablet.'); return; }
+    setReimprimindoId(item.id);
+    try {
+      if (!qz.websocket.isActive()) await qz.websocket.connect();
+      const config = qz.configs.create('ELGIN L42PRO FULL', { size: { width: 60, height: 60 }, units: 'mm', density: 203 });
+      const cad = insumos.find((i: any) => i.nome === item.insumo);
+      const fns: string[] = cad?.fornecedores || (cad?.marca_fornecedor ? [cad.marca_fornecedor] : []);
+      const html = montarEtiquetaHTML({
+        insumo: item.insumo,
+        marca: item.fornecedor || (fns.length === 1 ? fns[0] : ''),
+        sif: cad?.sif || '',
+        code: String(item.id),
+        conservacao: item.conservacao,
+        manipTxt: fmtIso(item.manip_dt),
+        validadeTxt: fmtIso(item.validade_dt),
+        responsavel: item.responsavel || '',
+        porcoes: item.porcoes ? String(item.porcoes) : '',
+        peso: item.peso ? String(item.peso) : '',
+      });
+      const label = { type: 'pixel', format: 'html', flavor: 'plain', data: html };
+      await qz.print(config, Array.from({ length: qtd }, () => label));
+      if (SYNC_ENDPOINT) {
+        fetch(SYNC_ENDPOINT, {
+          method: 'POST', mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'registrar_reimpressao', id: item.id, qtd }),
+        }).catch(() => {});
+        setTimeout(() => loadEstoque(), 3000);
+      }
+    } catch (err: any) {
+      alert(`Erro ao reimprimir: ${String(err)}`);
+    } finally {
+      setReimprimindoId(null);
     }
   };
 
@@ -5823,6 +5885,13 @@ function EtiquetasTab() {
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <div style={{ fontSize:12, display:'flex', flexDirection:'column', gap:2 }}>
                     <div>
+                      <span style={{ color:'#888' }}>Emissão: </span>
+                      <strong style={{ color:'#374151' }}>{item.emissao_dt ? fmtValidade(item.emissao_dt) : '—'}</strong>
+                      {Number(item.reimpressoes) > 0 && (
+                        <span style={{ color:'#888', fontSize:11 }}> · reimpressa {item.reimpressoes}x{item.ultima_reimpressao ? ` (última ${fmtValidade(item.ultima_reimpressao)})` : ''}</span>
+                      )}
+                    </div>
+                    <div>
                       <span style={{ color:'#888' }}>Validade: </span>
                       <strong style={{ color: status === 'vencido' ? colors.bar : '#1a1a1a' }}>{fmtValidade(item.validade_dt)}</strong>
                     </div>
@@ -5848,13 +5917,23 @@ function EtiquetasTab() {
                       <button onClick={() => setConfirmandoId(null)} style={{ fontSize:12, padding:'5px 10px', borderRadius:6, border:'1px solid #d1d5db', background:'#fff', color:'#374151', cursor:'pointer', fontWeight:600 }}>Não</button>
                     </div>
                   ) : (
-                    <button
-                      onClick={() => setConfirmandoId(item.id)}
-                      disabled={baixandoId === item.id}
-                      style={{ fontSize:12, padding:'5px 12px', borderRadius:6, border:'1px solid #d1d5db', background: baixandoId === item.id ? '#e5e7eb' : '#fff', cursor: baixandoId === item.id ? 'not-allowed' : 'pointer', fontWeight:600, color:'#374151' }}
-                    >
-                      {baixandoId === item.id ? '...' : '✓ Dar Baixa'}
-                    </button>
+                    <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                      <button
+                        onClick={() => handleReimprimir(item)}
+                        disabled={reimprimindoId === item.id}
+                        title="Imprimir de novo esta mesma etiqueta"
+                        style={{ fontSize:12, padding:'5px 12px', borderRadius:6, border:'1px solid #233253', background: reimprimindoId === item.id ? '#e5e7eb' : '#fff', cursor: reimprimindoId === item.id ? 'not-allowed' : 'pointer', fontWeight:600, color:'#233253' }}
+                      >
+                        {reimprimindoId === item.id ? 'Imprimindo...' : '🖨 Reimprimir'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmandoId(item.id)}
+                        disabled={baixandoId === item.id}
+                        style={{ fontSize:12, padding:'5px 12px', borderRadius:6, border:'1px solid #d1d5db', background: baixandoId === item.id ? '#e5e7eb' : '#fff', cursor: baixandoId === item.id ? 'not-allowed' : 'pointer', fontWeight:600, color:'#374151' }}
+                      >
+                        {baixandoId === item.id ? '...' : '✓ Dar Baixa'}
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
