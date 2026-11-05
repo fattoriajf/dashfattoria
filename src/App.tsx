@@ -5891,6 +5891,7 @@ function EtiquetasTab() {
           return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
         };
 
+        // chamado como função (não como <ItemCard />): assim a lista não é recriada a cada clique e a página não volta ao topo
         const ItemCard = ({ item }: { item: any }) => {
           const status = classify(item.validade_dt);
           const colors = {
@@ -6195,25 +6196,25 @@ function EtiquetasTab() {
                   {grupos.vencido.length > 0 && (
                     <div className="mb-4">
                       <p className="text-xs font-semibold text-red-600 uppercase tracking-wider mb-2">Vencidos</p>
-                      {grupos.vencido.map(i => <ItemCard key={i.id} item={i} />)}
+                      {grupos.vencido.map(i => <React.Fragment key={i.id}>{ItemCard({ item: i })}</React.Fragment>)}
                     </div>
                   )}
                   {grupos.proximo.length > 0 && (
                     <div className="mb-4">
                       <p className="text-xs font-semibold text-amber-600 uppercase tracking-wider mb-2">Próximos ao vencimento (48h)</p>
-                      {grupos.proximo.map(i => <ItemCard key={i.id} item={i} />)}
+                      {grupos.proximo.map(i => <React.Fragment key={i.id}>{ItemCard({ item: i })}</React.Fragment>)}
                     </div>
                   )}
                   {grupos.ok.length > 0 && (
                     <div>
                       <p className="text-xs font-semibold text-green-700 uppercase tracking-wider mb-2">Na validade</p>
-                      {grupos.ok.map(i => <ItemCard key={i.id} item={i} />)}
+                      {grupos.ok.map(i => <React.Fragment key={i.id}>{ItemCard({ item: i })}</React.Fragment>)}
                     </div>
                   )}
                 </div>
               ) : (
                 <div>
-                  {itensFiltrados.map(i => <ItemCard key={i.id} item={i} />)}
+                  {itensFiltrados.map(i => <React.Fragment key={i.id}>{ItemCard({ item: i })}</React.Fragment>)}
                 </div>
               )
             )}
