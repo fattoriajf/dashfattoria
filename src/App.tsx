@@ -4745,7 +4745,7 @@ function EtiquetasTab() {
       });
       setNovoResp('');
       setTimeout(() => loadAll(), 1500);
-    } catch { alert('Erro ao adicionar.'); }
+    } catch { avisar('Erro ao adicionar.'); }
     finally { setSavingResp(false); }
   };
 
@@ -4758,7 +4758,7 @@ function EtiquetasTab() {
         body: JSON.stringify({ action:'delete_responsavel_etiqueta', nome }),
       });
       setTimeout(() => loadAll(), 1500);
-    } catch { alert('Erro ao remover.'); }
+    } catch { avisar('Erro ao remover.'); }
     finally { setDeletingResp(null); }
   };
 
@@ -4867,7 +4867,7 @@ function EtiquetasTab() {
         body: JSON.stringify({ action: 'restaurar_lote', id }),
       });
       setTimeout(() => { loadHistorico(); loadEstoque(); }, 1500);
-    } catch { alert('Erro ao restaurar.'); }
+    } catch { avisar('Erro ao restaurar.'); }
     finally { setRestaurandoId(null); }
   };
 
@@ -5202,13 +5202,25 @@ function EtiquetasTab() {
     const d = new Date(v);
     return isNaN(d.getTime()) ? String(v) : fmtDT(d);
   };
-  const handleReimprimir = async (item: any) => {
+  // janelas do próprio sistema: os avisos do navegador (alert/confirm/prompt) tiram da tela cheia
+  const [aviso, setAviso] = useState<string | null>(null);
+  const avisar = (msg: string) => setAviso(msg);
+  const [pergunta, setPergunta] = useState<{ msg: string; resolve: (v: boolean) => void } | null>(null);
+  const confirmar = (msg: string) => new Promise<boolean>((resolve) => setPergunta({ msg, resolve }));
+  const [reimpItem, setReimpItem] = useState<any | null>(null);
+  const [reimpQtd, setReimpQtd] = useState('1');
+
+  const handleReimprimir = (item: any) => {
     if (reimprimindoId) return;
-    const resp = window.prompt(`Reimprimir a etiqueta ${item.id} (${item.insumo}).\nQuantas etiquetas?`, '1');
-    if (resp === null) return;
-    const qtd = Math.max(1, Math.min(50, parseInt(resp, 10) || 1));
+    setReimpQtd('1');
+    setReimpItem(item);
+  };
+
+  const executarReimpressao = async (item: any, qtdTxt: string) => {
+    setReimpItem(null);
+    const qtd = Math.max(1, Math.min(50, parseInt(qtdTxt, 10) || 1));
     const qz = (window as any).qz;
-    if (!qz) { alert('QZ Tray não encontrado. Verifique se está instalado e rodando no tablet.'); return; }
+    if (!qz) { avisar('QZ Tray não encontrado. Verifique se está instalado e rodando no tablet.'); return; }
     setReimprimindoId(item.id);
     try {
       if (!qz.websocket.isActive()) await qz.websocket.connect();
@@ -5238,7 +5250,7 @@ function EtiquetasTab() {
         setTimeout(() => loadEstoque(), 3000);
       }
     } catch (err: any) {
-      alert(`Erro ao reimprimir: ${String(err)}`);
+      avisar(`Erro ao reimprimir: ${String(err)}`);
     } finally {
       setReimprimindoId(null);
     }
@@ -5264,7 +5276,7 @@ function EtiquetasTab() {
 
   const salvarEdicao = async (reimprimir: boolean) => {
     if (!editEtq || salvandoEtq) return;
-    if (!editResp.trim()) { alert('Informe o responsável.'); return; }
+    if (!editResp.trim()) { avisar('Informe o responsável.'); return; }
     const atualizado = { ...editEtq, peso: editPeso.trim(), porcoes: editPorcoes.trim(), responsavel: editResp.trim(), fornecedor: editForn.trim() };
     setSalvandoEtq(true);
     try {
@@ -5277,7 +5289,7 @@ function EtiquetasTab() {
       setEditEtq(null);
       if (reimprimir) await handleReimprimir(atualizado);
     } catch (err: any) {
-      alert(`Não foi possível salvar. ${String(err?.message || err)}`);
+      avisar(`Não foi possível salvar. ${String(err?.message || err)}`);
     } finally {
       setSalvandoEtq(false);
     }
@@ -5293,14 +5305,14 @@ function EtiquetasTab() {
         body: JSON.stringify({ action:'save_empresa_config', nome:empNome, cnpj:empCnpj, endereco:empEnd }),
       });
       setEmpresa({ nome:empNome, cnpj:empCnpj, endereco:empEnd });
-      alert('Configuração salva!');
-    } catch { alert('Erro ao salvar.'); }
+      avisar('Configuração salva!');
+    } catch { avisar('Erro ao salvar.'); }
     finally { setSavingEmp(false); }
   };
 
   // ── salvar categoria ──
   const handleSaveCat = async () => {
-    if (!catNome.trim()) { alert('Informe o nome da categoria.'); return; }
+    if (!catNome.trim()) { avisar('Informe o nome da categoria.'); return; }
     setSavingCat(true);
     try {
       await fetch(SYNC_ENDPOINT, {
@@ -5310,12 +5322,12 @@ function EtiquetasTab() {
       });
       setCatNome(''); setCatRef(3); setCatCong(30); setCatAnvisa('');
       setTimeout(() => loadAll(), 2000);
-    } catch { alert('Erro ao salvar.'); }
+    } catch { avisar('Erro ao salvar.'); }
     finally { setSavingCat(false); }
   };
 
   const handleDeleteCat = async (id: string) => {
-    if (!confirm('Excluir esta categoria?')) return;
+    if (!(await confirmar('Excluir esta categoria?'))) return;
     await fetch(SYNC_ENDPOINT, { method:'POST', mode:'no-cors', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'delete_categoria', id }) });
     setTimeout(() => loadAll(), 2000);
   };
@@ -6365,6 +6377,53 @@ function EtiquetasTab() {
           <button className="btn btn-primary" onClick={handleSaveEmpresa} disabled={savingEmp} style={{background: BRAND.primary}}>
             {savingEmp ? 'Salvando...' : 'Salvar configuração'}
           </button>
+        </div>
+      )}
+
+      {/* ── Reimpressão: quantidade ── */}
+      {reimpItem && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.4)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+          onClick={() => setReimpItem(null)}>
+          <div style={{ background:'#fff', borderRadius:12, padding:18, width:'100%', maxWidth:360 }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontWeight:700, fontSize:15, marginBottom:2 }}>Reimprimir etiqueta</div>
+            <div style={{ fontSize:12, color:'#64748b', marginBottom:12 }}>{reimpItem.insumo} · {reimpItem.id}</div>
+            <label className="text-xs text-gray-600">Quantas etiquetas?</label>
+            <div style={{ display:'flex', alignItems:'center', gap:8, margin:'6px 0 14px' }}>
+              <button className="btn btn-ghost" onClick={() => setReimpQtd(q => String(Math.max(1, (parseInt(q, 10) || 1) - 1)))}>−</button>
+              <input className="input text-center" style={{ width:70 }} inputMode="numeric" value={reimpQtd}
+                onChange={e => setReimpQtd(e.target.value.replace(/\D/g, ''))}
+                onKeyDown={e => { if (e.key === 'Enter') executarReimpressao(reimpItem, reimpQtd); }} autoFocus />
+              <button className="btn btn-ghost" onClick={() => setReimpQtd(q => String(Math.min(50, (parseInt(q, 10) || 0) + 1)))}>+</button>
+            </div>
+            <div className="flex gap-2">
+              <button className="btn btn-primary text-sm" style={{ background: BRAND.primary }} onClick={() => executarReimpressao(reimpItem, reimpQtd)}>🖨 Imprimir</button>
+              <button className="btn btn-ghost text-sm" onClick={() => setReimpItem(null)}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirmação ── */}
+      {pergunta && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.4)', zIndex:1001, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <div style={{ background:'#fff', borderRadius:12, padding:18, width:'100%', maxWidth:360 }}>
+            <div style={{ fontSize:14, marginBottom:14, whiteSpace:'pre-line' }}>{pergunta.msg}</div>
+            <div className="flex gap-2">
+              <button className="btn btn-primary text-sm" style={{ background: BRAND.primary }} onClick={() => { pergunta.resolve(true); setPergunta(null); }}>Sim</button>
+              <button className="btn btn-ghost text-sm" onClick={() => { pergunta.resolve(false); setPergunta(null); }}>Não</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Aviso ── */}
+      {aviso && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.4)', zIndex:1002, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+          onClick={() => setAviso(null)}>
+          <div style={{ background:'#fff', borderRadius:12, padding:18, width:'100%', maxWidth:360 }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize:14, marginBottom:14, whiteSpace:'pre-line' }}>{aviso}</div>
+            <button className="btn btn-primary text-sm" style={{ background: BRAND.primary }} onClick={() => setAviso(null)}>OK</button>
+          </div>
         </div>
       )}
 
