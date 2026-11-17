@@ -10317,6 +10317,16 @@ async function exportarCmvPdf(rel: RelatorioCmv) {
       [`Receita do mês`, d.receita === null ? "não disponível" : brl(d.receita)],
       ["CMV Real %", pct(d.cmvPct)],
     ], { columnStyles: { 1: { halign: "right", cellWidth: 45 } }, didParseCell: (h: any) => { if (h.section === "body" && (h.row.index === 3 || h.row.index === 5)) h.cell.styles.fontStyle = "bold"; } });
+    const ci = d.consumoInterno;
+    if (ci && !ci.erro) {
+      tabela(["Consumo interno (a custo)", "Valor"], [
+        ["Sócios (sem entrada de dinheiro)", brl(ci.socios.custo)],
+        [`Colaboradores (descontado do pagamento: ${brl(ci.colaboradores.valorDescontado)})`, brl(ci.colaboradores.custo)],
+        ["= CMV das vendas (CMV Real - consumo interno)", brl(d.cmvVendas)],
+        ["CMV das vendas %", pct(d.cmvVendasPct)],
+      ], { columnStyles: { 1: { halign: "right", cellWidth: 45 } }, didParseCell: (h: any) => { if (h.section === "body" && h.row.index >= 2) h.cell.styles.fontStyle = "bold"; } });
+      if (ci.produtosSemFicha?.length) linhaTxt(`Consumo interno sem ficha técnica (fora do cálculo): ${ci.produtosSemFicha.join(", ")}.`, 8, 110);
+    }
     if (d.consumoMateriais) linhaTxt(`Do CMV Real, ${brl(d.consumoMateriais)} são materiais (saquinho, caixa...) e ${brl((d.cmvReal || 0) - d.consumoMateriais)} são ingredientes.`);
     if (d.compras.usoGeral?.total > 0) linhaTxt(`${brl(d.compras.usoGeral.total)} em compras de uso geral ficaram fora do CMV: ${d.compras.usoGeral.insumos.join(", ")}.`);
     if (d.compras.soInventariados && d.compras.excluidas?.total > 0) linhaTxt(`${brl(d.compras.excluidas.total)} em compras de insumos não inventariados ficaram fora da conta: ${d.compras.excluidas.insumos.join(", ")}.`);
@@ -10333,17 +10343,17 @@ async function exportarCmvPdf(rel: RelatorioCmv) {
     const cc = d.consumoComparativo;
     if (d.completo && cc && !cc.erro && cc.linhas?.length) {
       titulo("Consumo teórico x real por insumo");
-      linhaTxt("Teórico = vendas do mês x fichas técnicas (com desperdício e preparos). Real = inventário. Diferença positiva: saiu mais do que a ficha prevê.", 8, 110);
+      linhaTxt("Teórico = vendas do mês x fichas técnicas (com desperdício e preparos). Interno = consumo de sócios e colaboradores. Real = inventário. Diferença = real - (teórico + interno).", 8, 110);
       const porcaoPdf = (v: number, un: string) => (String(un).toLowerCase() === "kg" ? `${Math.round(v * 1000)} g` : `${qtd(v)} ${un}`);
-      tabela(["Insumo", "Teórico", "Real", "Diferença", "%", "Dif. (R$)", "Porção (ficha -> real)"],
+      tabela(["Insumo", "Teórico", "+ Interno", "Real", "Diferença", "%", "Dif. (R$)", "Porção (ficha -> real)"],
         cc.linhas.map((l: any) => [
           `${l.insumo}${l.unidade ? ` (${l.unidade})` : ""}`,
-          qtd(l.teorico), qtd(l.real), `${l.diferenca > 0 ? "+" : ""}${qtd(l.diferenca)}`,
+          qtd(l.teorico), l.interno ? qtd(l.interno) : "-", qtd(l.real), `${l.diferenca > 0 ? "+" : ""}${qtd(l.diferenca)}`,
           l.diferencaPct === null ? "-" : `${l.diferencaPct > 0 ? "+" : ""}${l.diferencaPct.toFixed(1).replace(".", ",")}%`,
           brl(l.valorDiferenca),
           l.porcao ? `${porcaoPdf(l.porcao.esperada, l.unidade)} -> ${porcaoPdf(l.porcao.real, l.unidade)}` : l.produtos.length > 1 ? "vários produtos" : "-",
         ]),
-        { columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" } } });
+        { columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" } } });
       if (cc.produtosSemFicha?.length) linhaTxt(`Vendidos sem ficha técnica (fora do teórico): ${cc.produtosSemFicha.join(", ")}.`, 8, 110);
     }
 
@@ -10913,6 +10923,62 @@ function CmvMensalSection({
             <span className="font-medium text-gray-700">{d.receita === null ? "não disponível" : fmtMoney(d.receita)}</span>
           </div>
 
+          {/* Consumo interno: sócios e colaboradores */}
+          {d.consumoInterno && !d.consumoInterno.erro && (
+            <div className="border rounded-xl p-3 space-y-2">
+              <div className="text-sm font-medium">Consumo interno (sócios e colaboradores)</div>
+              <div className="text-xs text-gray-500">
+                Saiu do estoque mas não é venda. Custo calculado pelas fichas técnicas{d.compras.soInventariados ? ", só com os insumos inventariados" : ""}.
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="border rounded-lg p-2 bg-gray-50">
+                  <div className="text-xs text-gray-500">Sócios (sem entrada de dinheiro)</div>
+                  <div className="font-semibold">{fmtMoney(d.consumoInterno.socios.custo)}</div>
+                </div>
+                <div className="border rounded-lg p-2 bg-gray-50">
+                  <div className="text-xs text-gray-500">Colaboradores (a custo)</div>
+                  <div className="font-semibold">{fmtMoney(d.consumoInterno.colaboradores.custo)}</div>
+                  <div className="text-xs text-gray-500">Descontado do pagamento: {fmtMoney(d.consumoInterno.colaboradores.valorDescontado)}</div>
+                </div>
+                {d.cmvVendas !== null && (
+                  <div className={`border-2 rounded-lg p-2 ${d.cmvVendasPct === null ? "border-gray-200" : d.cmvVendasPct <= 35 ? "border-green-400 bg-green-50" : d.cmvVendasPct <= 45 ? "border-yellow-400 bg-yellow-50" : "border-red-400 bg-red-50"}`}>
+                    <div className="text-xs text-gray-500">CMV das vendas (sem o consumo interno)</div>
+                    <div className="font-bold">{fmtMoney(d.cmvVendas)}</div>
+                    <div className={`text-sm font-semibold ${cmvColor(d.cmvVendasPct)}`}>{fmtPct(d.cmvVendasPct)}</div>
+                  </div>
+                )}
+              </div>
+              {(d.consumoInterno.socios.produtos.length > 0 || d.consumoInterno.colaboradores.produtos.length > 0) && (
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-gray-600">Ver produtos consumidos</summary>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                    {([["Sócios", d.consumoInterno.socios.produtos], ["Colaboradores", d.consumoInterno.colaboradores.produtos]] as [string, any[]][]).map(([t, lista]) => (
+                      <div key={t}>
+                        <div className="font-medium mb-1">{t}</div>
+                        {lista.length === 0 ? <div className="text-gray-400">—</div> : (
+                          <ul className="space-y-0.5">
+                            {lista.map((p: any) => (
+                              <li key={p.produto} className="flex justify-between gap-2">
+                                <span>{p.produto}{!p.ficha && <span className="text-amber-600"> (sem ficha)</span>}</span>
+                                <span className="font-medium">{fmtQtd(p.quantidade)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+              {d.consumoInterno.produtosSemFicha?.length > 0 && (
+                <div className="text-xs text-amber-700">
+                  Sem ficha técnica (custo não calculado): {d.consumoInterno.produtosSemFicha.join(", ")}. O nome no cadastro de produtos
+                  precisa ser igual ao da ficha ("1/2 Vegana" usa a ficha "Vegana" com meia quantidade).
+                </div>
+              )}
+            </div>
+          )}
+
           {d.consumoMateriais !== null && d.consumoMateriais !== undefined && d.consumoMateriais !== 0 && (
             <div className="text-xs text-gray-600">
               Do CMV Real, <span className="font-medium">{fmtMoney(d.consumoMateriais)}</span> são materiais (saquinho, caixa...) e{" "}
@@ -10994,9 +11060,9 @@ function CmvMensalSection({
             <div className="border rounded-xl p-3 space-y-2">
               <div className="text-sm font-medium">Consumo teórico × real por insumo</div>
               <div className="text-xs text-gray-500">
-                Teórico = vendas do mês (todas as categorias) × fichas técnicas, com desperdício e abrindo os preparos. Real =
-                inventário (inicial + compras − final), já descontando o que ficou guardado em preparos prontos. Diferença
-                positiva: saiu mais do que a ficha prevê.
+                Teórico = vendas do mês (todas as categorias) × fichas técnicas, com desperdício e abrindo os preparos. Interno =
+                consumo de sócios e colaboradores pelas fichas. Real = inventário (inicial + compras − final), já descontando o que
+                ficou guardado em preparos prontos. Diferença = real − (teórico + interno); positiva: saiu mais do que deveria.
               </div>
               {d.consumoComparativo.erro ? (
                 <div className="text-xs text-red-600">Não foi possível calcular: {d.consumoComparativo.erro}</div>
@@ -11008,7 +11074,8 @@ function CmvMensalSection({
                     <thead className="bg-gray-100">
                       <tr>
                         <th className="border px-3 py-1 text-left">Insumo</th>
-                        <th className="border px-3 py-1 text-right">Teórico</th>
+                        <th className="border px-3 py-1 text-right">Teórico (vendas)</th>
+                        <th className="border px-3 py-1 text-right">+ Interno</th>
                         <th className="border px-3 py-1 text-right">Real</th>
                         <th className="border px-3 py-1 text-right">Diferença</th>
                         <th className="border px-3 py-1 text-right">%</th>
@@ -11034,6 +11101,7 @@ function CmvMensalSection({
                               )}
                             </td>
                             <td className="border px-3 py-1 text-right">{fmtQtd(l.teorico)}</td>
+                            <td className="border px-3 py-1 text-right text-gray-500">{l.interno ? fmtQtd(l.interno) : "—"}</td>
                             <td className="border px-3 py-1 text-right">{fmtQtd(l.real)}</td>
                             <td className={`border px-3 py-1 text-right font-medium ${cor}`}>{l.diferenca > 0 ? "+" : ""}{fmtQtd(l.diferenca)}</td>
                             <td className={`border px-3 py-1 text-right font-medium ${cor}`}>{p === null ? "—" : `${p > 0 ? "+" : ""}${p.toFixed(1)}%`}</td>
