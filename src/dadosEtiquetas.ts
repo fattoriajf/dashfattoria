@@ -317,3 +317,19 @@ export async function salvarContagem(p: {
   }
   return c.data.id as string;
 }
+
+/** Envia o PDF da lista por e-mail (função "enviar-lista-compras" no Supabase) */
+export async function enviarListaPorEmail(p: { contagemId: string; assunto: string; texto: string; arquivo: File }) {
+  const pdfBase64 = await new Promise<string>((resolve, reject) => {
+    const leitor = new FileReader();
+    leitor.onload = () => resolve(String(leitor.result).split(",")[1] || "");
+    leitor.onerror = () => reject(new Error("não foi possível ler o PDF"));
+    leitor.readAsDataURL(p.arquivo);
+  });
+  const { data, error } = await supabase.functions.invoke("enviar-lista-compras", {
+    body: { contagemId: p.contagemId, assunto: p.assunto, texto: p.texto, nomeArquivo: p.arquivo.name, pdfBase64 },
+  });
+  if (error) erro(error, "enviar e-mail");
+  if (!data?.ok) throw new Error(`enviar e-mail: ${data?.error || "erro desconhecido"}`);
+  return data as { ok: true; para: string[] };
+}
