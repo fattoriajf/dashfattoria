@@ -14,6 +14,7 @@ import {
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { supabase, carregarMeuPerfil } from "./supabase";
 import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet, Menu, X, Package, TrendingUp, Tag, BarChart2, Maximize2, Minimize2 } from "lucide-react";
 import {
 Calendar as Cal,
@@ -424,17 +425,48 @@ export default function App() {
   }, [isColab, colabSessao, state.staff, selectedStaffId]);
 
 
-  // ===== LOGIN ADMIN =====
-  const [adminLogado, setAdminLogado] = useState<boolean>(() => {
-    try { return sessionStorage.getItem("fattoria_admin_auth") === "1"; } catch { return false; }
-  });
-  const [abasPermitidas, setAbasPermitidas] = useState<string[] | "tudo">(() => {
-    try {
-      const raw = sessionStorage.getItem("fattoria_admin_abas");
-      if (!raw) return "tudo";
-      return raw === "tudo" ? "tudo" : JSON.parse(raw) as string[];
-    } catch { return "tudo"; }
-  });
+  // ===== LOGIN ADMIN (Supabase) =====
+  const [adminLogado, setAdminLogado] = useState(false);
+  const [verificandoSessao, setVerificandoSessao] = useState(true);
+  const [adminNome, setAdminNome] = useState("");
+  const [abasPermitidas, setAbasPermitidas] = useState<string[] | "tudo">([]);
+
+  // perfil -> abas: '*' libera tudo
+  const aplicarPerfil = (p: { nome: string; abas: string[] }) => {
+    setAdminNome(p.nome);
+    setAbasPermitidas(p.abas.includes("*") ? "tudo" : p.abas.map((a) => a.toLowerCase()));
+    setAdminLogado(true);
+  };
+
+  // ao abrir o site: se já existe sessão salva, carrega o perfil
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data.session) {
+          const perfil = await carregarMeuPerfil();
+          if (perfil && ativo) aplicarPerfil(perfil);
+          else if (!perfil) await supabase.auth.signOut();
+        }
+      } finally {
+        if (ativo) setVerificandoSessao(false);
+      }
+    })();
+    const { data: sub } = supabase.auth.onAuthStateChange((evento: string) => {
+      if (evento === "SIGNED_OUT") {
+        setAdminLogado(false);
+        setAdminNome("");
+        setAbasPermitidas([]);
+      }
+    });
+    return () => { ativo = false; sub.subscription.unsubscribe(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const sairAdmin = async () => {
+    await supabase.auth.signOut();
+  };
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -471,19 +503,12 @@ export default function App() {
     );
   }
 
+  if (mode === "admin" && verificandoSessao) {
+    return <div className="login-page"><div className="text-sm text-gray-500 p-8">Carregando...</div></div>;
+  }
+
   if (mode === "admin" && !adminLogado) {
-    return (
-      <LoginAdmin
-        onLogin={(abas) => {
-          try {
-            sessionStorage.setItem("fattoria_admin_auth", "1");
-            sessionStorage.setItem("fattoria_admin_abas", abas === "tudo" ? "tudo" : JSON.stringify(abas));
-          } catch {}
-          setAbasPermitidas(abas);
-          setAdminLogado(true);
-        }}
-      />
-    );
+    return <LoginAdmin onLogin={(perfil) => aplicarPerfil(perfil)} />;
   }
 
   const navItem = (tab: typeof activeTab, label: string, icon: React.ReactNode, adminOnly = false, colabOnly = false) => {
@@ -561,6 +586,11 @@ export default function App() {
             <>
               <span className="text-xs text-gray-500">Olá, {colabSessao.nome}</span>
               <button onClick={sairColab} className="btn btn-ghost text-xs">Sair</button>
+            </>
+          ) : adminLogado ? (
+            <>
+              <span className="text-xs text-gray-500 hidden sm:block">Olá, {adminNome}</span>
+              <button onClick={sairAdmin} className="btn btn-ghost text-xs">Sair</button>
             </>
           ) : (
             <span className="text-xs text-gray-400 hidden sm:block">Gestão Interna</span>
@@ -1303,8 +1333,8 @@ function EscalaSemanaTab({ initialWeekId, days }: { initialWeekId: string; days:
   );
 }
 
-// ======== TELA DE LOGIN ADMIN ========
-function LoginAdmin({ onLogin }: { onLogin: (abas: string[] | "tudo") => void }) {
+// ======== TELA DE LOGIN ADMIN (Supabase) ========
+function LoginAdmin({ onLogin }: { onLogin: (perfil: { nome: string; abas: string[] }) => void }) {
   const [usuario, setUsuario] = useState("");
   const [senha, setSenha] = useState("");
   const [loading, setLoading] = useState(false);
@@ -1312,21 +1342,23 @@ function LoginAdmin({ onLogin }: { onLogin: (abas: string[] | "tudo") => void })
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    if (!usuario || !senha) { setErro("Preencha usuário e senha."); return; }
-    if (!SYNC_ENDPOINT) { setErro("Endpoint não configurado."); return; }
+    if (!usuario || !senha) { setErro("Preencha e-mail e senha."); return; }
 
     setLoading(true);
     setErro("");
     try {
-      const url = `${SYNC_ENDPOINT}?action=login&usuario=${encodeURIComponent(usuario)}&senha=${encodeURIComponent(senha)}`;
-      const resp = await fetch(url);
-      const data = await resp.json();
-      if (data?.ok && data?.autorizado) {
-        const abas = data.abas === "tudo" ? "tudo" : (Array.isArray(data.abas) ? data.abas : "tudo");
-        onLogin(abas);
-      } else {
-        setErro("Usuário ou senha incorretos.");
+      const { error } = await supabase.auth.signInWithPassword({ email: usuario.trim().toLowerCase(), password: senha });
+      if (error) {
+        setErro(/invalid/i.test(error.message) ? "E-mail ou senha incorretos." : `Não foi possível entrar: ${error.message}`);
+        return;
       }
+      const perfil = await carregarMeuPerfil();
+      if (!perfil) {
+        await supabase.auth.signOut();
+        setErro("Este usuário não tem acesso liberado. Fale com um sócio.");
+        return;
+      }
+      onLogin(perfil);
     } catch {
       setErro("Erro ao conectar. Tente novamente.");
     } finally {
@@ -1347,13 +1379,14 @@ function LoginAdmin({ onLogin }: { onLogin: (abas: string[] | "tudo") => void })
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div className="space-y-1">
-            <label className="text-sm text-gray-600">Usuário</label>
+            <label className="text-sm text-gray-600">E-mail</label>
             <input
-              type="text"
+              type="email"
               className="input w-full"
               value={usuario}
               onChange={(e) => setUsuario(e.target.value)}
               autoComplete="username"
+              autoCapitalize="none"
               autoFocus
             />
           </div>
