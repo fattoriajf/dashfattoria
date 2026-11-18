@@ -7918,17 +7918,28 @@ async function gerarPdfListaCompras(p: {
   doc.text(pdfTxt(`Vermelho = abaixo de +${p.pctAmarelo}% do mínimo  |  Amarelo = +${p.pctAmarelo}% a +${p.pctVerde}% do mínimo  |  Verde = acima de +${p.pctVerde}% do mínimo`), 12, y);
 
   const nome = `Lista de compras - ${p.data.replace(/\//g, "-")} - ${p.setor}.pdf`.replace(/[\\:]/g, "-");
-  const arquivo = new File([doc.output("blob") as Blob], nome, { type: "application/pdf" });
+  return new File([doc.output("blob") as Blob], nome, { type: "application/pdf" });
+}
+
+/** celular: abre o compartilhar; computador (ou se o compartilhar não for permitido): baixa */
+async function entregarArquivo(arquivo: File) {
   const nav: any = navigator;
   if (nav.canShare && nav.canShare({ files: [arquivo] })) {
     try {
-      await nav.share({ files: [arquivo], title: nome });
+      await nav.share({ files: [arquivo], title: arquivo.name });
       return;
     } catch (e: any) {
       if (e?.name === "AbortError") return;
     }
   }
-  doc.save(nome);
+  const url = URL.createObjectURL(arquivo);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = arquivo.name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 function StockTab() {
@@ -8062,7 +8073,7 @@ function StockTab() {
     setCreatingList(true);
     try {
       // 1) guarda a contagem no banco (histórico)
-      await dadosEtq.salvarContagem({
+      const contagemId = await dadosEtq.salvarContagem({
         data: dataIso,
         setor: selectedSector,
         pctAmarelo,
@@ -8076,8 +8087,8 @@ function StockTab() {
           max: it.estoqueMax,
         })),
       });
-      // 2) gera o PDF (celular: compartilhar; computador: baixar)
-      await gerarPdfListaCompras({
+      // 2) gera o PDF
+      const arquivo = await gerarPdfListaCompras({
         data: dateStr,
         setor: selectedSector,
         pctAmarelo,
@@ -8085,6 +8096,22 @@ function StockTab() {
         extras,
         itens: filteredItems.map((it) => ({ ...it, atual: num(quantities[it.item]) })),
       });
+      // 3) envia por e-mail (se falhar, o PDF continua disponível para baixar)
+      let msgEmail = "";
+      try {
+        const env = await dadosEtq.enviarListaPorEmail({
+          contagemId,
+          assunto: `Lista de compras - ${dateStr} - Setor: ${selectedSector}`,
+          texto: `Segue a lista de compras gerada em ${dateStr} para o setor ${selectedSector}.\n\nAtt,\nSistema Fattoria`,
+          arquivo,
+        });
+        msgEmail = `Lista enviada por e-mail para ${env.para.join(", ")}.`;
+      } catch (e: any) {
+        msgEmail = `A lista foi salva, mas o e-mail não foi enviado (${e?.message || e}). O PDF vai ser baixado para você enviar manualmente.`;
+      }
+      // 4) entrega o PDF (celular: compartilhar; computador: baixar)
+      alert(msgEmail);
+      await entregarArquivo(arquivo);
     } catch (err: any) {
       alert(`Não foi possível gerar a lista de compras. ${err?.message || String(err)}`);
     } finally {
@@ -8098,8 +8125,8 @@ function StockTab() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
         <div className="sm:col-span-2 text-sm text-gray-600">
           Preencha o estoque atual dos itens do setor selecionado. Ao clicar em{" "}
-          <b>"Criar lista de compras"</b>, a contagem fica guardada no sistema e é gerado um
-          PDF (no celular abre o compartilhar; no computador é baixado) com todos os itens
+          <b>"Criar lista de compras"</b>, a contagem fica guardada no sistema e um PDF é
+          enviado por e-mail (e também baixado/compartilhado) com todos os itens
           coloridos por nível de urgência:{" "}
           <span style={{color:"#c0392b"}}>■ Vermelho</span> = crítico,{" "}
           <span style={{color:"#b8860b"}}>■ Amarelo</span> = atenção,{" "}
