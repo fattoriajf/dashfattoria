@@ -17,6 +17,7 @@ import { motion } from "framer-motion";
 import { supabase, carregarMeuPerfil } from "./supabase";
 import * as dadosEtq from "./dadosEtiquetas";
 import VendasTab from "./VendasTab";
+import * as dadosFichas from "./dadosFichas";
 import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet, Menu, X, Package, TrendingUp, Tag, BarChart2, Maximize2, Minimize2 } from "lucide-react";
 import {
 Calendar as Cal,
@@ -8802,7 +8803,7 @@ function PreparosSection({
   const itemSel = itemDaFicha(addSel, insumos, preparos);
 
   const enviar = async (action: string, body: Record<string, any>) => {
-    const data = await adminPost(action, body);
+    const data = await dadosFichas.api(action, body);
     if (!data?.ok) throw new Error(data?.error || "erro desconhecido");
     return data;
   };
@@ -9152,17 +9153,14 @@ function FichaTecnicaTab() {
   const fmtPct = (n: number) => `${Number(n || 0).toFixed(1)}%`;
 
   const loadTudo = async () => {
-    if (!SYNC_ENDPOINT) return;
     setLoading(true);
     try {
-      const [fichasResp, insumosResp, preparosResp] = await Promise.all([
-        fetch(`${SYNC_ENDPOINT}?action=fichas_lista&_ts=${Date.now()}`),
-        fetch(`${SYNC_ENDPOINT}?action=insumos_lista&_ts=${Date.now()}`),
-        fetch(`${SYNC_ENDPOINT}?action=preparos_lista&_ts=${Date.now()}`),
+      const [fichasData, insumosData, preparosData] = await Promise.all([
+        dadosFichas.api("fichas_lista"),
+        dadosFichas.api("insumos_lista"),
+        dadosFichas.api("preparos_lista"),
       ]);
-      const fichasData = await fichasResp.json();
-      const insumosData = await insumosResp.json();
-      const preparosData = await preparosResp.json();
+      if (!fichasData?.ok) alert(`Erro ao carregar as fichas: ${fichasData?.error}`);
       if (fichasData?.ok && Array.isArray(fichasData.produtos)) setProdutos(fichasData.produtos as FichaProduto[]);
       if (insumosData?.ok && Array.isArray(insumosData.insumos)) setInsumos(insumosData.insumos as Insumo[]);
       if (preparosData?.ok && Array.isArray(preparosData.preparos)) setPreparos(preparosData.preparos as FichaPreparo[]);
@@ -9174,10 +9172,8 @@ function FichaTecnicaTab() {
   };
 
   const loadProdutos = async () => {
-    if (!SYNC_ENDPOINT) return;
     try {
-      const resp = await fetch(`${SYNC_ENDPOINT}?action=fichas_lista&_ts=${Date.now()}`);
-      const data = await resp.json();
+      const data = await dadosFichas.api("fichas_lista");
       if (data?.ok && Array.isArray(data.produtos)) setProdutos(data.produtos as FichaProduto[]);
     } catch (err) { console.error(err); }
   };
@@ -9213,11 +9209,8 @@ function FichaTecnicaTab() {
 
     setSaving(true);
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method: "POST", mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(payload),
-      });
+      const r = await dadosFichas.api(payload.action, payload);
+      if (!r?.ok) throw new Error(r?.error || "erro desconhecido");
       resetIngredienteForm();
       await loadProdutos();
     } catch (err: any) {
@@ -9243,11 +9236,8 @@ function FichaTecnicaTab() {
       quantidade: ing.quantidade,
     };
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method: "POST", mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(payload),
-      });
+      const r = await dadosFichas.api(payload.action, payload);
+      if (!r?.ok) throw new Error(r?.error || "erro desconhecido");
       setEditingPreco(false);
       await loadProdutos();
     } catch (err: any) { alert(`Erro: ${String(err)}`); }
@@ -9259,19 +9249,15 @@ function FichaTecnicaTab() {
     const p = produtos.find(x => x.nome === prodNome);
     setSaving(true);
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method: "POST", mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({
-          action: "save_ficha_item",
-          produto: prodNome,
-          precoVenda: String(p?.precoVenda || 0),
-          insumo: ingNome,
-          tipoItem: ing.tipo || "insumo",
-          quantidade: editIngQtd,
-          desperdicio: editIngDesp || "0",
-        }),
+      const r = await dadosFichas.api("save_ficha_item", {
+        produto: prodNome,
+        precoVenda: String(p?.precoVenda || 0),
+        insumo: ingNome,
+        tipoItem: ing.tipo || "insumo",
+        quantidade: editIngQtd,
+        desperdicio: editIngDesp || "0",
       });
+      if (!r?.ok) throw new Error(r?.error || "erro desconhecido");
       setEditingIng(null);
       setEditIngQtd("");
       setEditIngDesp("");
@@ -9284,11 +9270,8 @@ function FichaTecnicaTab() {
     const ingNome = ing.ingrediente;
     if (!confirm(`Excluir "${ingNome}" da ficha de "${prodNome}"?`)) return;
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method: "POST", mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ action: "delete_ficha_item", produto: prodNome, insumo: ingNome, tipoItem: ing.tipo || "insumo" }),
-      });
+      const r = await dadosFichas.api("delete_ficha_item", { produto: prodNome, insumo: ingNome, tipoItem: ing.tipo || "insumo" });
+      if (!r?.ok) throw new Error(r?.error || "erro desconhecido");
       await loadProdutos();
     } catch (err: any) { alert(`Erro: ${String(err)}`); }
   };
@@ -9296,11 +9279,8 @@ function FichaTecnicaTab() {
   const handleDeleteProduto = async (nome: string) => {
     if (!confirm(`Excluir toda a ficha técnica de "${nome}"?`)) return;
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method: "POST", mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ action: "delete_produto_ficha", produto: nome }),
-      });
+      const r = await dadosFichas.api("delete_produto_ficha", { produto: nome });
+      if (!r?.ok) throw new Error(r?.error || "erro desconhecido");
       setSelectedProduto(null);
       await loadProdutos();
     } catch (err: any) { alert(`Erro: ${String(err)}`); }
@@ -9333,7 +9313,7 @@ function FichaTecnicaTab() {
       return;
     }
     try {
-      const data = await adminPost("update_categoria_produto", { produto: prodNome, categoria: cat });
+      const data = await dadosFichas.api("update_categoria_produto", { produto: prodNome, categoria: cat });
       if (!data?.ok) throw new Error(data?.error || "erro desconhecido");
       setProdutos(prev => prev.map(x => (x.nome === prodNome ? { ...x, categoria: cat } : x)));
       setEditingCat(false);
@@ -9776,11 +9756,9 @@ function InsumosTab() {
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
 
   const loadInsumos = async () => {
-    if (!SYNC_ENDPOINT) return;
     setLoading(true);
     try {
-      const res = await fetch(`${SYNC_ENDPOINT}?action=insumos_lista&_ts=${Date.now()}`);
-      const json = await res.json();
+      const json = await dadosFichas.api("insumos_lista");
       if (json.ok) setInsumos(json.insumos || []);
       else setError(json.error || "Erro ao carregar insumos.");
     } catch (e) {
@@ -9820,21 +9798,18 @@ function InsumosTab() {
     const custo = parseFloat(formCusto.replace(",", "."));
     setSaving(true);
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method: "POST", mode: "no-cors",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "save_insumo",
-          insumo: formNome.trim(),
-          unidade: formUnidade.trim(),
-          custoPorUnidade: isNaN(custo) ? 0 : custo,
-          tipo: formTipo,
-        }),
+      const r = await dadosFichas.api("save_insumo", {
+        insumo: formNome.trim(),
+        nomeAntigo: editNome,
+        unidade: formUnidade.trim(),
+        custoPorUnidade: isNaN(custo) ? 0 : custo,
+        tipo: formTipo,
       });
+      if (!r?.ok) throw new Error(r?.error || "erro desconhecido");
       resetForm();
-      setTimeout(() => loadInsumos(), 2000);
-    } catch {
-      alert("Erro ao salvar.");
+      await loadInsumos();
+    } catch (e: any) {
+      alert(`Erro ao salvar. ${String(e?.message || e)}`);
     } finally {
       setSaving(false);
     }
@@ -9843,14 +9818,11 @@ function InsumosTab() {
   const handleDelete = async (nome: string) => {
     if (!confirm(`Excluir insumo "${nome}"?`)) return;
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method: "POST", mode: "no-cors",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "delete_insumo", insumo: nome }),
-      });
-      setTimeout(() => loadInsumos(), 2000);
-    } catch {
-      alert("Erro ao excluir.");
+      const r = await dadosFichas.api("delete_insumo", { insumo: nome });
+      if (!r?.ok) throw new Error(r?.error || "erro desconhecido");
+      await loadInsumos();
+    } catch (e: any) {
+      alert(`Erro ao excluir. ${String(e?.message || e)}`);
     }
   };
 
