@@ -23,6 +23,7 @@ import ConsumoInternoTab from "./ConsumoInternoTab";
 import * as dadosCmv from "./dadosCmv";
 import * as dadosFase4 from "./dadosFase4";
 import UsuariosTab, { TrocarSenhaModal } from "./UsuariosTab";
+import PainelTab from "./PainelTab";
 import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet, Menu, X, Package, TrendingUp, Tag, BarChart2, Maximize2, Minimize2 } from "lucide-react";
 import {
 Calendar as Cal,
@@ -256,17 +257,12 @@ export default function App() {
     }
   });
 
-  const [mode, setMode] = useState<Mode>(() => {
-    try {
-      const url = new URL(window.location.href);
-      if (/^\/usuarios\/?$/i.test(url.pathname) || url.searchParams.get("mode") === "colab") return "colab";
-    } catch {}
-    return "admin";
-  });
+  // módulo Pessoal (painel do colaborador) saiu do sistema: sempre modo admin
+  const [mode] = useState<Mode>("admin");
 
   const [activeTab, setActiveTab] = useState<
-  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv" | "insumos" | "compras" | "markup" | "etiquetas" | "dre" | "escalaSemana" | "minhaEscala" | "meusRegistros" | "consumoSocios" | "vendas" | "usuarios"
-  >("disponibilidade");
+  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv" | "insumos" | "compras" | "markup" | "etiquetas" | "dre" | "escalaSemana" | "minhaEscala" | "meusRegistros" | "consumoSocios" | "vendas" | "usuarios" | "painel"
+  >("painel");
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
   const [weekIdSlash, setWeekIdSlash] = useState<string>("");
@@ -288,16 +284,6 @@ export default function App() {
     }
     const wanted = url.searchParams.get("staff");
     const w = url.searchParams.get("w");
-    const m = url.searchParams.get("mode"); // "colab" ou "admin"
-    // painel dos colaboradores: gestaofattoria.com.br/usuarios (?mode=colab continua funcionando, também com login)
-    const isPainelUsuarios = /^\/usuarios\/?$/i.test(url.pathname);
-
-    if (isPainelUsuarios || m === "colab") {
-      setMode("colab");
-      setActiveTab("minhaEscala");
-    } else if (m === "admin") {
-      setMode("admin");
-    }
 
     const initialDash = w || weekIdFromDate_dash(new Date());
     setWeekIdDash(initialDash);
@@ -324,31 +310,6 @@ export default function App() {
     } catch {}
   }, [state]);
 
-  // carrega colaboradores da planilha "Cadastro_colaboradores"
-  useEffect(() => {
-    async function loadStaff() {
-      try {
-        const url = `${SYNC_ENDPOINT}?action=staff`;
-        const resp = await fetch(url);
-        const data = await resp.json();
-        if (!data?.ok || !Array.isArray(data.names)) {
-          console.error("Resposta inválida em /staff", data);
-          return;
-        }
-        setState((prev) => {
-          const oldByName = new Map(prev.staff.map((s) => [s.name, s.id]));
-          const newStaff: Staff[] = data.names.map((name: string) => ({
-            id: oldByName.get(name) || id(),
-            name,
-          }));
-          return { ...prev, staff: newStaff };
-        });
-      } catch (err) {
-        console.error("Falha ao carregar colaboradores:", err);
-      }
-    }
-    loadStaff();
-  }, []);
 
   const update = (patch: Partial<State>) => setState((s) => ({ ...s, ...patch }));
 
@@ -381,9 +342,6 @@ export default function App() {
     }
   }
 
-  useEffect(() => {
-    refreshServer();
-  }, [weekIdDash, state.staff, state.days]);
 
   const availabilityForSolver: Availability =
     Object.keys(serverAvail).length ? serverAvail : state.availability;
@@ -487,19 +445,23 @@ export default function App() {
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
 
+  const ABAS_PESSOAL = ["disponibilidade", "escalar", "presenca", "escalaSemana", "minhaEscala", "meusRegistros", "comissao", "adiantamentos", "colaboradores"];
   const podeVer = (aba: string): boolean => {
     if (isColab) {
       // colaborador fixo não faz disponibilidade nem recebe escala
       if (colabSessao?.tipo === "fixo" && (aba === "minhaEscala" || aba === "disponibilidade")) return false;
       return true;
     }
+    if (ABAS_PESSOAL.includes(aba)) return false;
+    // o painel lê vendas, fichas, compras e consumo: por enquanto só para sócios
+    if (aba === "painel") return abasPermitidas === "tudo";
     if (abasPermitidas === "tudo") return true;
     return (abasPermitidas as string[]).includes(aba.toLowerCase());
   };
 
   // Aba efetiva: se a aba ativa não tem permissão, usa a primeira permitida
-  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv","insumos","compras","markup","etiquetas","dre","escalaSemana","consumoSocios","vendas","usuarios","minhaEscala","meusRegistros"];
-  const abaEfetiva: typeof activeTab = isFullscreen ? "etiquetas" : (podeVer(activeTab) ? activeTab : isColab ? "presenca" : (todasAbas.find(t => podeVer(t)) ?? "disponibilidade"));
+  const todasAbas: (typeof activeTab)[] = ["painel","etiquetas","estoque","insumos","compras","fichaTecnica","caixa","consumoSocios","cmv","markup","dre","vendas","dashboard","graficos","usuarios"];
+  const abaEfetiva: typeof activeTab = isFullscreen ? "etiquetas" : (podeVer(activeTab) ? activeTab : isColab ? "presenca" : (todasAbas.find(t => podeVer(t)) ?? "painel"));
 
   if (isColab && !colabSessao) {
     return (
@@ -538,15 +500,7 @@ export default function App() {
 
   const sidebarJSX = (
     <>
-      <div className="sidebar-category">
-        <div className="sidebar-category-label">Pessoal</div>
-        {navItem("minhaEscala", "Minha Escala", <Cal className="w-4 h-4" />, false, true)}
-        {navItem("meusRegistros", "Meus Registros", <ClipboardList className="w-4 h-4" />, false, true)}
-        {navItem("disponibilidade", "Disponibilidade", <ClipboardList className="w-4 h-4" />)}
-        {navItem("escalar", "Escalar", <Cal className="w-4 h-4" />, true)}
-        {navItem("escalaSemana", "Escala da Semana", <Users className="w-4 h-4" />, true)}
-        {navItem("presenca", "Registrar Presença", <Cal className="w-4 h-4" />)}
-      </div>
+      {navItem("painel", "Painel", <BarChart3 className="w-4 h-4" />, true)}
       <div className="sidebar-category">
         <div className="sidebar-category-label">Inventário</div>
         {navItem("estoque", "Compras de Estoque", <ShoppingCart className="w-4 h-4" />)}
@@ -558,8 +512,6 @@ export default function App() {
       {!isColab && (
         <div className="sidebar-category">
           <div className="sidebar-category-label">Financeiro</div>
-          {navItem("comissao", "Comissão e Pagamento", <Cal className="w-4 h-4" />, true)}
-          {navItem("adiantamentos", "Adiantamentos", <Banknote className="w-4 h-4" />, true)}
           {navItem("caixa", "Caixa", <Wallet className="w-4 h-4" />, true)}
           {navItem("consumoSocios", "Consumo Interno", <ClipboardList className="w-4 h-4" />, true)}
           {navItem("cmv", "CMV", <BarChart3 className="w-4 h-4" />, true)}
@@ -572,7 +524,6 @@ export default function App() {
           <div className="sidebar-category-label">Indicadores</div>
           {navItem("vendas", "Vendas (Colibri)", <BarChart2 className="w-4 h-4" />, true)}
           {navItem("dashboard", "Dashboard", <BarChart3 className="w-4 h-4" />, true)}
-          {navItem("colaboradores", "Colaboradores", <Users className="w-4 h-4" />, true)}
           {navItem("graficos", "Gráficos", <LineChartIcon className="w-4 h-4" />, true)}
         </div>
       )}
@@ -675,49 +626,14 @@ export default function App() {
 
         {/* Main content */}
         <main className="main-content">
-          {abaEfetiva === "disponibilidade" && (
-            <Card title={`Disponibilidade – Semana ${weekIdSlash || "(definir)"}`} icon={<ClipboardList className="w-5 h-5" />}>
-              <AvailabilityForm state={state} update={update} selectedStaffId={selectedStaffId} setSelectedStaffId={setSelectedStaffId} weekId={weekIdDash} syncEnabled={syncEnabled} onSaved={refreshServer} colabSessao={isColab ? colabSessao : null} />
-            </Card>
-          )}
-          {!isColab && abaEfetiva === "escalar" && (
-            <Card title="Escalar" icon={<Cal className="w-5 h-5" />}>
-              <SolverUI state={state} availability={availabilityForSolver} onRefresh={refreshServer} weekId={weekIdDash} />
-            </Card>
-          )}
-          {abaEfetiva === "presenca" && (
-            <Card title="Registrar Presença" icon={<Cal className="w-5 h-5" />}>
-              <PunchTab staff={state.staff} colabSessao={isColab ? colabSessao : null} />
-            </Card>
-          )}
-          {isColab && colabSessao && abaEfetiva === "minhaEscala" && (
-            <Card title="Minha Escala" icon={<Cal className="w-5 h-5" />}>
-              <MinhaEscalaTab sessao={colabSessao} />
-            </Card>
-          )}
-          {isColab && colabSessao && abaEfetiva === "meusRegistros" && (
-            <Card title="Meus Registros" icon={<ClipboardList className="w-5 h-5" />}>
-              <MeusRegistrosTab sessao={colabSessao} />
-            </Card>
-          )}
-          {!isColab && abaEfetiva === "escalaSemana" && (
-            <Card title="Escala da Semana" icon={<Users className="w-5 h-5" />}>
-              <EscalaSemanaTab initialWeekId={weekIdDash} days={state.days} />
+          {!isColab && abaEfetiva === "painel" && (
+            <Card title="Painel" icon={<BarChart3 className="w-5 h-5" />}>
+              <PainelTab />
             </Card>
           )}
           {abaEfetiva === "estoque" && (
             <Card title="Compras de Estoque" icon={<ShoppingCart className="w-5 h-5" />}>
               <StockTab />
-            </Card>
-          )}
-          {!isColab && abaEfetiva === "comissao" && (
-            <Card title="Comissão e Pagamento" icon={<Cal className="w-5 h-5" />}>
-              <CommissionTab />
-            </Card>
-          )}
-          {!isColab && abaEfetiva === "adiantamentos" && (
-            <Card title="Adiantamentos" icon={<Banknote className="w-5 h-5" />}>
-              <AdiantamentosTab />
             </Card>
           )}
           {!isColab && abaEfetiva === "caixa" && (
@@ -768,11 +684,6 @@ export default function App() {
           {!isColab && abaEfetiva === "dashboard" && (
             <Card title="Dashboard" icon={<BarChart3 className="w-5 h-5" />}>
               <DashboardTab />
-            </Card>
-          )}
-          {!isColab && abaEfetiva === "colaboradores" && (
-            <Card title="Colaboradores" icon={<Users className="w-5 h-5" />}>
-              <ColaboradoresTab />
             </Card>
           )}
           {!isColab && abaEfetiva === "usuarios" && (
