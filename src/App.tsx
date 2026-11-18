@@ -21,6 +21,7 @@ import * as dadosFichas from "./dadosFichas";
 import * as dadosCompras from "./dadosCompras";
 import ConsumoInternoTab from "./ConsumoInternoTab";
 import * as dadosCmv from "./dadosCmv";
+import * as dadosFase4 from "./dadosFase4";
 import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet, Menu, X, Package, TrendingUp, Tag, BarChart2, Maximize2, Minimize2 } from "lucide-react";
 import {
 Calendar as Cal,
@@ -2866,12 +2867,9 @@ function GraphsTab() {
   };
 
   const load = async () => {
-    if (!SYNC_ENDPOINT) return;
     setLoading(true);
     try {
-      const url = `${SYNC_ENDPOINT}?action=dashboard_graphs`;
-      const resp = await fetch(url);
-      const data = await resp.json();
+      const data = await dadosFase4.api("dashboard_graphs");
       if (!data?.ok) throw new Error(data?.error || "Resposta inválida (graphs).");
 
       setMonthly(Array.isArray(data.monthly) ? data.monthly : []);
@@ -2988,17 +2986,15 @@ function DashboardTab() {
   const [totalInformado, setTotalInformado] = useState<number>(0);
   const [totalCalculado, setTotalCalculado] = useState<number>(0);
   const [totalQtd, setTotalQtd] = useState<number>(0);
+  const [linhasTotal, setLinhasTotal] = useState<number>(0);
 
   const fmtMoney = (n: number) =>
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
 
   const loadMeta = async () => {
-    if (!SYNC_ENDPOINT) return;
     setLoadingMeta(true);
     try {
-      const url = `${SYNC_ENDPOINT}?action=dashboard_base_meta`;
-      const resp = await fetch(url);
-      const data = await resp.json();
+      const data = await dadosFase4.api("dashboard_base_meta");
       if (!data?.ok) throw new Error(data?.error || "Resposta inválida (meta).");
 
       const m: DashboardMeta = {
@@ -3024,7 +3020,6 @@ function DashboardTab() {
   };
 
   const loadRows = async () => {
-    if (!SYNC_ENDPOINT) return;
     if (!start || !end) return;
 
     // evita range invertido (não altera o input, só a consulta)
@@ -3032,20 +3027,11 @@ function DashboardTab() {
 
     setLoading(true);
     try {
-      const url =
-        `${SYNC_ENDPOINT}?action=dashboard_base_rows` +
-        `&start=${encodeURIComponent(s)}` +
-        `&end=${encodeURIComponent(e)}` +
-        `&grupo=${encodeURIComponent(grupo)}` +
-        `&descricao=${encodeURIComponent(descricao)}` +
-        `&weekday=${encodeURIComponent(weekday)}` +
-        `&__ts=${Date.now()}`; // cache-buster
-
-      const resp = await fetch(url, { cache: "no-store" });
-      const data = await resp.json();
+      const data = await dadosFase4.api("dashboard_base_rows", { start: s, end: e, grupo, descricao, weekday });
       if (!data?.ok) throw new Error(data?.error || "Resposta inválida (rows).");
 
       setRows(Array.isArray(data.rows) ? (data.rows as DashboardRow[]) : []);
+      setLinhasTotal(Number(data.linhasTotal || 0));
       setTotalVlTotal(Number(data.totalVlTotal || 0));
       setTotalInformado(Number(data.totalInformado || 0));
       setTotalCalculado(Number(data.totalCalculado || 0));
@@ -3076,10 +3062,6 @@ function DashboardTab() {
     loadRows();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meta, start, end, grupo, descricao, weekday]);
-
-  if (!SYNC_ENDPOINT) {
-    return <div className="text-sm text-red-600">Nenhum endpoint de sincronização configurado.</div>;
-  }
 
   return (
     <div className="space-y-6">
@@ -3209,6 +3191,11 @@ function DashboardTab() {
           </table>
         </div>
 
+        {linhasTotal > rows.length && (
+          <div className="text-xs text-gray-500">
+            Mostrando as {rows.length.toLocaleString("pt-BR")} linhas mais recentes de {linhasTotal.toLocaleString("pt-BR")}. Os totais acima consideram todas.
+          </div>
+        )}
         {rows.length === 0 && !loading && (
           <div className="text-sm text-gray-500">Nenhum registro para os filtros selecionados.</div>
         )}
@@ -6500,11 +6487,10 @@ function MarkupTab() {
   const [produtos, setProdutos] = useState<{ nome: string; custo: number }[]>([]);
 
   const loadConfig = async () => {
-    if (!SYNC_ENDPOINT) return;
     setLoadingDespesas(true);
     try {
-      const res = await fetch(`${SYNC_ENDPOINT}?action=markup_config&_ts=${Date.now()}`);
-      const json = await res.json();
+      const json = await dadosFase4.api("markup_config");
+      if (!json.ok) alert(`Erro ao carregar o markup: ${json.error}`);
       if (json.ok) {
         setFatMin(String(json.faturamento_minimo ?? 0));
         setImpostoPct(String(json.impostos_pct ?? 0));
@@ -6517,10 +6503,8 @@ function MarkupTab() {
   };
 
   const loadProdutos = async () => {
-    if (!SYNC_ENDPOINT) return;
     try {
-      const res = await fetch(`${SYNC_ENDPOINT}?action=fichas_lista&_ts=${Date.now()}`);
-      const json = await res.json();
+      const json = await dadosFichas.api("fichas_lista");
       if (json.ok && Array.isArray(json.produtos)) {
         setProdutos(json.produtos.map((f: any) => ({ nome: f.nome, custo: f.custoTotal ?? 0 })));
       }
@@ -6542,51 +6526,39 @@ function MarkupTab() {
   const indice   = somaPct < 100 ? 100 / (100 - somaPct) : 0;
 
   const handleSaveConfig = async () => {
-    if (!SYNC_ENDPOINT) return;
     setSavingConfig(true);
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method: "POST", mode: "no-cors",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "save_markup_config",
-          faturamento_minimo: parseFloat(fatMin) || 0,
-          impostos_pct: parseFloat(impostoPct) || 0,
-          cartao_pct: parseFloat(cartaoPct) || 0,
-          margem_lucro_pct: parseFloat(margemPct) || 0,
-        }),
+      const r = await dadosFase4.api("save_markup_config", {
+        faturamento_minimo: parseFloat(fatMin) || 0,
+        impostos_pct: parseFloat(impostoPct) || 0,
+        cartao_pct: parseFloat(cartaoPct) || 0,
+        margem_lucro_pct: parseFloat(margemPct) || 0,
       });
+      if (!r?.ok) throw new Error(r?.error);
       alert("Configuração salva!");
-    } catch { alert("Erro ao salvar."); }
+    } catch (e: any) { alert(`Erro ao salvar. ${String(e?.message || e)}`); }
     finally { setSavingConfig(false); }
   };
 
   const handleAddDespesa = async () => {
     if (!novaDesc.trim()) { alert("Informe a descrição."); return; }
-    if (!SYNC_ENDPOINT) return;
     setAddingDespesa(true);
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method: "POST", mode: "no-cors",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "save_despesa", tipo: novaTipo, descricao: novaDesc.trim(), valor: parseFloat(novaValor) || 0 }),
-      });
+      const r = await dadosFase4.api("save_despesa", { tipo: novaTipo, descricao: novaDesc.trim(), valor: parseFloat(novaValor) || 0 });
+      if (!r?.ok) throw new Error(r?.error);
       setNovaDesc(""); setNovaValor("");
-      setTimeout(() => loadConfig(), 2000);
-    } catch { alert("Erro ao adicionar."); }
+      await loadConfig();
+    } catch (e: any) { alert(`Erro ao adicionar. ${String(e?.message || e)}`); }
     finally { setAddingDespesa(false); }
   };
 
   const handleDeleteDespesa = async (id: string) => {
     if (!confirm("Excluir esta despesa?")) return;
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method: "POST", mode: "no-cors",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "delete_despesa", id }),
-      });
-      setTimeout(() => loadConfig(), 2000);
-    } catch { alert("Erro ao excluir."); }
+      const r = await dadosFase4.api("delete_despesa", { id });
+      if (!r?.ok) throw new Error(r?.error);
+      await loadConfig();
+    } catch (e: any) { alert(`Erro ao excluir. ${String(e?.message || e)}`); }
   };
 
   const openEdit = (d: any) => { setEditingId(d.id); setEditDesc(d.descricao); setEditValor(String(d.valor)); };
@@ -6595,14 +6567,11 @@ function MarkupTab() {
     if (!editingId) return;
     setSavingEdit(true);
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method: "POST", mode: "no-cors",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update_despesa", id: editingId, descricao: editDesc, valor: parseFloat(editValor) || 0 }),
-      });
+      const r = await dadosFase4.api("update_despesa", { id: editingId, descricao: editDesc, valor: parseFloat(editValor) || 0 });
+      if (!r?.ok) throw new Error(r?.error);
       setEditingId(null);
-      setTimeout(() => loadConfig(), 2000);
-    } catch { alert("Erro ao salvar."); }
+      await loadConfig();
+    } catch (e: any) { alert(`Erro ao salvar. ${String(e?.message || e)}`); }
     finally { setSavingEdit(false); }
   };
 
@@ -7151,10 +7120,8 @@ function CaixaTab() {
   }, []);
 
   async function loadCategorias() {
-    if (!SYNC_ENDPOINT) return;
     try {
-      const resp = await fetch(`${SYNC_ENDPOINT}?action=caixa_categorias&_ts=${Date.now()}`);
-      const data = await resp.json();
+      const data = await dadosFase4.api("caixa_categorias");
       if (data?.ok && Array.isArray(data.categorias)) {
         setCategorias(data.categorias as string[]);
         if (data.categorias.length > 0) setCategoria(data.categorias[0]);
@@ -7165,14 +7132,10 @@ function CaixaTab() {
   }
 
   async function loadData() {
-    if (!SYNC_ENDPOINT) return;
     setLoadingData(true);
     try {
-      const startParam = filterStart ? encodeURIComponent(formatDateForPayload(filterStart)) : "";
-      const endParam   = filterEnd   ? encodeURIComponent(formatDateForPayload(filterEnd))   : "";
-      const url = `${SYNC_ENDPOINT}?action=caixa_lista&start=${startParam}&end=${endParam}&_ts=${Date.now()}`;
-      const resp = await fetch(url);
-      const data = await resp.json();
+      const data = await dadosFase4.api("caixa_lista", { start: formatDateForPayload(filterStart), end: formatDateForPayload(filterEnd) });
+      if (!data?.ok) alert(`Erro ao carregar o caixa: ${data?.error}`);
       if (data?.ok) {
         setRows(Array.isArray(data.rows) ? data.rows : []);
         setTotalEntradas(Number(data.totalEntradas || 0));
@@ -7219,26 +7182,15 @@ function CaixaTab() {
 
     setEditSaving(true);
     try {
-      const resp = await fetch(SYNC_ENDPOINT, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({
-          action: "update_caixa",
-          timestamp: editingTs,
-          date: toPayloadDate(editDate),
-          tipo: editTipo,
-          valor: num,
-          categoria: editCategoria,
-          observacao: editObservacao,
-        }),
+      const r = await dadosFase4.api("update_caixa", {
+        timestamp: editingTs,
+        date: toPayloadDate(editDate),
+        tipo: editTipo,
+        valor: num,
+        categoria: editCategoria,
+        observacao: editObservacao,
       });
-      // @ts-ignore
-      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
-        setEditingTs(null);
-        loadData();
-        return;
-      }
+      if (!r?.ok) throw new Error(r?.error);
       setEditingTs(null);
       loadData();
     } catch (err: any) {
@@ -7251,17 +7203,8 @@ function CaixaTab() {
   const handleDeleteRow = async (timestamp: string) => {
     if (!confirm("Excluir este lançamento?")) return;
     try {
-      const resp = await fetch(SYNC_ENDPOINT, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ action: "delete_caixa", timestamp }),
-      });
-      // @ts-ignore
-      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
-        loadData();
-        return;
-      }
+      const r = await dadosFase4.api("delete_caixa", { timestamp });
+      if (!r?.ok) throw new Error(r?.error);
       loadData();
     } catch (err: any) {
       alert(`Erro ao excluir: ${String(err)}`);
@@ -7275,10 +7218,7 @@ function CaixaTab() {
     const num = parseFloat(valor.replace(",", "."));
     if (isNaN(num) || num <= 0) { alert("Valor inválido."); return; }
     if (!categoria) { alert("Selecione a categoria."); return; }
-    if (!SYNC_ENDPOINT) { alert("Nenhum endpoint configurado."); return; }
-
     const payload = {
-      action: "save_caixa",
       date: formatDateForPayload(dateRaw),
       tipo,
       valor: num,
@@ -7288,29 +7228,12 @@ function CaixaTab() {
 
     setSaving(true);
     try {
-      const resp = await fetch(SYNC_ENDPOINT, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(payload),
-      });
-      // @ts-ignore
-      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
-        alert("Lançamento registrado.");
-        setValor("");
-        setObservacao("");
-        setTimeout(() => loadData(), 2000);
-        return;
-      }
-      if (!resp.ok) {
-        const txt = await resp.text().catch(() => "");
-        alert(`Falha ao registrar (HTTP ${resp.status}). ${txt.slice(0, 180)}`);
-        return;
-      }
+      const r = await dadosFase4.api("save_caixa", payload);
+      if (!r?.ok) { alert(`Falha ao registrar. ${r?.error || ""}`); return; }
       alert("Lançamento registrado.");
       setValor("");
       setObservacao("");
-      setTimeout(() => loadData(), 2000);
+      loadData();
     } catch (err: any) {
       alert(`Erro: ${String(err)}`);
     } finally {
