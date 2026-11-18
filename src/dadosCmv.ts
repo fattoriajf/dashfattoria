@@ -37,7 +37,7 @@ async function seguro(f: () => Promise<any>) {
 // ---------------------------------------------------------------------------
 type Vinculos = Record<string, { produto_id: string | null; ignorar: boolean }>;
 
-async function carregarVinculos(): Promise<Vinculos> {
+export async function carregarVinculos(): Promise<Vinculos> {
   const r = await supabase.from("produto_vinculos_colibri").select("nome_colibri, produto_id, ignorar");
   if (r.error) falha(r.error, "vínculos");
   const m: Vinculos = {};
@@ -46,20 +46,20 @@ async function carregarVinculos(): Promise<Vinculos> {
 }
 
 /** produto de um nome (do Colibri ou do consumo antigo): vínculo da aba Vendas ou produto com o mesmo nome */
-function produtoDoNome(nome: string, c: Custeio, vinc: Vinculos, porNome: Record<string, string>): { id: string | null; ignorado: boolean } {
+export function produtoDoNome(nome: string, c: Custeio, vinc: Vinculos, porNome: Record<string, string>): { id: string | null; ignorado: boolean } {
   const chave = String(nome || "").trim().toUpperCase();
   const v = vinc[chave];
   if (v) return { id: v.ignorar ? null : v.produto_id, ignorado: v.ignorar };
   return { id: porNome[low(nome)] || null, ignorado: false };
 }
-const indicePorNome = (c: Custeio) => {
+export const indicePorNome = (c: Custeio) => {
   const m: Record<string, string> = {};
   Object.values(c.produtos).forEach((p) => { m[low(p.nome)] = p.id; });
   return m;
 };
 
 /** Abre um item de ficha (insumo ou preparo) em quantidades de insumo (chave = id do insumo), somando em acc */
-type Acc = Record<string, { qtd: number; origens: Record<string, number> }>;
+export type Acc = Record<string, { qtd: number; origens: Record<string, number> }>;
 function abrirItem(c: Custeio, insumoId: string | null, preparoId: string | null, qtd: number, acc: Acc, origem: string, visitando: Record<string, boolean> = {}) {
   if (!qtd) return;
   if (!preparoId) {
@@ -78,7 +78,7 @@ function abrirItem(c: Custeio, insumoId: string | null, preparoId: string | null
   delete visitando[preparoId];
 }
 /** abre a ficha de um produto (qtd vendida/consumida) */
-function abrirProduto(c: Custeio, produtoId: string, qtd: number, acc: Acc) {
+export function abrirProduto(c: Custeio, produtoId: string, qtd: number, acc: Acc) {
   const p = c.produtos[produtoId];
   if (!p) return;
   p.itens.forEach((it) => abrirItem(c, it.insumo_id, it.preparo_id, qtd * it.quantidade * fator(it.desperdicio), acc, p.nome));
@@ -95,7 +95,7 @@ function insumosDoPreparo(c: Custeio, preparoId: string, vistos: Record<string, 
   return out;
 }
 
-async function vendasResumo(ini: string, fim: string) {
+export async function vendasResumo(ini: string, fim: string) {
   const r = await supabase.rpc("vendas_resumo", { p_inicio: ini, p_fim: fim });
   if (r.error) falha(r.error, "vendas");
   return (r.data || []).map((x: any) => ({ descricao: String(x.descricao || ""), grupo: String(x.grupo || "").trim(), qtd: Number(x.qtd) || 0, vl_total: Number(x.vl_total) || 0 }));
