@@ -18,6 +18,7 @@ import { supabase, carregarMeuPerfil } from "./supabase";
 import * as dadosEtq from "./dadosEtiquetas";
 import VendasTab from "./VendasTab";
 import * as dadosFichas from "./dadosFichas";
+import * as dadosCompras from "./dadosCompras";
 import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet, Menu, X, Package, TrendingUp, Tag, BarChart2, Maximize2, Minimize2 } from "lucide-react";
 import {
 Calendar as Cal,
@@ -11493,15 +11494,15 @@ function ComprasTab() {
   };
 
   const loadData = async () => {
-    if (!SYNC_ENDPOINT) return;
     setLoading(true);
     try {
       const [insRes, compRes] = await Promise.all([
-        fetch(`${SYNC_ENDPOINT}?action=insumos_lista&_ts=${Date.now()}`).then(r => r.json()),
-        fetch(`${SYNC_ENDPOINT}?action=compras_lista&start=${encodeURIComponent(toDDMMYYYY(filterStart))}&end=${encodeURIComponent(toDDMMYYYY(filterEnd))}&_ts=${Date.now()}`).then(r => r.json()),
+        dadosFichas.api("insumos_lista"),
+        dadosCompras.listarCompras({ start: toDDMMYYYY(filterStart), end: toDDMMYYYY(filterEnd) }),
       ]);
       if (insRes.ok)  setInsumos(insRes.insumos || []);
       if (compRes.ok) setRows(compRes.rows || []);
+      else alert(`Erro ao carregar as compras: ${compRes.error}`);
     } catch { /* silencioso */ }
     finally { setLoading(false); }
   };
@@ -11556,7 +11557,7 @@ function ComprasTab() {
     }
     setSaving(true);
     try {
-      const data = await adminPost("save_compra_lote", {
+      const data = await dadosCompras.salvarCompraLote({
         date: toDDMMYYYY(formData),
         observacao: formObs,
         frete: freteNum,
@@ -11583,13 +11584,10 @@ function ComprasTab() {
   const handleDelete = async (ts: string) => {
     if (!confirm("Excluir este lançamento?")) return;
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method: "POST", mode: "no-cors",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "delete_compra", timestamp: ts }),
-      });
-      setTimeout(() => loadData(), 2000);
-    } catch { alert("Erro ao excluir."); }
+      const r = await dadosCompras.excluirItemCompra(ts);
+      if (!r.ok) throw new Error(r.error);
+      await loadData();
+    } catch (e: any) { alert(`Erro ao excluir. ${String(e?.message || e)}`); }
   };
 
   const totalPeriodo = rows.reduce((s: number, r: any) => s + (r.custoTotal || 0), 0);
