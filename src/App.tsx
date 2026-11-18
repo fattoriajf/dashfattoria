@@ -16,6 +16,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { supabase, carregarMeuPerfil } from "./supabase";
 import * as dadosEtq from "./dadosEtiquetas";
+import VendasTab from "./VendasTab";
 import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet, Menu, X, Package, TrendingUp, Tag, BarChart2, Maximize2, Minimize2 } from "lucide-react";
 import {
 Calendar as Cal,
@@ -258,7 +259,7 @@ export default function App() {
   });
 
   const [activeTab, setActiveTab] = useState<
-  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv" | "insumos" | "compras" | "markup" | "etiquetas" | "dre" | "escalaSemana" | "minhaEscala" | "meusRegistros" | "consumoSocios"
+  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv" | "insumos" | "compras" | "markup" | "etiquetas" | "dre" | "escalaSemana" | "minhaEscala" | "meusRegistros" | "consumoSocios" | "vendas"
   >("disponibilidade");
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
@@ -490,7 +491,7 @@ export default function App() {
   };
 
   // Aba efetiva: se a aba ativa não tem permissão, usa a primeira permitida
-  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv","insumos","compras","markup","etiquetas","dre","escalaSemana","consumoSocios","minhaEscala","meusRegistros"];
+  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv","insumos","compras","markup","etiquetas","dre","escalaSemana","consumoSocios","vendas","minhaEscala","meusRegistros"];
   const abaEfetiva: typeof activeTab = isFullscreen ? "etiquetas" : (podeVer(activeTab) ? activeTab : isColab ? "presenca" : (todasAbas.find(t => podeVer(t)) ?? "disponibilidade"));
 
   if (isColab && !colabSessao) {
@@ -562,6 +563,7 @@ export default function App() {
       {!isColab && (
         <div className="sidebar-category">
           <div className="sidebar-category-label">Indicadores</div>
+          {navItem("vendas", "Vendas (Colibri)", <BarChart2 className="w-4 h-4" />, true)}
           {navItem("dashboard", "Dashboard", <BarChart3 className="w-4 h-4" />, true)}
           {navItem("colaboradores", "Colaboradores", <Users className="w-4 h-4" />, true)}
           {navItem("graficos", "Gráficos", <LineChartIcon className="w-4 h-4" />, true)}
@@ -755,6 +757,11 @@ export default function App() {
           {!isColab && abaEfetiva === "colaboradores" && (
             <Card title="Colaboradores" icon={<Users className="w-5 h-5" />}>
               <ColaboradoresTab />
+            </Card>
+          )}
+          {!isColab && abaEfetiva === "vendas" && (
+            <Card title="Vendas (Colibri)" icon={<BarChart2 className="w-5 h-5" />}>
+              <VendasTab />
             </Card>
           )}
           {!isColab && abaEfetiva === "graficos" && <GraphsTab />}
