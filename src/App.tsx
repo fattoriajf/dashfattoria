@@ -19,6 +19,7 @@ import * as dadosEtq from "./dadosEtiquetas";
 import VendasTab from "./VendasTab";
 import * as dadosFichas from "./dadosFichas";
 import * as dadosCompras from "./dadosCompras";
+import ConsumoInternoTab from "./ConsumoInternoTab";
 import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet, Menu, X, Package, TrendingUp, Tag, BarChart2, Maximize2, Minimize2 } from "lucide-react";
 import {
 Calendar as Cal,
@@ -556,7 +557,7 @@ export default function App() {
           {navItem("comissao", "Comissão e Pagamento", <Cal className="w-4 h-4" />, true)}
           {navItem("adiantamentos", "Adiantamentos", <Banknote className="w-4 h-4" />, true)}
           {navItem("caixa", "Caixa", <Wallet className="w-4 h-4" />, true)}
-          {navItem("consumoSocios", "Consumo dos Sócios", <ClipboardList className="w-4 h-4" />, true)}
+          {navItem("consumoSocios", "Consumo Interno", <ClipboardList className="w-4 h-4" />, true)}
           {navItem("cmv", "CMV", <BarChart3 className="w-4 h-4" />, true)}
           {navItem("markup", "Markup", <TrendingUp className="w-4 h-4" />, true)}
           {navItem("dre", "DRE", <BarChart2 className="w-4 h-4" />, true)}
@@ -712,8 +713,8 @@ export default function App() {
             </Card>
           )}
           {!isColab && abaEfetiva === "consumoSocios" && (
-            <Card title="Consumo dos Sócios" icon={<ClipboardList className="w-5 h-5" />}>
-              <ConsumoSociosTab />
+            <Card title="Consumo Interno (sócios e funcionários)" icon={<ClipboardList className="w-5 h-5" />}>
+              <ConsumoInternoTab />
             </Card>
           )}
           {!isColab && abaEfetiva === "cmv" && (
