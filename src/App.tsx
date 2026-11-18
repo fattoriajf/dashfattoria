@@ -20,6 +20,7 @@ import VendasTab from "./VendasTab";
 import * as dadosFichas from "./dadosFichas";
 import * as dadosCompras from "./dadosCompras";
 import ConsumoInternoTab from "./ConsumoInternoTab";
+import * as dadosCmv from "./dadosCmv";
 import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet, Menu, X, Package, TrendingUp, Tag, BarChart2, Maximize2, Minimize2 } from "lucide-react";
 import {
 Calendar as Cal,
@@ -9997,11 +9998,7 @@ function CMVTab() {
 
   // Carrega grupos disponíveis ao montar
   useEffect(() => {
-    if (!SYNC_ENDPOINT) return;
-    fetch(`${SYNC_ENDPOINT}?action=dashboard_base_meta&_ts=${Date.now()}`)
-      .then(r => r.json())
-      .then(j => { if (j.ok && j.groups) setGrupos(j.groups); })
-      .catch(() => {});
+    dadosCmv.gruposVendas().then(setGrupos).catch(() => {});
   }, []);
 
   // ── Calcular CMV Teórico ──
@@ -10009,57 +10006,22 @@ function CMVTab() {
     const startRaw = startOverride || startRawState;
     const endRaw = endOverride || endRawState;
     if (!startRaw || !endRaw) { alert("Selecione data inicial e final."); return; }
-    if (!SYNC_ENDPOINT) return;
     if (startOverride && endOverride) { setStartRaw(startOverride); setEndRaw(endOverride); }
     setLoadingTeo(true);
     try {
-      const fichasResp = await fetch(`${SYNC_ENDPOINT}?action=fichas_lista&_ts=${Date.now()}`);
-      const fichasData = await fichasResp.json();
-      if (!fichasData?.ok) throw new Error(fichasData?.error || "Erro nas fichas técnicas.");
-      const fichasByCusto: Record<string, number> = {};
-      (fichasData.produtos || []).forEach((p: any) => {
-        fichasByCusto[String(p.nome || "").toLowerCase().trim()] = Number(p.custoTotal || 0);
-      });
-
-      const dashUrl = `${SYNC_ENDPOINT}?action=dashboard_base_rows` +
-        `&start=${encodeURIComponent(toDDMMYYYY(startRaw))}` +
-        `&end=${encodeURIComponent(toDDMMYYYY(endRaw))}` +
-        `&grupo=Tudo&descricao=Tudo&weekday=Tudo&_ts=${Date.now()}`;
-      const dashData = await (await fetch(dashUrl)).json();
-      if (!dashData?.ok) throw new Error(dashData?.error || "Erro no Dashboard.");
-
-      const agg: Record<string, any> = {};
-      (dashData.rows || []).forEach((r: any) => {
-        if (gruposSel.length && !gruposSel.includes(String(r.grupo || "").trim())) return;
-        const key = String(r.descricao || "").toLowerCase().trim();
-        if (!key) return;
-        if (!agg[key]) agg[key] = { descricao: String(r.descricao || ""), qtdVendida: 0, receitaTotal: 0 };
-        agg[key].qtdVendida += Number(r.qtd || 0);
-        agg[key].receitaTotal += Number(r.vl_total || 0);
-      });
-
-      let totCusto = 0, totReceita = 0;
-      const rowsCalc = Object.values(agg).map((item: any) => {
-        const ficha = fichasByCusto[item.descricao.toLowerCase().trim()];
-        const custoUnitario = ficha !== undefined ? ficha : null;
-        const custoTotal = custoUnitario !== null ? item.qtdVendida * custoUnitario : null;
-        const cmvPct = custoTotal !== null && item.receitaTotal > 0 ? (custoTotal / item.receitaTotal) * 100 : null;
-        if (custoTotal !== null) totCusto += custoTotal;
-        totReceita += item.receitaTotal;
-        return { produto: item.descricao, qtdVendida: item.qtdVendida, custoUnitario, custoTotal, receitaTotal: item.receitaTotal, cmvPct, temFicha: ficha !== undefined };
-      }).sort((a: any, b: any) => (b.receitaTotal || 0) - (a.receitaTotal || 0));
-
-      setRowsTeo(rowsCalc);
-      setTotalCusto(totCusto);
-      setTotalReceita(totReceita);
-      setCmvGeral(totReceita > 0 ? (totCusto / totReceita) * 100 : 0);
+      const teo = await dadosCmv.cmvTeorico(startRaw, endRaw, gruposSel);
+      setRowsTeo(teo.rows);
+      setTotalCusto(teo.totalCusto);
+      setTotalReceita(teo.totalReceita);
+      setCmvGeral(teo.cmvGeral);
       setPeriodoTeo({ start: startRaw, end: endRaw, gruposKey });
     } catch (err: any) {
-      alert(`Erro: ${String(err)}`);
+      alert(`Erro: ${String(err?.message || err)}`);
     } finally {
       setLoadingTeo(false);
     }
   };
+
 
   const exportarPdf = async () => {
     if (exportando) return;
@@ -10082,8 +10044,6 @@ function CMVTab() {
       setExportando(false);
     }
   };
-
-  if (!SYNC_ENDPOINT) return <div className="text-sm text-red-600">Endpoint não configurado.</div>;
 
   const dateInputs = (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -10199,7 +10159,8 @@ function CMVTab() {
                     <tr key={idx} className={!r.temFicha ? "text-gray-400" : idx % 2 === 0 ? "bg-white" : "bg-gray-50"}>
                       <td className="border px-3 py-2">
                         {r.produto}
-                        {!r.temFicha && <span className="text-xs text-amber-500 ml-1">(sem ficha)</span>}
+                        {r.temFicha && r.ficha && r.ficha.toUpperCase() !== String(r.produto).toUpperCase() && <span className="text-xs text-gray-400 ml-1">→ {r.ficha}</span>}
+                        {!r.temFicha && <span className="text-xs text-amber-500 ml-1">{r.ignorado ? "(ignorado)" : "(sem ficha)"}</span>}
                       </td>
                       <td className="border px-3 py-2 text-right">{r.qtdVendida}</td>
                       <td className="border px-3 py-2 text-right">{fmtMoney(r.custoUnitario)}</td>
@@ -10476,16 +10437,12 @@ function InventarioCmvSection() {
   const carregar = async () => {
     setLoading(true);
     try {
-      const [rInv, rIns, rFichas, rPrep] = await Promise.all([
-        fetch(`${SYNC_ENDPOINT}?action=inventario_cmv&mes=${encodeURIComponent(mes)}&_ts=${Date.now()}`),
-        fetch(`${SYNC_ENDPOINT}?action=insumos_lista&_ts=${Date.now()}`),
-        fetch(`${SYNC_ENDPOINT}?action=fichas_lista&_ts=${Date.now()}`),
-        fetch(`${SYNC_ENDPOINT}?action=preparos_lista&_ts=${Date.now()}`),
+      const [inv, ins, fichas, preps] = await Promise.all([
+        dadosCmv.inventarioCmv(mes),
+        dadosFichas.api("insumos_lista"),
+        dadosFichas.api("fichas_lista"),
+        dadosFichas.api("preparos_lista"),
       ]);
-      const inv = await rInv.json();
-      const ins = await rIns.json();
-      const fichas = await rFichas.json().catch(() => null);
-      const preps = await rPrep.json().catch(() => null);
       setFichasInv(fichas?.ok && Array.isArray(fichas.produtos) ? fichas.produtos : []);
       setPreparosInv(preps?.ok && Array.isArray(preps.preparos) ? preps.preparos : []);
       if (!inv?.ok) throw new Error(inv?.error || "Erro ao carregar o inventário.");
@@ -10612,7 +10569,7 @@ function InventarioCmvSection() {
     setSaving(true);
     try {
       const itens = linhas.filter((l) => contado(l.key)).map((l) => ({ insumo: l.insumo, tipo: l.tipo, quantidade: String(qtds[l.key]).replace(",", ".") }));
-      const data = await adminPost("save_inventario_cmv", { mes, itens, atualizarCustos });
+      const data = await dadosCmv.salvarInventarioCmv({ mes, itens, atualizarCustos });
       if (!data?.ok) throw new Error(data?.error || "erro desconhecido");
       try { localStorage.removeItem(rascunhoKey); } catch {}
       setAtualizarCustos(false);
@@ -10829,9 +10786,7 @@ function CmvMensalSection({
   const calcular = async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ action: "cmv_mensal", mes, grupos: grupos.join("||"), so_inventariados: soInventariados ? "1" : "0", _ts: String(Date.now()) });
-      const resp = await fetch(`${SYNC_ENDPOINT}?${params.toString()}`);
-      const json = await resp.json();
+      const json = await dadosCmv.cmvMensal({ mes, grupos, soInventariados });
       if (!json?.ok) throw new Error(json?.error || "Erro ao calcular o CMV do mês.");
       setDados(json);
       setComprasManual(json.compras?.manual !== null && json.compras?.manual !== undefined ? String(json.compras.manual) : "");
@@ -10854,7 +10809,7 @@ function CmvMensalSection({
     if (salvandoCompras) return;
     setSalvandoCompras(true);
     try {
-      const data = await adminPost("save_cmv_compras_manual", { mes, valor: limpar ? "" : comprasManual.replace(",", ".") });
+      const data = await dadosCmv.salvarComprasManual({ mes, valor: limpar ? "" : comprasManual.replace(",", ".") });
       if (!data?.ok) throw new Error(data?.error || "erro desconhecido");
       await calcular();
     } catch (err: any) {
