@@ -22,6 +22,7 @@ import * as dadosCompras from "./dadosCompras";
 import ConsumoInternoTab from "./ConsumoInternoTab";
 import * as dadosCmv from "./dadosCmv";
 import * as dadosFase4 from "./dadosFase4";
+import UsuariosTab, { TrocarSenhaModal } from "./UsuariosTab";
 import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet, Menu, X, Package, TrendingUp, Tag, BarChart2, Maximize2, Minimize2 } from "lucide-react";
 import {
 Calendar as Cal,
@@ -264,7 +265,7 @@ export default function App() {
   });
 
   const [activeTab, setActiveTab] = useState<
-  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv" | "insumos" | "compras" | "markup" | "etiquetas" | "dre" | "escalaSemana" | "minhaEscala" | "meusRegistros" | "consumoSocios" | "vendas"
+  "disponibilidade" | "escalar" | "presenca" | "estoque" | "comissao" | "adiantamentos" | "caixa" | "dashboard" | "colaboradores" | "graficos" | "fichaTecnica" | "cmv" | "insumos" | "compras" | "markup" | "etiquetas" | "dre" | "escalaSemana" | "minhaEscala" | "meusRegistros" | "consumoSocios" | "vendas" | "usuarios"
   >("disponibilidade");
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
@@ -475,6 +476,7 @@ export default function App() {
   const sairAdmin = async () => {
     await supabase.auth.signOut();
   };
+  const [trocandoSenha, setTrocandoSenha] = useState(false);
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -496,7 +498,7 @@ export default function App() {
   };
 
   // Aba efetiva: se a aba ativa não tem permissão, usa a primeira permitida
-  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv","insumos","compras","markup","etiquetas","dre","escalaSemana","consumoSocios","vendas","minhaEscala","meusRegistros"];
+  const todasAbas: (typeof activeTab)[] = ["disponibilidade","escalar","presenca","estoque","comissao","adiantamentos","caixa","dashboard","colaboradores","graficos","fichaTecnica","cmv","insumos","compras","markup","etiquetas","dre","escalaSemana","consumoSocios","vendas","usuarios","minhaEscala","meusRegistros"];
   const abaEfetiva: typeof activeTab = isFullscreen ? "etiquetas" : (podeVer(activeTab) ? activeTab : isColab ? "presenca" : (todasAbas.find(t => podeVer(t)) ?? "disponibilidade"));
 
   if (isColab && !colabSessao) {
@@ -574,6 +576,12 @@ export default function App() {
           {navItem("graficos", "Gráficos", <LineChartIcon className="w-4 h-4" />, true)}
         </div>
       )}
+      {!isColab && abasPermitidas === "tudo" && (
+        <div className="sidebar-category">
+          <div className="sidebar-category-label">Configurações</div>
+          {navItem("usuarios", "Usuários e acessos", <Users className="w-4 h-4" />, true)}
+        </div>
+      )}
     </>
   );
 
@@ -599,6 +607,7 @@ export default function App() {
           ) : adminLogado ? (
             <>
               <span className="text-xs text-gray-500 hidden sm:block">Olá, {adminNome}</span>
+              <button onClick={() => setTrocandoSenha(true)} className="btn btn-ghost text-xs">Trocar senha</button>
               <button onClick={sairAdmin} className="btn btn-ghost text-xs">Sair</button>
             </>
           ) : (
@@ -619,6 +628,8 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {trocandoSenha && <TrocarSenhaModal aoFechar={() => setTrocandoSenha(false)} />}
 
       {/* Mobile menu overlay */}
       {mobileMenuOpen && !isFullscreen && (
@@ -764,6 +775,12 @@ export default function App() {
               <ColaboradoresTab />
             </Card>
           )}
+          {!isColab && abaEfetiva === "usuarios" && (
+            <Card title="Usuários e acessos" icon={<Users className="w-5 h-5" />}>
+              <UsuariosTab />
+            </Card>
+          )}
+
           {!isColab && abaEfetiva === "vendas" && (
             <Card title="Vendas (Colibri)" icon={<BarChart2 className="w-5 h-5" />}>
               <VendasTab />
