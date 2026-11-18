@@ -15,6 +15,7 @@ import {
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { supabase, carregarMeuPerfil } from "./supabase";
+import * as dadosEtq from "./dadosEtiquetas";
 import { Trash2, Share2, Copy, BarChart3, Users, Banknote, Wallet, Menu, X, Package, TrendingUp, Tag, BarChart2, Maximize2, Minimize2 } from "lucide-react";
 import {
 Calendar as Cal,
@@ -59,6 +60,7 @@ type ColaboradoresTotals = {
 
 
 interface StockItem {
+  id?: string;
   item: string;
   categoria: string;
   armazenamento: string;
@@ -4771,27 +4773,19 @@ function EtiquetasTab() {
     if (!nome) return;
     setSavingResp(true);
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method:'POST', mode:'no-cors',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ action:'save_responsavel_etiqueta', nome }),
-      });
+      await dadosEtq.salvarResponsavel(nome);
       setNovoResp('');
-      setTimeout(() => loadAll(), 1500);
-    } catch { avisar('Erro ao adicionar.'); }
+      await loadAll();
+    } catch (e: any) { avisar(`Erro ao adicionar. ${e?.message || ''}`); }
     finally { setSavingResp(false); }
   };
 
   const handleDeleteResp = async (nome: string) => {
     setDeletingResp(nome);
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method:'POST', mode:'no-cors',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ action:'delete_responsavel_etiqueta', nome }),
-      });
-      setTimeout(() => loadAll(), 1500);
-    } catch { avisar('Erro ao remover.'); }
+      await dadosEtq.excluirResponsavel(nome);
+      await loadAll();
+    } catch (e: any) { avisar(`Erro ao remover. ${e?.message || ''}`); }
     finally { setDeletingResp(null); }
   };
 
@@ -4808,25 +4802,17 @@ function EtiquetasTab() {
   const [fornecedorSel, setFornecedorSel] = useState('');
 
   const loadAll = async () => {
-    if (!SYNC_ENDPOINT) return;
     setLoading(true);
     try {
-      const [ri, rc, re, rs] = await Promise.all([
-        fetch(`${SYNC_ENDPOINT}?action=insumos_etiqueta&_ts=${Date.now()}`).then(r=>r.json()),
-        fetch(`${SYNC_ENDPOINT}?action=categorias_validade&_ts=${Date.now()}`).then(r=>r.json()),
-        fetch(`${SYNC_ENDPOINT}?action=empresa_config&_ts=${Date.now()}`).then(r=>r.json()),
-        fetch(`${SYNC_ENDPOINT}?action=responsaveis_etiqueta&_ts=${Date.now()}`).then(r=>r.json()),
-      ]);
-      if (ri.ok) setInsumos(ri.insumos || []);
-      if (rc.ok) setCategorias(rc.categorias || []);
-      if (rs.ok) setStaff(rs.nomes || []);
-      if (re.ok) {
-        setEmpresa(re);
-        setEmpNome(re.nome || '');
-        setEmpCnpj(re.cnpj || '');
-        setEmpEnd(re.endereco || '');
-      }
-    } catch {}
+      const d = await dadosEtq.carregarCadastrosEtiqueta();
+      setInsumos(d.insumos);
+      setCategorias(d.categorias);
+      setStaff(d.responsaveis);
+      setEmpresa(d.empresa);
+      setEmpNome(d.empresa.nome);
+      setEmpCnpj(d.empresa.cnpj);
+      setEmpEnd(d.empresa.endereco);
+    } catch (e: any) { avisar(`Erro ao carregar os cadastros. ${e?.message || ''}`); }
     finally { setLoading(false); }
   };
 
@@ -4872,35 +4858,27 @@ function EtiquetasTab() {
   }, [estoqueItens]); // re-registra quando estoqueItens mudar para ter lista atualizada
 
   const loadEstoque = async () => {
-    if (!SYNC_ENDPOINT) return;
     setLoadingEstoque(true);
     try {
-      const r = await fetch(`${SYNC_ENDPOINT}?action=listar_estoque&_ts=${Date.now()}`).then(r => r.json());
-      if (r.ok) setEstoqueItens(r.itens || []);
-    } catch {}
+      setEstoqueItens(await dadosEtq.listarEstoqueAtivo());
+    } catch (e: any) { avisar(`Erro ao carregar o estoque. ${e?.message || ''}`); }
     finally { setLoadingEstoque(false); }
   };
 
   const loadHistorico = async () => {
-    if (!SYNC_ENDPOINT) return;
     setLoadingHistorico(true);
     try {
-      const r = await fetch(`${SYNC_ENDPOINT}?action=listar_historico&_ts=${Date.now()}`).then(r => r.json());
-      if (r.ok) setHistoricoItens(r.itens || []);
-    } catch {}
+      setHistoricoItens(await dadosEtq.listarHistorico());
+    } catch (e: any) { avisar(`Erro ao carregar o histórico. ${e?.message || ''}`); }
     finally { setLoadingHistorico(false); }
   };
 
   const handleRestaurar = async (id: string) => {
     setRestaurandoId(id);
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method: 'POST', mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'restaurar_lote', id }),
-      });
-      setTimeout(() => { loadHistorico(); loadEstoque(); }, 1500);
-    } catch { avisar('Erro ao restaurar.'); }
+      await dadosEtq.restaurarLote(id);
+      await Promise.all([loadHistorico(), loadEstoque()]);
+    } catch (e: any) { avisar(`Erro ao restaurar. ${e?.message || ''}`); }
     finally { setRestaurandoId(null); }
   };
 
@@ -4908,13 +4886,11 @@ function EtiquetasTab() {
     setBaixandoId(id);
     setConfirmandoId(null);
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method: 'POST', mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'dar_baixa', id }),
-      });
-      setTimeout(() => { loadEstoque(); loadHistorico(); }, 1500);
-    } catch { setErroForm('Erro ao dar baixa. Verifique a conexão.'); }
+      await dadosEtq.darBaixaLote(id);
+      // tira da lista na hora (sem recarregar tudo e sem mexer na rolagem)
+      setEstoqueItens(prev => prev.filter(i => i.id !== id));
+      loadHistorico();
+    } catch (e: any) { avisar(`Erro ao dar baixa. ${e?.message || 'Verifique a conexão.'}`); }
     finally { setBaixandoId(null); }
   };
 
@@ -4932,13 +4908,11 @@ function EtiquetasTab() {
     }
     setScanBaixando(true);
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method: 'POST', mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'dar_baixa', id: item.id }),
-      });
+      await dadosEtq.darBaixaLote(item.id);
+      setEstoqueItens(prev => prev.filter(i => i.id !== item.id));
       setScanStatus({ ok: true, msg: `✅ Baixa dada: ${item.insumo} (${item.id})` });
-      setTimeout(() => { loadEstoque(); loadHistorico(); setScanStatus(null); }, 1500);
+      loadHistorico();
+      setTimeout(() => setScanStatus(null), 1500);
     } catch {
       setScanStatus({ ok: false, msg: 'Erro ao dar baixa. Verifique a conexão.' });
       setTimeout(() => setScanStatus(null), 3000);
@@ -5111,6 +5085,18 @@ function EtiquetasTab() {
       </body></html>`;
   };
 
+  // dados do lote a partir do formulário (usados no registro da etiqueta)
+  const dadosDoLote = (): dadosEtq.DadosLote => ({
+    insumoNome: insumoSel,
+    conservacao,
+    validade: validadeDT ? validadeDT.toISOString() : null,
+    manipulacao: dadosEtq.manipParaISO(manipData, manipHora),
+    responsavel,
+    porcoes: porcoes ? String(porcoes) : '',
+    peso: peso ? String(peso) : '',
+    fornecedor: fornecedorSel || insumoAtual?.marca_fornecedor || '',
+  });
+
   // ── Impressão ──
   const handlePrint = async () => {
     if (!insumoSel) { setErroForm('Selecione um insumo antes de imprimir.'); return; }
@@ -5120,18 +5106,17 @@ function EtiquetasTab() {
     setErroForm('');
     setIsPrinting(true); // ativa imediatamente, antes de qualquer fetch
 
-    // Busca código(s) sequencial(is) do backend.
-    // Fallback offline: usa timestamp como base para garantir unicidade, não random
-    const fallback = (n: number) => { const base = Date.now(); return Array.from({length: n}, (_, i) => `ETQ-F${base + i}`); };
+    // Códigos sequenciais do banco (sem repetir, mesmo com dois tablets ao mesmo tempo).
+    // Sem conexão não imprime: a etiqueta precisa ficar registrada no estoque.
     let loteCodes: string[] = [];
     try {
-      // Sempre usa next_lote_ids — funciona para 1 ou N códigos
       const qtdCodigos = modoImpressao === 'lotes_separados' ? qtdEtiquetas : 1;
-      const r = await fetch(`${SYNC_ENDPOINT}?action=next_lote_ids&count=${qtdCodigos}&_ts=${Date.now()}`);
-      const d = await r.json();
-      loteCodes = (d?.ok && d?.codigos) ? d.codigos : fallback(qtdCodigos);
-    } catch {
-      loteCodes = fallback(modoImpressao === 'lotes_separados' ? qtdEtiquetas : 1);
+      loteCodes = await dadosEtq.proximosCodigos(qtdCodigos);
+      if (!loteCodes.length) throw new Error('nenhum código recebido');
+    } catch (e: any) {
+      setErroForm(`Não foi possível gerar o código da etiqueta. Verifique a internet. ${e?.message || ''}`);
+      setIsPrinting(false);
+      return;
     }
 
     const buildHTMLLabel = (code: string): string => montarEtiquetaHTML({
@@ -5172,54 +5157,20 @@ function EtiquetasTab() {
         }));
         await qz.print(config, printItems);
 
-        // Registra todos de uma vez (batch) — evita concorrência no GAS
-        if (SYNC_ENDPOINT) {
-          fetch(SYNC_ENDPOINT, {
-            method: 'POST', mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'registrar_lotes_batch',
-              codigos: loteCodes,
-              insumo: insumoSel,
-              fornecedor: fornecedorSel || insumoAtual?.marca_fornecedor || '',
-              conservacao,
-              validade_dt: validadeDT ? validadeDT.toISOString() : '',
-              manip_dt: `${manipData}T${manipHora}`,
-              responsavel,
-              porcoes,
-              peso,
-            }),
-          }).catch(() => {});
-        }
+        // Registra todos os lotes no estoque (um código por etiqueta)
+        await dadosEtq.registrarLotes(loteCodes, dadosDoLote(), 1);
       } else {
         // ── Mesmo lote: N cópias com o mesmo código ──
         const loteCode = loteCodes[0];
         const labelItem = { type: 'pixel', format: 'html', flavor: 'plain', data: buildHTMLLabel(loteCode) };
         await qz.print(config, Array.from({ length: qtdEtiquetas }, () => labelItem));
 
-        if (SYNC_ENDPOINT) {
-          fetch(SYNC_ENDPOINT, {
-            method: 'POST', mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'registrar_lote',
-              id: loteCode,
-              insumo: insumoSel,
-              fornecedor: fornecedorSel || insumoAtual?.marca_fornecedor || '',
-              conservacao,
-              validade_dt: validadeDT ? validadeDT.toISOString() : '',
-              manip_dt: `${manipData}T${manipHora}`,
-              responsavel,
-              porcoes,
-              peso,
-              qtd: qtdEtiquetas,
-            }),
-          }).catch(() => {});
-        }
+        // Registra o lote no estoque (N cópias com o mesmo código)
+        await dadosEtq.registrarLotes([loteCode], dadosDoLote(), qtdEtiquetas);
       }
 
-      // Aguarda o GAS gravar e recarrega o estoque automaticamente
-      setTimeout(() => loadEstoque(), 3000);
+      // atualiza o estoque com o que acabou de ser impresso
+      loadEstoque();
 
     } catch (err: any) {
       setErroForm(`Erro ao imprimir: ${String(err)}`);
@@ -5274,14 +5225,7 @@ function EtiquetasTab() {
       });
       const label = { type: 'pixel', format: 'html', flavor: 'plain', data: html };
       await qz.print(config, Array.from({ length: qtd }, () => label));
-      if (SYNC_ENDPOINT) {
-        fetch(SYNC_ENDPOINT, {
-          method: 'POST', mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'registrar_reimpressao', id: item.id, qtd }),
-        }).catch(() => {});
-        setTimeout(() => loadEstoque(), 3000);
-      }
+      dadosEtq.registrarReimpressao(item.id, qtd).then(() => loadEstoque()).catch(() => {});
     } catch (err: any) {
       avisar(`Erro ao reimprimir: ${String(err)}`);
     } finally {
@@ -5313,10 +5257,9 @@ function EtiquetasTab() {
     const atualizado = { ...editEtq, peso: editPeso.trim(), porcoes: editPorcoes.trim(), responsavel: editResp.trim(), fornecedor: editForn.trim() };
     setSalvandoEtq(true);
     try {
-      const data = await adminPost('update_lote', {
-        id: editEtq.id, peso: atualizado.peso, porcoes: atualizado.porcoes, responsavel: atualizado.responsavel, fornecedor: atualizado.fornecedor,
+      await dadosEtq.atualizarLote(editEtq.id, {
+        peso: atualizado.peso, porcoes: atualizado.porcoes, responsavel: atualizado.responsavel, fornecedor: atualizado.fornecedor,
       });
-      if (!data?.ok) throw new Error(data?.error || 'erro desconhecido');
       // atualiza a lista na hora, sem esperar recarregar
       setEstoqueItens(prev => prev.map(i => (i.id === editEtq.id ? { ...i, ...atualizado } : i)));
       setEditEtq(null);
@@ -5332,14 +5275,10 @@ function EtiquetasTab() {
   const handleSaveEmpresa = async () => {
     setSavingEmp(true);
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method:'POST', mode:'no-cors',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ action:'save_empresa_config', nome:empNome, cnpj:empCnpj, endereco:empEnd }),
-      });
+      await dadosEtq.salvarEmpresa(empNome, empCnpj, empEnd);
       setEmpresa({ nome:empNome, cnpj:empCnpj, endereco:empEnd });
       avisar('Configuração salva!');
-    } catch { avisar('Erro ao salvar.'); }
+    } catch (e: any) { avisar(`Erro ao salvar. ${e?.message || ''}`); }
     finally { setSavingEmp(false); }
   };
 
@@ -5348,32 +5287,28 @@ function EtiquetasTab() {
     if (!catNome.trim()) { avisar('Informe o nome da categoria.'); return; }
     setSavingCat(true);
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method:'POST', mode:'no-cors',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ action:'save_categoria', nome:catNome, prazo_resfriado_dias:catRef, prazo_congelado_dias:catCong, referencia:catAnvisa }),
-      });
+      await dadosEtq.salvarCategoria({ nome: catNome, prazo_resfriado_dias: catRef, prazo_congelado_dias: catCong, referencia: catAnvisa });
       setCatNome(''); setCatRef(3); setCatCong(30); setCatAnvisa('');
-      setTimeout(() => loadAll(), 2000);
-    } catch { avisar('Erro ao salvar.'); }
+      await loadAll();
+    } catch (e: any) { avisar(`Erro ao salvar. ${e?.message || ''}`); }
     finally { setSavingCat(false); }
   };
 
   const handleDeleteCat = async (id: string) => {
     if (!(await confirmar('Excluir esta categoria?'))) return;
-    await fetch(SYNC_ENDPOINT, { method:'POST', mode:'no-cors', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'delete_categoria', id }) });
-    setTimeout(() => loadAll(), 2000);
+    try {
+      await dadosEtq.excluirCategoria(id);
+      await loadAll();
+    } catch (e: any) { avisar(`Erro ao excluir. ${e?.message || ''}`); }
   };
 
   const handleSaveEditCat = async () => {
     if (!editingCatId) return;
-    await fetch(SYNC_ENDPOINT, {
-      method:'POST', mode:'no-cors',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ action:'update_categoria', id:editingCatId, nome:editCatNome, prazo_resfriado_dias:editCatRef, prazo_congelado_dias:editCatCong, referencia:editCatAnvisa }),
-    });
-    setEditingCatId(null);
-    setTimeout(() => loadAll(), 2000);
+    try {
+      await dadosEtq.atualizarCategoria(editingCatId, { nome: editCatNome, prazo_resfriado_dias: editCatRef, prazo_congelado_dias: editCatCong, referencia: editCatAnvisa });
+      setEditingCatId(null);
+      await loadAll();
+    } catch (e: any) { avisar(`Erro ao salvar. ${e?.message || ''}`); }
   };
 
   // ── salvar insumo etiqueta ──
@@ -5386,22 +5321,20 @@ function EtiquetasTab() {
       ...(novoFornecedor.trim() ? [novoFornecedor.trim()] : []),
     ];
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method:'POST', mode:'no-cors',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          action:'update_insumo_etiqueta',
-          nome: editingInsumo,
-          categoria_validade: editInsCat,
-          fornecedores: allFns.join('|'),
-          sif: editInsSif,
-          setor: editInsSetor,
-        }),
+      const ins = insumos.find((i: any) => i.nome === editingInsumo);
+      if (!ins) throw new Error('insumo não encontrado');
+      const cat = categorias.find((c: any) => c.nome === editInsCat);
+      await dadosEtq.atualizarInsumoEtiqueta({
+        insumoId: ins.id,
+        categoriaValidadeId: cat ? cat.id : null,
+        sif: editInsSif,
+        setor: editInsSetor,
+        fornecedores: allFns,
       });
       setEditingInsumo(null);
       setNovoFornecedor('');
-      setTimeout(() => loadAll(), 2000);
-    } catch { setErroForm('Erro ao salvar insumo.'); }
+      await loadAll();
+    } catch (e: any) { avisar(`Erro ao salvar insumo. ${e?.message || ''}`); }
     finally { setSavingIns(false); }
   };
 
@@ -7919,6 +7852,85 @@ function AdiantamentosTab() {
 }
 
 // ======== ABA COMPRAS DE ESTOQUE ========
+// ======== LISTA DE COMPRAS: PDF ========
+async function gerarPdfListaCompras(p: {
+  data: string; // DD/MM/YYYY
+  setor: string;
+  pctAmarelo: number;
+  pctVerde: number;
+  extras: string[];
+  itens: (StockItem & { atual: number })[];
+}) {
+  await carregarLibsPdf();
+  const jsPDF = (window as any).jspdf?.jsPDF;
+  if (!jsPDF) throw new Error("Biblioteca de PDF não carregou.");
+  const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "landscape" });
+  const qtd = (n: number | null) => (n === null || n === undefined || isNaN(Number(n)) ? "" : Number(n).toLocaleString("pt-BR", { maximumFractionDigits: 3 }));
+
+  // mesma regra de cor e ordem do sistema antigo: vermelho > amarelo > verde > sem cor
+  const cor = (atual: number, min: number | null): [number, number, number] | null => {
+    if (min === null || !(min > 0)) return null;
+    if (atual < min * (1 + p.pctAmarelo / 100)) return [255, 153, 153];
+    if (atual < min * (1 + p.pctVerde / 100)) return [255, 224, 102];
+    return [147, 239, 171];
+  };
+  const ordemCor = (c: [number, number, number] | null) => (!c ? 3 : c[1] === 153 ? 0 : c[1] === 224 ? 1 : 2);
+  const linhas = p.itens
+    .map((it) => {
+      const c = cor(it.atual, it.estoqueMin);
+      const comprarMin = it.estoqueMin !== null ? Math.max(0, it.estoqueMin - it.atual) : null;
+      const comprarMax = it.estoqueMax !== null ? Math.max(0, it.estoqueMax - it.atual) : null;
+      return { it, c, comprarMin, comprarMax };
+    })
+    .sort((a, b) => ordemCor(a.c) - ordemCor(b.c));
+
+  doc.setFont("helvetica", "bold"); doc.setFontSize(14);
+  doc.text(pdfTxt(`Lista de compras - ${p.data} - Setor: ${p.setor}`), 12, 14);
+  (doc as any).autoTable({
+    startY: 19,
+    head: [["Item", "Categoria", "Armazenamento", "Mín.", "Máx.", "Atual", "Comprar mín.", "Comprar máx.", "Onde comprar", "Observação", "Comprado?"].map(pdfTxt)],
+    body: linhas.map((l) => [l.it.item, l.it.categoria, l.it.armazenamento, qtd(l.it.estoqueMin), qtd(l.it.estoqueMax), qtd(l.it.atual), qtd(l.comprarMin), qtd(l.comprarMax), l.it.ondeComprar, l.it.observacao, "[  ]"].map(pdfTxt)),
+    theme: "grid",
+    styles: { fontSize: 8, cellPadding: 1.4, valign: "top" },
+    headStyles: { fillColor: [60, 60, 60] },
+    columnStyles: { 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" }, 10: { halign: "center" } },
+    margin: { left: 12, right: 12 },
+    didParseCell: (h: any) => {
+      if (h.section === "body" && h.column.index === 5) {
+        const c = linhas[h.row.index]?.c;
+        if (c) h.cell.styles.fillColor = c;
+      }
+    },
+  });
+  let y = (doc as any).lastAutoTable.finalY + 6;
+  if (p.extras.length) {
+    (doc as any).autoTable({
+      startY: y,
+      head: [["Itens extras", "Comprado?"]],
+      body: p.extras.map((t) => [pdfTxt(t), "[  ]"]),
+      theme: "grid", styles: { fontSize: 8, cellPadding: 1.4 }, headStyles: { fillColor: [60, 60, 60] },
+      columnStyles: { 1: { halign: "center", cellWidth: 25 } }, margin: { left: 12, right: 12 },
+    });
+    y = (doc as any).lastAutoTable.finalY + 6;
+  }
+  if (y > 195) { doc.addPage(); y = 14; }
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(90);
+  doc.text(pdfTxt(`Vermelho = abaixo de +${p.pctAmarelo}% do mínimo  |  Amarelo = +${p.pctAmarelo}% a +${p.pctVerde}% do mínimo  |  Verde = acima de +${p.pctVerde}% do mínimo`), 12, y);
+
+  const nome = `Lista de compras - ${p.data.replace(/\//g, "-")} - ${p.setor}.pdf`.replace(/[\\:]/g, "-");
+  const arquivo = new File([doc.output("blob") as Blob], nome, { type: "application/pdf" });
+  const nav: any = navigator;
+  if (nav.canShare && nav.canShare({ files: [arquivo] })) {
+    try {
+      await nav.share({ files: [arquivo], title: nome });
+      return;
+    } catch (e: any) {
+      if (e?.name === "AbortError") return;
+    }
+  }
+  doc.save(nome);
+}
+
 function StockTab() {
   const [items, setItems] = useState<StockItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -7940,54 +7952,33 @@ function StockTab() {
   }, []);
 
   async function loadStock() {
-    if (!SYNC_ENDPOINT) return;
     setLoading(true);
     try {
-      const url = `${SYNC_ENDPOINT}?action=stock`;
-      const resp = await fetch(url);
-      const data = await resp.json();
-
-      if (data?.ok && Array.isArray(data.items)) {
-        // Aqui eu assumo que o Apps Script já está devolvendo "setor"
-        // Se ainda não estiver, você vai precisar ajustar o Apps Script (ver seção 3)
-        setItems(data.items as StockItem[]);
-      } else {
-        console.error("Resposta inválida em /stock", data);
-      }
-    } catch (err) {
-      console.error("Falha ao carregar estoque:", err);
+      setItems(await dadosEtq.carregarItensEstoque());
+    } catch (err: any) {
+      alert(`Falha ao carregar os itens. ${err?.message || ""}`);
     } finally {
       setLoading(false);
     }
   }
 
   async function loadEstoqueConfig() {
-    if (!SYNC_ENDPOINT) return;
     try {
-      const resp = await fetch(`${SYNC_ENDPOINT}?action=estoque_config`);
-      const data = await resp.json();
-      if (data?.ok) {
-        setPctAmarelo(Number(data.pct_amarelo) || 30);
-        setPctVerde(Number(data.pct_verde) || 50);
-      }
+      const c = await dadosEtq.carregarConfigEstoque();
+      setPctAmarelo(c.pctAmarelo || 30);
+      setPctVerde(c.pctVerde || 50);
     } catch (err) {
       console.error("Falha ao carregar config de estoque:", err);
     }
   }
 
   async function saveEstoqueConfig() {
-    if (!SYNC_ENDPOINT) return;
     setSavingConfig(true);
     try {
-      await fetch(SYNC_ENDPOINT, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ action: "save_estoque_config", pct_amarelo: pctAmarelo, pct_verde: pctVerde }),
-      });
+      await dadosEtq.salvarConfigEstoque(pctAmarelo, pctVerde);
       alert("Configuração salva.");
-    } catch (err) {
-      alert("Não foi possível salvar a configuração.");
+    } catch (err: any) {
+      alert(`Não foi possível salvar a configuração. ${err?.message || ""}`);
     } finally {
       setSavingConfig(false);
     }
@@ -8050,11 +8041,6 @@ function StockTab() {
   const handleCreateList = async () => {
     if (creatingList) return;
 
-    if (!SYNC_ENDPOINT) {
-      alert("Nenhum endpoint de sincronização configurado.");
-      return;
-    }
-
     if (!selectedSector) {
       alert("Selecione o setor antes de criar a lista de compras.");
       return;
@@ -8065,50 +8051,42 @@ function StockTab() {
       return;
     }
 
-    const dateStr =
-      formatDateForPayload(dateRaw) || formatDateForPayload(new Date());
-
-    const entries = filteredItems.map((it) => ({
-      item: it.item,
-      estoqueAtual: quantities[it.item] ?? "",
-    }));
-
-    const payload = {
-      action: "estoque_lista",
-      date: dateStr,
-      setor: selectedSector,
-      entries,
-      extras: extraItems.map((s) => String(s || "").trim()).filter(Boolean),
-      pct_amarelo: pctAmarelo,
-      pct_verde: pctVerde,
+    const dataIso = dateRaw || new Date().toISOString().slice(0, 10);
+    const dateStr = formatDateForPayload(dataIso);
+    const extras = extraItems.map((s) => String(s || "").trim()).filter(Boolean);
+    const num = (v: string | undefined) => {
+      const n = parseFloat(String(v ?? "").replace(",", "."));
+      return isNaN(n) || n < 0 ? 0 : n;
     };
 
     setCreatingList(true);
     try {
-      const resp = await fetch(SYNC_ENDPOINT, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(payload),
+      // 1) guarda a contagem no banco (histórico)
+      await dadosEtq.salvarContagem({
+        data: dataIso,
+        setor: selectedSector,
+        pctAmarelo,
+        pctVerde,
+        extras,
+        itens: filteredItems.map((it) => ({
+          id: it.id || "",
+          nome: it.item,
+          atual: num(quantities[it.item]),
+          min: it.estoqueMin,
+          max: it.estoqueMax,
+        })),
       });
-      // @ts-ignore
-      if ((resp as any)?.type === "opaque" || (resp as any)?.status === 0) {
-        alert("Lista de compras gerada e enviada por e-mail.");
-        return;
-      }
-      if (!resp.ok) {
-        const txt = await resp.text().catch(() => "");
-        alert(
-          `Falha ao gerar lista de compras (HTTP ${resp.status}). ${txt.slice(
-            0,
-            180
-          )}`
-        );
-        return;
-      }
-      alert("Lista de compras gerada e enviada por e-mail.");
+      // 2) gera o PDF (celular: compartilhar; computador: baixar)
+      await gerarPdfListaCompras({
+        data: dateStr,
+        setor: selectedSector,
+        pctAmarelo,
+        pctVerde,
+        extras,
+        itens: filteredItems.map((it) => ({ ...it, atual: num(quantities[it.item]) })),
+      });
     } catch (err: any) {
-      alert(`Não foi possível gerar a lista de compras. Erro: ${String(err)}`);
+      alert(`Não foi possível gerar a lista de compras. ${err?.message || String(err)}`);
     } finally {
       setCreatingList(false);
     }
@@ -8120,8 +8098,8 @@ function StockTab() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
         <div className="sm:col-span-2 text-sm text-gray-600">
           Preencha o estoque atual dos itens do setor selecionado. Ao clicar em{" "}
-          <b>"Criar lista de compras"</b>, o sistema gera uma planilha em{" "}
-          <b>"Registros de Estoque"</b> e envia um PDF por e-mail com todos os itens
+          <b>"Criar lista de compras"</b>, a contagem fica guardada no sistema e é gerado um
+          PDF (no celular abre o compartilhar; no computador é baixado) com todos os itens
           coloridos por nível de urgência:{" "}
           <span style={{color:"#c0392b"}}>■ Vermelho</span> = crítico,{" "}
           <span style={{color:"#b8860b"}}>■ Amarelo</span> = atenção,{" "}
