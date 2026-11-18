@@ -18,29 +18,38 @@ function falha(e: any, onde: string): never {
   throw new Error(`${onde}: ${e?.message || e}`);
 }
 
+/** Busca todas as linhas de uma consulta, de 1000 em 1000 (o Supabase devolve no máximo 1000 por vez) */
+export async function todas(consulta: () => any, onde: string): Promise<any[]> {
+  const out: any[] = [];
+  for (let de = 0; ; de += 1000) {
+    const r = await consulta().range(de, de + 999);
+    if (r.error) falha(r.error, onde);
+    out.push(...(r.data || []));
+    if ((r.data || []).length < 1000) return out;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Leitura
 // ---------------------------------------------------------------------------
-type InsumoDb = { id: string; nome: string; unidade: string; custo_por_unidade: number; tipo: Tipo };
+export type InsumoDb = { id: string; nome: string; unidade: string; custo_por_unidade: number; tipo: Tipo };
 type PreparoDb = { id: string; nome: string; rendimento: number; unidade: string };
-type ItemDb = { id: string; insumo_id: string | null; ref_preparo: string | null; quantidade: number; desperdicio: number; ordem: number };
+export type ItemDb = { id: string; insumo_id: string | null; ref_preparo: string | null; quantidade: number; desperdicio: number; ordem: number };
 
 async function lerInsumos(): Promise<InsumoDb[]> {
-  const r = await supabase.from("insumos").select("id, nome, unidade, custo_por_unidade, tipo").eq("ativo", true).order("nome");
-  if (r.error) falha(r.error, "insumos");
-  return (r.data || []).map((x: any) => ({ ...x, custo_por_unidade: Number(x.custo_por_unidade) || 0 }));
+  const r = await todas(() => supabase.from("insumos").select("id, nome, unidade, custo_por_unidade, tipo").eq("ativo", true).order("nome").order("id"), "insumos");
+  return r.map((x: any) => ({ ...x, custo_por_unidade: Number(x.custo_por_unidade) || 0 }));
 }
 
 async function lerPreparos() {
   const [p, it] = await Promise.all([
     supabase.from("preparos").select("id, nome, rendimento, unidade").eq("ativo", true),
-    supabase.from("preparo_itens").select("id, preparo_id, insumo_id, sub_preparo_id, quantidade, desperdicio, ordem").order("ordem"),
+    todas(() => supabase.from("preparo_itens").select("id, preparo_id, insumo_id, sub_preparo_id, quantidade, desperdicio, ordem").order("ordem").order("id"), "itens dos preparos"),
   ]);
   if (p.error) falha(p.error, "preparos");
-  if (it.error) falha(it.error, "itens dos preparos");
   const preparos: PreparoDb[] = (p.data || []).map((x: any) => ({ ...x, rendimento: Number(x.rendimento) || 0 }));
   const itens: Record<string, ItemDb[]> = {};
-  (it.data || []).forEach((x: any) => {
+  it.forEach((x: any) => {
     (itens[x.preparo_id] ||= []).push({ id: x.id, insumo_id: x.insumo_id, ref_preparo: x.sub_preparo_id, quantidade: Number(x.quantidade) || 0, desperdicio: Number(x.desperdicio) || 0, ordem: x.ordem });
   });
   return { preparos, itens };
@@ -95,6 +104,47 @@ function calcularPreparos(insumos: InsumoDb[], preparos: PreparoDb[], itens: Rec
   };
 }
 
+export type Custeio = {
+  insumos: Record<string, InsumoDb & { ativo: boolean }>;
+  preparos: Record<string, { id: string; nome: string; unidade: string; rendimento: number; custoPorUnidade: number; itens: ItemDb[] }>;
+  produtos: Record<string, {
+    id: string; nome: string; precoVenda: number; custoTotal: number;
+    itens: { insumo_id: string | null; preparo_id: string | null; quantidade: number; desperdicio: number }[];
+  }>;
+};
+
+/** Tudo o que o CMV precisa para custear: insumos (inclusive desativados), preparos e fichas por produto (pelo id) */
+export async function carregarCusteio(): Promise<Custeio> {
+  const [ir, pr, prods, fi] = await Promise.all([
+    todas(() => supabase.from("insumos").select("id, nome, unidade, custo_por_unidade, tipo, ativo").order("id"), "insumos"),
+    lerPreparos(),
+    supabase.from("produtos").select("id, nome, preco_venda"),
+    todas(() => supabase.from("ficha_itens").select("produto_id, insumo_id, preparo_id, quantidade, desperdicio").order("ordem").order("id"), "fichas"),
+  ]);
+  if (prods.error) falha(prods.error, "produtos");
+  const lista = ir.map((x: any) => ({ ...x, custo_por_unidade: Number(x.custo_por_unidade) || 0 }));
+  const insumos: Custeio["insumos"] = {};
+  lista.forEach((i: any) => { insumos[i.id] = i; });
+  const calc = calcularPreparos(lista, pr.preparos, pr.itens).porId;
+  const preparos: Custeio["preparos"] = {};
+  pr.preparos.forEach((p) => {
+    preparos[p.id] = { id: p.id, nome: p.nome, unidade: p.unidade, rendimento: p.rendimento, custoPorUnidade: calc[p.id]?.custoPorUnidade || 0, itens: pr.itens[p.id] || [] };
+  });
+  const produtos: Custeio["produtos"] = {};
+  (prods.data || []).forEach((p: any) => {
+    produtos[p.id] = { id: p.id, nome: p.nome, precoVenda: Number(p.preco_venda) || 0, custoTotal: 0, itens: [] };
+  });
+  fi.forEach((x: any) => {
+    const p = produtos[x.produto_id];
+    if (!p) return;
+    const it = { insumo_id: x.insumo_id, preparo_id: x.preparo_id, quantidade: Number(x.quantidade) || 0, desperdicio: Number(x.desperdicio) || 0 };
+    p.itens.push(it);
+    const custoUn = it.preparo_id ? preparos[it.preparo_id]?.custoPorUnidade || 0 : insumos[it.insumo_id || ""]?.custo_por_unidade || 0;
+    p.custoTotal += it.quantidade * custoUn * fator(it.desperdicio);
+  });
+  return { insumos, preparos, produtos };
+}
+
 async function listaInsumos() {
   const ins = await lerInsumos();
   return { ok: true, insumos: ins.map((i) => ({ insumo: i.nome, unidade: i.unidade, custoPorUnidade: i.custo_por_unidade, tipo: i.tipo })) };
@@ -110,14 +160,13 @@ async function listaFichas() {
     lerInsumos(),
     lerPreparos(),
     supabase.from("produtos").select("id, nome, preco_venda, categorias_produto(nome)").eq("ativo", true),
-    supabase.from("ficha_itens").select("produto_id, insumo_id, preparo_id, quantidade, desperdicio, ordem").order("ordem"),
+    todas(() => supabase.from("ficha_itens").select("produto_id, insumo_id, preparo_id, quantidade, desperdicio, ordem").order("ordem").order("id"), "fichas"),
   ]);
   if (prods.error) falha(prods.error, "produtos");
-  if (fi.error) falha(fi.error, "fichas");
   const insPorId: Record<string, InsumoDb> = {};
   ins.forEach((i) => { insPorId[i.id] = i; });
   // insumos desativados ainda aparecem na ficha que os usa
-  const faltam = Array.from(new Set((fi.data || []).map((x: any) => x.insumo_id).filter((id: any) => id && !insPorId[id])));
+  const faltam = Array.from(new Set(fi.map((x: any) => x.insumo_id).filter((id: any) => id && !insPorId[id])));
   if (faltam.length) {
     const r = await supabase.from("insumos").select("id, nome, unidade, custo_por_unidade, tipo").in("id", faltam);
     (r.data || []).forEach((x: any) => { insPorId[x.id] = { ...x, custo_por_unidade: Number(x.custo_por_unidade) || 0 }; });
@@ -125,7 +174,7 @@ async function listaFichas() {
   const preps = calcularPreparos(ins, pr.preparos, pr.itens).porId;
 
   const itensPorProduto: Record<string, any[]> = {};
-  (fi.data || []).forEach((x: any) => {
+  fi.forEach((x: any) => {
     const qtd = Number(x.quantidade) || 0;
     const d = Number(x.desperdicio) || 0;
     let nome = "?", unidade = "", custoUn = 0, categoria = "insumo";
